@@ -1,0 +1,29 @@
+[Unit]
+Description=FengQiGame production backup to private OSS
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+ConditionPathExists=/opt/fengqigame/.env
+ConditionPathExists=/etc/fengqigame/backup.env
+ConditionPathExists=/etc/fengqigame/ossutilconfig
+ConditionPathExists=/etc/msmtprc
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/fengqigame
+EnvironmentFile=/etc/fengqigame/backup.env
+Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
+ExecStart=/usr/bin/pwsh -NoLogo -NoProfile -NonInteractive -File /opt/fengqigame/运维/备份到OSS.ps1 -RetentionDays 14
+UMask=0077
+TimeoutStartSec=2h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/fengqigame/backups /var/run/docker.sock
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

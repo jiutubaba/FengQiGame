@@ -1,4 +1,7 @@
-param([int]$RetentionDays = 14)
+param(
+  [int]$RetentionDays = 14,
+  [switch]$PassThru
+)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -84,3 +87,4 @@ Get-ChildItem -LiteralPath $backupDir -Filter 'fengqi-uploads-*.tar.gz' -File |
   Where-Object LastWriteTime -lt (Get-Date).AddDays(-$RetentionDays) |
   Remove-Item -Force
 Write-Host "上传文件快照完成：$targetPath" -ForegroundColor Green
+if ($PassThru) { Get-Item -LiteralPath $targetPath }

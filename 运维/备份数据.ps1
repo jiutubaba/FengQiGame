@@ -1,4 +1,7 @@
-param([int]$RetentionDays = 14)
+param(
+  [int]$RetentionDays = 14,
+  [switch]$PassThru
+)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $envPath = Join-Path $root '.env'
@@ -58,3 +61,4 @@ Get-ChildItem -LiteralPath $backupDir -Filter 'fengqi-*.dump' -File |
   Where-Object LastWriteTime -lt (Get-Date).AddDays(-$RetentionDays) |
   Remove-Item -Force
 Write-Host "备份完成：$targetPath" -ForegroundColor Green
+if ($PassThru) { Get-Item -LiteralPath $targetPath }

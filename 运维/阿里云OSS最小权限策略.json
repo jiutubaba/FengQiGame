@@ -1,0 +1,20 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "oss:ListObjects",
+      "Resource": "acs:oss:*:*:fengqigame-prod-backups-cn-wuhan-20260715",
+      "Condition": {
+        "StringLike": {
+          "oss:Prefix": ["prod", "prod/*"]
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["oss:PutObject", "oss:GetObject"],
+      "Resource": "acs:oss:*:*:fengqigame-prod-backups-cn-wuhan-20260715/prod/*"
+    }
+  ]
+}

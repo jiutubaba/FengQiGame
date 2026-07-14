@@ -23,4 +23,5 @@
 
 - 代码合约变化后先刷新自动事实，再更新稳定系统文档和会话归档。
 - 部署事实只记录实际执行结果；Docker、证书或真实域名尚未验收时保留为 backlog。
-- 远程 Git 与 CI 在托管平台确定前不配置，不在脚本中预埋未知地址或访问 Token。
+- 远程 Git 使用私有 GitHub 仓库；`.github/workflows/ci.yml` 在 `main` 推送、Pull Request 和手工触发时运行 Node 24 质量检查、生产依赖审计及 PostgreSQL 17 隔离集成测试。
+- GitHub 当前套餐不支持为该私有仓库启用 branch protection/rulesets；CI 成功不等于 `main` 已强制 required checks，不得把未启用的远程保护写成已完成。

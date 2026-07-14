@@ -1,0 +1,11 @@
+[Unit]
+Description=Run FengQiGame production backup daily at 03:30 Asia/Shanghai
+
+[Timer]
+OnCalendar=*-*-* 19:30:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=fengqigame-backup.service
+
+[Install]
+WantedBy=timers.target
