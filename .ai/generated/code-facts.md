@@ -177,6 +177,10 @@
 - 个人资料、密码更新、退出登录和重新登录均有效
 - 管理员运维、审计、清理、凭据停用和地图归档完整生效
 
+### `server/tests/unit/logging.test.js`
+
+- 请求凭据和响应 Set-Cookie 不写入日志
+
 ### `server/tests/unit/security.test.js`
 
 - 密码哈希可以验证正确密码并拒绝错误密码

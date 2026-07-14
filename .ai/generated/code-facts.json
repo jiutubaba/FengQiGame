@@ -960,6 +960,12 @@
       ]
     },
     {
+      "file": "server/tests/unit/logging.test.js",
+      "tests": [
+        "请求凭据和响应 Set-Cookie 不写入日志"
+      ]
+    },
+    {
       "file": "server/tests/unit/security.test.js",
       "tests": [
         "密码哈希可以验证正确密码并拒绝错误密码",
@@ -980,7 +986,7 @@
   "sourceFiles": [
     {
       "file": "server/app.js",
-      "lines": 109
+      "lines": 111
     },
     {
       "file": "server/config.js",
@@ -1077,6 +1083,10 @@
     {
       "file": "server/tests/integration/full-chain.test.js",
       "lines": 656
+    },
+    {
+      "file": "server/tests/unit/logging.test.js",
+      "lines": 39
     },
     {
       "file": "server/tests/unit/security.test.js",

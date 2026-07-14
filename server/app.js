@@ -17,15 +17,17 @@ import mapsRouter from "./routes/maps.js";
 import publicRouter from "./routes/public.js";
 import systemRouter from "./routes/system.js";
 
+export const LOG_REDACT_PATHS = [
+  "req.headers.cookie",
+  "req.headers.authorization",
+  "req.headers.x-map-key",
+  'res.headers["set-cookie"]',
+  "password",
+  "*.password",
+];
 const logger = pino({
   level: config.LOG_LEVEL,
-  redact: [
-    "req.headers.cookie",
-    "req.headers.authorization",
-    "req.headers.x-map-key",
-    "password",
-    "*.password",
-  ],
+  redact: LOG_REDACT_PATHS,
 });
 export const app = express();
 

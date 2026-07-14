@@ -16,7 +16,13 @@ $mode = if ($settings['DEPLOYMENT_MODE']) { $settings['DEPLOYMENT_MODE'] } else 
 $backupDir = Join-Path $root 'backups'
 [IO.Directory]::CreateDirectory($backupDir) | Out-Null
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$name = "fengqi-$stamp.dump"
+$baseName = "fengqi-$stamp"
+$name = "$baseName.dump"
+$sequence = 1
+while (Test-Path -LiteralPath (Join-Path $backupDir $name)) {
+  $name = "$baseName-$sequence.dump"
+  $sequence++
+}
 $containerPath = "/tmp/$name"
 $targetPath = Join-Path $backupDir $name
 
