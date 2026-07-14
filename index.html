@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#080a0c" />
+    <meta
+      name="description"
+      content="风起游戏运营管理平台，归属于湖北风起文化有限公司"
+    />
+    <title>风起游戏</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <main id="file-open-warning" hidden>
+      <div class="warning-mark">FQ</div>
+      <p>FENGQI GAME OPERATIONS</p>
+      <h1>需要先启动本地服务</h1>
+      <div class="warning-line"></div>
+      <p class="warning-copy">
+        这个项目不能直接双击 <code>index.html</code> 打开。<br />
+        请关闭当前页面，然后双击项目目录中的 <strong>启动网站.bat</strong>。
+      </p>
+      <div class="warning-path">F:\风起游戏管理后台\启动网站.bat</div>
+    </main>
+    <script>
+      if (window.location.protocol === "file:") {
+        document.getElementById("root").hidden = true;
+        document.getElementById("file-open-warning").hidden = false;
+        document.body.style.margin = "0";
+        document.body.style.background = "#080a0c";
+        document.body.style.color = "#f1f1ed";
+        document.getElementById("file-open-warning").style.cssText =
+          'min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;font-family:Inter,"Microsoft YaHei",sans-serif;box-sizing:border-box';
+        document.querySelector(".warning-mark").style.cssText =
+          "width:54px;height:54px;display:grid;place-items:center;border:1px solid rgba(216,165,75,.45);background:rgba(216,165,75,.08);color:#efbe66;font-weight:800;letter-spacing:.08em";
+        document.querySelector("#file-open-warning > p").style.cssText =
+          "margin:20px 0 8px;color:#d8a54b;font-size:10px;font-weight:700;letter-spacing:.2em";
+        document.querySelector("#file-open-warning h1").style.cssText =
+          "margin:0;font-size:34px;letter-spacing:-.03em";
+        document.querySelector(".warning-line").style.cssText =
+          "width:48px;height:1px;margin:24px 0;background:#d8a54b";
+        document.querySelector(".warning-copy").style.cssText =
+          "margin:0;color:#8b9097;font-size:14px;line-height:1.9";
+        document.querySelector(".warning-path").style.cssText =
+          "margin-top:24px;padding:12px 16px;border:1px solid #24282d;background:#0d0f11;color:#efbe66;font:12px Consolas,monospace";
+      }
+    </script>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

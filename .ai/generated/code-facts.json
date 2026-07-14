@@ -1,0 +1,1166 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "fengqi-game-admin",
+    "version": "1.0.0"
+  },
+  "packageScripts": {
+    "dev": "concurrently -k -n API,WEB -c yellow,cyan \"node --watch server/index.js\" \"vite\"",
+    "dev:web": "vite",
+    "dev:api": "node --watch server/index.js",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "preview": "vite preview",
+    "db:migrate": "node server/scripts/migrate.js",
+    "admin:create": "node server/scripts/create-admin.js",
+    "test": "vitest run server/tests/unit",
+    "test:integration": "vitest run server/tests/integration",
+    "test:watch": "vitest",
+    "ai:docs:build": "node tools/ai-docs/build-facts.mjs",
+    "ai:docs:check": "node tools/ai-docs/check.mjs",
+    "ai:context": "node tools/ai-docs/context.mjs",
+    "check": "npm run ai:docs:check && npm run test && npm run build",
+    "audit:prod": "npm audit --omit=dev"
+  },
+  "apiRoutes": [
+    {
+      "method": "GET",
+      "path": "/api/admin/permissions",
+      "source": "server/routes/admin.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/settings",
+      "source": "server/routes/admin.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/settings",
+      "source": "server/routes/admin.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/users",
+      "source": "server/routes/admin.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/users",
+      "source": "server/routes/admin.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/users/:userId",
+      "source": "server/routes/admin.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/users/:userId/maps",
+      "source": "server/routes/admin.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/users/:userId/maps/:mapId",
+      "source": "server/routes/admin.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/users/:userId/password",
+      "source": "server/routes/admin.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "source": "server/routes/auth.js",
+      "guards": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "source": "server/routes/auth.js",
+      "guards": [
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "source": "server/routes/auth.js",
+      "guards": [
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/password",
+      "source": "server/routes/auth.js",
+      "guards": [
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/auth/profile",
+      "source": "server/routes/auth.js",
+      "guards": [
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/register",
+      "source": "server/routes/auth.js",
+      "guards": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/game/gifts/:grantId/ack",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.gifts.read",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/game/leaderboards/:leaderboardKey/entries",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.leaderboards.write",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/game/logs",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.logs.write",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/game/messages/:messageId/ack",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.messages.read",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/game/metrics",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.metrics.write",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/game/players/:uid/gifts",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.gifts.read",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/game/players/:uid/messages",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.messages.read",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/game/players/upsert",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.players.write",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/game/points/:pointKey/increment",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.points.write",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/game/risk/events",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.risk.write",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:MAP_VIEW"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/maps/:mapId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:MAP_EDIT"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/anchors",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:ANCHORS_MANAGE"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/anchors",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:ANCHORS_MANAGE"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/anchors/:resourceId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:ANCHORS_MANAGE"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/maps/:mapId/anchors/:resourceId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:ANCHORS_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/api-keys",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:API_KEYS_MANAGE"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/api-keys",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:API_KEYS_MANAGE"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/api-keys/:keyId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:API_KEYS_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/config",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:MAP_VIEW"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/maps/:mapId/config",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:MAP_EDIT"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/files",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:FILES_MANAGE"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/files/:fileId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:FILES_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/files/:fileId/download",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:FILES_MANAGE"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/files/folder",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:FILES_MANAGE"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/files/upload",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:FILES_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/gifts",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/gifts",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/gifts/:giftId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/maps/:mapId/gifts/:giftId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/gifts/grant",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/leaderboards",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:LEADERBOARDS_VIEW"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/leaderboards",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:LEADERBOARDS_MANAGE"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/leaderboards/:leaderboardId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:LEADERBOARDS_MANAGE"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/maps/:mapId/leaderboards/:leaderboardId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:LEADERBOARDS_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/leaderboards/:leaderboardId/entries",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:LEADERBOARDS_VIEW"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/leaderboards/:leaderboardId/entries/:entryId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:LEADERBOARDS_MANAGE"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/leaderboards/:leaderboardId/publish",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:LEADERBOARDS_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/logs",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:LOGS_VIEW"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/logs/:logId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:MAP_EDIT"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/lotteries",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/lotteries",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/lotteries/:campaignId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/lotteries/:campaignId/draw",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/messages",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:PLAYERS_VIEW"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/messages",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:PLAYERS_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/metrics",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:METRICS_VIEW"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/players",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:PLAYERS_VIEW"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/players",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:PLAYERS_MANAGE"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/players/:playerId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:PLAYERS_MANAGE"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/maps/:mapId/players/:playerId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:PLAYERS_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/points",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:POINTS_MANAGE"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/points",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:POINTS_MANAGE"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/points/:resourceId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:POINTS_MANAGE"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/maps/:mapId/points/:resourceId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:POINTS_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/risk/events",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:RISK_VIEW"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/maps/:mapId/risk/events/:eventId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:RISK_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/risk/rules",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:RISK_VIEW"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/risk/rules",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:RISK_MANAGE"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/risk/rules/:ruleId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:RISK_MANAGE"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/maps/:mapId/risk/rules/:ruleId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:RISK_MANAGE"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/runtime/clear",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/lotteries/:token",
+      "source": "server/routes/public.js",
+      "guards": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/public/lotteries/:token/entries",
+      "source": "server/routes/public.js",
+      "guards": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/system/audit",
+      "source": "server/routes/system.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/system/health",
+      "source": "server/routes/system.js",
+      "guards": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/system/status",
+      "source": "server/routes/system.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    }
+  ],
+  "frontendRoutes": [
+    "*",
+    "/",
+    "/admin/audit",
+    "/admin/settings",
+    "/admin/users",
+    "/docs",
+    "/login",
+    "/lottery/:token",
+    "/maps",
+    "/maps/:mapId",
+    "/maps/:mapId/:section",
+    "/profile",
+    "/tools"
+  ],
+  "mapPermissions": [
+    {
+      "name": "MAP_VIEW",
+      "value": "map.view"
+    },
+    {
+      "name": "MAP_EDIT",
+      "value": "map.edit"
+    },
+    {
+      "name": "METRICS_VIEW",
+      "value": "metrics.view"
+    },
+    {
+      "name": "PLAYERS_VIEW",
+      "value": "players.view"
+    },
+    {
+      "name": "PLAYERS_MANAGE",
+      "value": "players.manage"
+    },
+    {
+      "name": "LEADERBOARDS_VIEW",
+      "value": "leaderboards.view"
+    },
+    {
+      "name": "LEADERBOARDS_MANAGE",
+      "value": "leaderboards.manage"
+    },
+    {
+      "name": "RISK_VIEW",
+      "value": "risk.view"
+    },
+    {
+      "name": "RISK_MANAGE",
+      "value": "risk.manage"
+    },
+    {
+      "name": "GIFTS_MANAGE",
+      "value": "gifts.manage"
+    },
+    {
+      "name": "ANCHORS_MANAGE",
+      "value": "anchors.manage"
+    },
+    {
+      "name": "POINTS_MANAGE",
+      "value": "points.manage"
+    },
+    {
+      "name": "LOGS_VIEW",
+      "value": "logs.view"
+    },
+    {
+      "name": "FILES_MANAGE",
+      "value": "files.manage"
+    },
+    {
+      "name": "API_KEYS_MANAGE",
+      "value": "api_keys.manage"
+    }
+  ],
+  "apiPermissions": [
+    "game.gifts.read",
+    "game.leaderboards.write",
+    "game.logs.write",
+    "game.messages.read",
+    "game.metrics.write",
+    "game.players.write",
+    "game.points.write",
+    "game.risk.write"
+  ],
+  "auditActions": [
+    "anchors.create",
+    "anchors.delete",
+    "anchors.update",
+    "api_key.create",
+    "api_key.disable",
+    "auth.login",
+    "auth.logout",
+    "auth.password_changed",
+    "file.delete",
+    "file.upload",
+    "folder.create",
+    "gift.create",
+    "gift.delete",
+    "gift.grant",
+    "gift.update",
+    "leaderboard.create",
+    "leaderboard.delete",
+    "leaderboard.entry.delete",
+    "leaderboard.publish",
+    "leaderboard.update",
+    "log.delete",
+    "lottery.cancel",
+    "lottery.create",
+    "lottery.draw",
+    "map.archive",
+    "map.config.update",
+    "map.create",
+    "map.runtime.clear",
+    "map.update",
+    "player.create",
+    "player.delete",
+    "player.message.send",
+    "player.update",
+    "points.create",
+    "points.delete",
+    "points.update",
+    "profile.update",
+    "risk_event.resolve",
+    "risk_rule.create",
+    "risk_rule.delete",
+    "risk_rule.update",
+    "system.settings.update",
+    "user.create",
+    "user.map_permissions.update",
+    "user.password_reset",
+    "user.update"
+  ],
+  "migrations": [
+    {
+      "file": "server/db/migrations/001_initial.sql",
+      "sha256": "5bf35b512a2907d268bb1b3ebeb4e74624a8a3df1b9f35d99a88fa51151356f0",
+      "tables": [
+        "anchors",
+        "api_keys",
+        "audit_logs",
+        "gift_grants",
+        "gifts",
+        "map_configs",
+        "map_files",
+        "map_logs",
+        "map_metrics",
+        "map_permissions",
+        "maps",
+        "players",
+        "sessions",
+        "system_settings",
+        "tracking_points",
+        "users"
+      ],
+      "alteredTables": []
+    },
+    {
+      "file": "server/db/migrations/002_messages_lotteries.sql",
+      "sha256": "4d11a4f69d16d64c7d37942bcc6a0bb592ce1fc8ad758a3f7958c9fc47b5edb7",
+      "tables": [
+        "lottery_campaigns",
+        "lottery_entries",
+        "player_messages"
+      ],
+      "alteredTables": [
+        "gift_grants"
+      ]
+    },
+    {
+      "file": "server/db/migrations/003_leaderboards_risk.sql",
+      "sha256": "754bde1002a9df4d57c1749b6cd78ecf467fba4307f335c5fe1453506a632ec4",
+      "tables": [
+        "leaderboard_entries",
+        "leaderboard_snapshot_entries",
+        "leaderboard_snapshots",
+        "leaderboards",
+        "risk_events",
+        "risk_rules"
+      ],
+      "alteredTables": []
+    }
+  ],
+  "environmentVariables": {
+    "runtime": [
+      "ADMIN_DISPLAY_NAME",
+      "ADMIN_PASSWORD",
+      "ADMIN_USERNAME",
+      "COOKIE_SECURE",
+      "DATABASE_URL",
+      "LOG_LEVEL",
+      "NODE_ENV",
+      "PORT",
+      "PUBLIC_REGISTRATION",
+      "SESSION_COOKIE_NAME",
+      "SESSION_TTL_HOURS",
+      "TRUST_PROXY",
+      "UPLOAD_MAX_MB"
+    ],
+    "deployment": [
+      "ADMIN_DISPLAY_NAME",
+      "ADMIN_PASSWORD",
+      "ADMIN_USERNAME",
+      "COOKIE_SECURE",
+      "DATABASE_URL",
+      "DEPLOYMENT_MODE",
+      "LOG_LEVEL",
+      "NODE_ENV",
+      "PORT",
+      "POSTGRES_DB",
+      "POSTGRES_PASSWORD",
+      "POSTGRES_USER",
+      "PUBLIC_REGISTRATION",
+      "SESSION_COOKIE_NAME",
+      "SESSION_TTL_HOURS",
+      "SITE_ADDRESS",
+      "TRUST_PROXY",
+      "UPLOAD_MAX_MB"
+    ]
+  },
+  "tests": [
+    {
+      "file": "server/tests/integration/full-chain.test.js",
+      "tests": [
+        "HTTP 安全头、跨站请求和非法 JSON 均按生产规则处理",
+        "管理员登录并创建地图与普通用户",
+        "普通用户只能访问被授权的地图与功能",
+        "游戏客户端写入玩家，后台发送消息与礼包，客户端确认领取",
+        "客户端上报日志和指标并进入后台查询链路",
+        "地图局部编辑、地图配置和系统设置均能持久化",
+        "主播和埋点支持增改查，游戏客户端可上报埋点",
+        "排行榜发布快照、风险事件幂等上报与玩家封禁形成闭环",
+        "测试服与正式服的数据和凭据严格隔离",
+        "文件夹、文件上传、列表、下载和级联删除形成闭环",
+        "公开抽奖支持报名、防重复、开奖与中奖结果公开",
+        "个人资料、密码更新、退出登录和重新登录均有效",
+        "管理员运维、审计、清理、凭据停用和地图归档完整生效"
+      ]
+    },
+    {
+      "file": "server/tests/unit/security.test.js",
+      "tests": [
+        "密码哈希可以验证正确密码并拒绝错误密码",
+        "Token 使用随机值并只保存固定长度哈希",
+        "文件名和相对目录不能保留路径穿越字符"
+      ]
+    },
+    {
+      "file": "server/tests/unit/validation.test.js",
+      "tests": [
+        "PATCH 只保留客户端实际提交的字段，不注入 schema 默认值",
+        "POST 会保留 schema 默认值",
+        "内部异常不向客户端泄露原始错误",
+        "非法 JSON 返回稳定的 400 错误码"
+      ]
+    }
+  ],
+  "sourceFiles": [
+    {
+      "file": "server/app.js",
+      "lines": 109
+    },
+    {
+      "file": "server/config.js",
+      "lines": 59
+    },
+    {
+      "file": "server/db/index.js",
+      "lines": 42
+    },
+    {
+      "file": "server/db/migrate.js",
+      "lines": 31
+    },
+    {
+      "file": "server/db/migrations/001_initial.sql",
+      "lines": 213
+    },
+    {
+      "file": "server/db/migrations/002_messages_lotteries.sql",
+      "lines": 54
+    },
+    {
+      "file": "server/db/migrations/003_leaderboards_risk.sql",
+      "lines": 101
+    },
+    {
+      "file": "server/index.js",
+      "lines": 33
+    },
+    {
+      "file": "server/lib/audit.js",
+      "lines": 22
+    },
+    {
+      "file": "server/lib/errors.js",
+      "lines": 21
+    },
+    {
+      "file": "server/lib/security.js",
+      "lines": 77
+    },
+    {
+      "file": "server/middleware/auth.js",
+      "lines": 103
+    },
+    {
+      "file": "server/middleware/errors.js",
+      "lines": 54
+    },
+    {
+      "file": "server/middleware/validation.js",
+      "lines": 35
+    },
+    {
+      "file": "server/routes/admin.js",
+      "lines": 267
+    },
+    {
+      "file": "server/routes/auth.js",
+      "lines": 239
+    },
+    {
+      "file": "server/routes/game.js",
+      "lines": 370
+    },
+    {
+      "file": "server/routes/maps.js",
+      "lines": 2175
+    },
+    {
+      "file": "server/routes/public.js",
+      "lines": 106
+    },
+    {
+      "file": "server/routes/system.js",
+      "lines": 54
+    },
+    {
+      "file": "server/scripts/create-admin.js",
+      "lines": 34
+    },
+    {
+      "file": "server/scripts/migrate.js",
+      "lines": 8
+    },
+    {
+      "file": "server/scripts/provision-local-database.js",
+      "lines": 69
+    },
+    {
+      "file": "server/services/users.js",
+      "lines": 41
+    },
+    {
+      "file": "server/tests/integration/full-chain.test.js",
+      "lines": 656
+    },
+    {
+      "file": "server/tests/unit/security.test.js",
+      "lines": 33
+    },
+    {
+      "file": "server/tests/unit/validation.test.js",
+      "lines": 70
+    },
+    {
+      "file": "src/api/client.js",
+      "lines": 69
+    },
+    {
+      "file": "src/App.jsx",
+      "lines": 89
+    },
+    {
+      "file": "src/auth/AuthContext.jsx",
+      "lines": 76
+    },
+    {
+      "file": "src/components/AppShell.jsx",
+      "lines": 330
+    },
+    {
+      "file": "src/components/ui.jsx",
+      "lines": 170
+    },
+    {
+      "file": "src/main.jsx",
+      "lines": 20
+    },
+    {
+      "file": "src/pages/AdminAuditPage.jsx",
+      "lines": 99
+    },
+    {
+      "file": "src/pages/AdminSettingsPage.jsx",
+      "lines": 133
+    },
+    {
+      "file": "src/pages/AdminUsersPage.jsx",
+      "lines": 534
+    },
+    {
+      "file": "src/pages/AuthPage.jsx",
+      "lines": 146
+    },
+    {
+      "file": "src/pages/DocsPage.jsx",
+      "lines": 358
+    },
+    {
+      "file": "src/pages/LotteryPage.jsx",
+      "lines": 176
+    },
+    {
+      "file": "src/pages/MapCenter.jsx",
+      "lines": 247
+    },
+    {
+      "file": "src/pages/MapWorkspace.jsx",
+      "lines": 3302
+    },
+    {
+      "file": "src/pages/ProfilePage.jsx",
+      "lines": 240
+    },
+    {
+      "file": "src/pages/PublicHome.jsx",
+      "lines": 125
+    },
+    {
+      "file": "src/pages/ToolsPage.jsx",
+      "lines": 174
+    },
+    {
+      "file": "src/styles.css",
+      "lines": 4420
+    },
+    {
+      "file": "src/utils/format.js",
+      "lines": 27
+    }
+  ]
+}

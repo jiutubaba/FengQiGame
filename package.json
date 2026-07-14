@@ -1,0 +1,49 @@
+{
+  "name": "fengqi-game-admin",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n API,WEB -c yellow,cyan \"node --watch server/index.js\" \"vite\"",
+    "dev:web": "vite",
+    "dev:api": "node --watch server/index.js",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "preview": "vite preview",
+    "db:migrate": "node server/scripts/migrate.js",
+    "admin:create": "node server/scripts/create-admin.js",
+    "test": "vitest run server/tests/unit",
+    "test:integration": "vitest run server/tests/integration",
+    "test:watch": "vitest",
+    "ai:docs:build": "node tools/ai-docs/build-facts.mjs",
+    "ai:docs:check": "node tools/ai-docs/check.mjs",
+    "ai:context": "node tools/ai-docs/context.mjs",
+    "check": "npm run ai:docs:check && npm run test && npm run build",
+    "audit:prod": "npm audit --omit=dev"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^6.0.3",
+    "compression": "^1.8.1",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.3.0",
+    "lucide-react": "^1.24.0",
+    "multer": "^2.2.0",
+    "pg": "^8.22.0",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.1",
+    "vite": "^8.1.4",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3",
+    "prettier": "^3.8.2",
+    "supertest": "^7.2.2",
+    "vitest": "^4.1.10"
+  }
+}
