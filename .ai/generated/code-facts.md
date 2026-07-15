@@ -137,14 +137,12 @@
 - `/admin/audit`
 - `/admin/settings`
 - `/admin/users`
-- `/docs`
 - `/login`
 - `/lottery/:token`
 - `/maps`
 - `/maps/:mapId`
 - `/maps/:mapId/:section`
 - `/profile`
-- `/tools`
 
 ## 数据库迁移
 

@@ -724,14 +724,12 @@
     "/admin/audit",
     "/admin/settings",
     "/admin/users",
-    "/docs",
     "/login",
     "/lottery/:token",
     "/maps",
     "/maps/:mapId",
     "/maps/:mapId/:section",
-    "/profile",
-    "/tools"
+    "/profile"
   ],
   "mapPermissions": [
     {
@@ -1102,7 +1100,7 @@
     },
     {
       "file": "src/App.jsx",
-      "lines": 89
+      "lines": 85
     },
     {
       "file": "src/auth/AuthContext.jsx",
@@ -1110,7 +1108,7 @@
     },
     {
       "file": "src/components/AppShell.jsx",
-      "lines": 351
+      "lines": 328
     },
     {
       "file": "src/components/ui.jsx",
@@ -1137,10 +1135,6 @@
       "lines": 151
     },
     {
-      "file": "src/pages/DocsPage.jsx",
-      "lines": 358
-    },
-    {
       "file": "src/pages/LotteryPage.jsx",
       "lines": 176
     },
@@ -1158,15 +1152,11 @@
     },
     {
       "file": "src/pages/PublicHome.jsx",
-      "lines": 125
-    },
-    {
-      "file": "src/pages/ToolsPage.jsx",
-      "lines": 174
+      "lines": 82
     },
     {
       "file": "src/styles.css",
-      "lines": 4872
+      "lines": 4035
     },
     {
       "file": "src/utils/format.js",

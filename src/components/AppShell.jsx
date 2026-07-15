@@ -8,12 +8,10 @@ import {
 } from "react-router-dom";
 import {
   Activity,
-  BookOpen,
   Boxes,
   ChevronDown,
   FileArchive,
   FileKey2,
-  FileText,
   Gift,
   LayoutGrid,
   ListChecks,
@@ -29,7 +27,6 @@ import {
   UserCog,
   UserRound,
   Users,
-  Wrench,
   X,
 } from "lucide-react";
 import { api } from "../api/client";
@@ -145,13 +142,9 @@ export default function AppShell() {
         ? "审计日志"
         : location.pathname.startsWith("/admin/settings")
           ? "系统设置"
-          : location.pathname.startsWith("/docs")
-            ? "XYPlugin 文档"
-            : location.pathname.startsWith("/tools")
-              ? "工具版本"
-              : location.pathname.startsWith("/profile")
-                ? "个人中心"
-                : "地图中心");
+          : location.pathname.startsWith("/profile")
+            ? "个人中心"
+            : "地图中心");
 
   return (
     <div className="app-frame">
@@ -231,19 +224,7 @@ export default function AppShell() {
               />
             </>
           )}
-          <span className="nav-label nav-label-spaced">资源</span>
-          <SideLink
-            to="/tools"
-            icon={Wrench}
-            label="工具版本"
-            onClick={closeMobile}
-          />
-          <SideLink
-            to="/docs"
-            icon={BookOpen}
-            label="XYPlugin 文档"
-            onClick={closeMobile}
-          />
+          <span className="nav-label nav-label-spaced">账户</span>
           <SideLink
             to="/profile"
             icon={UserRound}
@@ -294,10 +275,6 @@ export default function AppShell() {
             </div>
           </div>
           <div className="topbar-right">
-            <a className="topbar-doc-link" href="/docs">
-              <FileText size={15} />
-              接口文档
-            </a>
             <div className="profile-menu-wrap">
               <button
                 type="button"

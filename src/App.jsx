@@ -5,13 +5,11 @@ import AdminAuditPage from "./pages/AdminAuditPage";
 import AdminSettingsPage from "./pages/AdminSettingsPage";
 import AdminUsersPage from "./pages/AdminUsersPage";
 import AuthPage from "./pages/AuthPage";
-import DocsPage from "./pages/DocsPage";
 import LotteryPage from "./pages/LotteryPage";
 import MapCenter from "./pages/MapCenter";
 import MapWorkspace from "./pages/MapWorkspace";
 import ProfilePage from "./pages/ProfilePage";
 import PublicHome from "./pages/PublicHome";
-import ToolsPage from "./pages/ToolsPage";
 
 function Protected({ children }) {
   const location = useLocation();
@@ -55,8 +53,6 @@ export default function App() {
         />
         <Route path="/maps/:mapId/:section" element={<MapWorkspace />} />
         <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/tools" element={<ToolsPage />} />
-        <Route path="/docs" element={<DocsPage />} />
         <Route
           path="/admin/users"
           element={
