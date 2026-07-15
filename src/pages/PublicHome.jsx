@@ -1,11 +1,4 @@
-import {
-  ArrowRight,
-  BookOpen,
-  Boxes,
-  Download,
-  Map,
-  ShieldCheck,
-} from "lucide-react";
+import { ArrowRight, Boxes, Map, ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 
 export default function PublicHome() {
@@ -22,8 +15,6 @@ export default function PublicHome() {
           </span>
         </Link>
         <nav>
-          <Link to="/login">工具版本</Link>
-          <Link to="/login">接口文档</Link>
           <Link className="landing-login" to="/login">
             后台登录 <ArrowRight size={15} />
           </Link>
@@ -46,10 +37,6 @@ export default function PublicHome() {
             <div className="hero-actions">
               <Link className="hero-primary" to="/login">
                 进入后台 <ArrowRight size={17} />
-              </Link>
-              <Link className="hero-secondary" to="/login">
-                <BookOpen size={16} />
-                登录查看文档
               </Link>
             </div>
           </div>
@@ -82,36 +69,6 @@ export default function PublicHome() {
             <ShieldCheck size={19} />
             <strong>处理业务</strong>
             <small>环境隔离与权限控制</small>
-          </div>
-        </section>
-
-        <section className="landing-tools">
-          <div className="landing-section-title">
-            <span>TOOL NAVIGATION</span>
-            <h2>工具导航</h2>
-            <p>编辑、预览、调试，一处获取当前版本。</p>
-          </div>
-          <div className="tool-release-list">
-            <Link to="/login" className="tool-release-row">
-              <div className="tool-index">01</div>
-              <div className="tool-name">
-                <strong>XYWE 编辑器</strong>
-                <span>历史版本与更新说明</span>
-              </div>
-              <div className="tool-version">授权资源</div>
-              <div className="tool-date">登录查看</div>
-              <Download size={17} />
-            </Link>
-            <Link to="/login" className="tool-release-row">
-              <div className="tool-index">02</div>
-              <div className="tool-name">
-                <strong>模型预览工具</strong>
-                <span>模型复制与地图预览</span>
-              </div>
-              <div className="tool-version">授权资源</div>
-              <div className="tool-date">登录查看</div>
-              <Download size={17} />
-            </Link>
           </div>
         </section>
       </main>
