@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
   <title id="title">风起游戏</title>
-  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0d0f11" stroke="#d8a54b" stroke-width="2"/>
-  <path d="M15 16h18v7H23v7h9v7h-9v12h-8V16Z" fill="#efbe66"/>
-  <path d="M46 16c-9 0-14 6-14 16s5 16 14 16c2 0 4-.3 5.8-1l4.2 4 4-5-3.6-3.4C58.7 39.8 60 36.2 60 32c0-10-5-16-14-16Zm0 7c4.2 0 6 3 6 9 0 1.9-.2 3.5-.7 4.8l-3.8-3.6-4.2 4.6 2.8 2.7H46c-4.2 0-6-2.8-6-8.5 0-6 1.8-9 6-9Z" fill="#f1f1ed"/>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#202124" stroke="#202124" stroke-width="2"/>
+  <path d="M15 16h18v7H23v7h9v7h-9v12h-8V16Z" fill="#8fafff"/>
+  <path d="M46 16c-9 0-14 6-14 16s5 16 14 16c2 0 4-.3 5.8-1l4.2 4 4-5-3.6-3.4C58.7 39.8 60 36.2 60 32c0-10-5-16-14-16Zm0 7c4.2 0 6 3 6 9 0 1.9-.2 3.5-.7 4.8l-3.8-3.6-4.2 4.6 2.8 2.7H46c-4.2 0-6-2.8-6-8.5 0-6 1.8-9 6-9Z" fill="#ffffff"/>
 </svg>

@@ -59,7 +59,7 @@ router.post(
   validate(
     z.object({
       username: z.string().trim().min(2).max(64),
-      password: z.string().min(12).max(256),
+      password: z.string().min(6).max(256),
       displayName: z.string().trim().min(1).max(100),
       phone: z.string().trim().max(32).nullable().optional(),
       role: z.enum(["admin", "user"]).default("user"),
@@ -123,7 +123,7 @@ router.patch(
 
 router.post(
   "/users/:userId/password",
-  validate(z.object({ password: z.string().min(12).max(256) })),
+  validate(z.object({ password: z.string().min(6).max(256) })),
   async (req, res) => {
     const userId = Number(req.params.userId);
     const passwordHash = await hashPassword(req.body.password);

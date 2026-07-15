@@ -191,7 +191,7 @@ export default function ProfilePage() {
               onClick={changePassword}
               disabled={
                 !password.currentPassword ||
-                password.newPassword.length < 12 ||
+                password.newPassword.length < 6 ||
                 !password.confirmation
               }
             >
@@ -211,7 +211,7 @@ export default function ProfilePage() {
             }
           />
         </Field>
-        <Field label="新密码" hint="至少 12 位">
+        <Field label="新密码" hint="至少 6 位">
           <input
             type="password"
             className="input"

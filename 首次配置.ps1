@@ -40,8 +40,8 @@ $adminDisplayName = Read-Host '管理员显示名称（直接回车使用 风起
 if ([string]::IsNullOrWhiteSpace($adminDisplayName)) { $adminDisplayName = '风起' }
 
 do {
-  $adminPassword = Read-PlainTextPassword '设置管理员密码（至少 12 位，仅允许字母、数字和 !@%^&*_-）'
-  $validPassword = $adminPassword.Length -ge 12 -and $adminPassword.Length -le 128 -and $adminPassword -match '^[A-Za-z0-9!@%\^&\*_\-]+$'
+  $adminPassword = Read-PlainTextPassword '设置管理员密码（至少 6 位，仅允许字母、数字和 !@%^&*_-）'
+  $validPassword = $adminPassword.Length -ge 6 -and $adminPassword.Length -le 128 -and $adminPassword -match '^[A-Za-z0-9!@%\^&\*_\-]+$'
   if (-not $validPassword) { Write-Host '密码不符合要求，请重新输入。' -ForegroundColor Red }
 } until ($validPassword)
 

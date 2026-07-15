@@ -24,7 +24,7 @@ const envSchema = z.object({
   SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(12),
   COOKIE_SECURE: z.enum(["true", "false"]).optional(),
   ADMIN_USERNAME: z.string().min(2).max(64).optional(),
-  ADMIN_PASSWORD: z.string().min(12).max(256).optional(),
+  ADMIN_PASSWORD: z.string().min(6).max(256).optional(),
   ADMIN_DISPLAY_NAME: z.string().min(1).max(100).default("系统管理员"),
   PUBLIC_REGISTRATION: z.enum(["true", "false"]).default("false"),
   UPLOAD_MAX_MB: z.coerce.number().int().min(1).max(500).default(50),

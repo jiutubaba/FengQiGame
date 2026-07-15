@@ -7,7 +7,7 @@ export async function ensureInitialAdmin(config) {
   if (existing.rows[0].count > 0) return;
   if (!config.ADMIN_USERNAME || !config.ADMIN_PASSWORD) {
     throw new Error(
-      "数据库中没有管理员。请在 .env 配置 ADMIN_USERNAME 和长度至少 12 位的 ADMIN_PASSWORD 后重新启动。",
+      "数据库中没有管理员。请在 .env 配置 ADMIN_USERNAME 和长度至少 6 位的 ADMIN_PASSWORD 后重新启动。",
     );
   }
   const passwordHash = await hashPassword(config.ADMIN_PASSWORD);

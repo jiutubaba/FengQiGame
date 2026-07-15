@@ -22,6 +22,8 @@
     "audit:prod": "npm audit --omit=dev"
   },
   "dependencies": {
+    "@fontsource-variable/noto-sans-sc": "5.2.10",
+    "@fontsource-variable/noto-serif-sc": "5.2.10",
     "@vitejs/plugin-react": "^6.0.3",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",

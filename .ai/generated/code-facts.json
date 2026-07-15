@@ -952,7 +952,7 @@
         "地图局部编辑、地图配置和系统设置均能持久化",
         "主播和埋点支持增改查，游戏客户端可上报埋点",
         "排行榜发布快照、风险事件幂等上报与玩家封禁形成闭环",
-        "测试服与正式服的数据和凭据严格隔离",
+        "测试服、正式服与大厅服的数据和凭据严格隔离",
         "文件夹、文件上传、列表、下载和级联删除形成闭环",
         "公开抽奖支持报名、防重复、开奖与中奖结果公开",
         "个人资料、密码更新、退出登录和重新登录均有效",
@@ -1082,7 +1082,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 656
+      "lines": 688
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1110,15 +1110,15 @@
     },
     {
       "file": "src/components/AppShell.jsx",
-      "lines": 330
+      "lines": 351
     },
     {
       "file": "src/components/ui.jsx",
-      "lines": 170
+      "lines": 183
     },
     {
       "file": "src/main.jsx",
-      "lines": 20
+      "lines": 22
     },
     {
       "file": "src/pages/AdminAuditPage.jsx",
@@ -1134,7 +1134,7 @@
     },
     {
       "file": "src/pages/AuthPage.jsx",
-      "lines": 146
+      "lines": 151
     },
     {
       "file": "src/pages/DocsPage.jsx",
@@ -1146,7 +1146,7 @@
     },
     {
       "file": "src/pages/MapCenter.jsx",
-      "lines": 247
+      "lines": 256
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
@@ -1166,7 +1166,7 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 4420
+      "lines": 4872
     },
     {
       "file": "src/utils/format.js",
