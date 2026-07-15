@@ -15,6 +15,8 @@ Group=root
 WorkingDirectory=/opt/fengqigame
 EnvironmentFile=/etc/fengqigame/backup.env
 Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
+Environment=HOME=/tmp
+Environment=XDG_CACHE_HOME=/tmp/.cache
 ExecStart=/usr/bin/pwsh -NoLogo -NoProfile -NonInteractive -File /opt/fengqigame/运维/备份到OSS.ps1 -RetentionDays 14
 UMask=0077
 TimeoutStartSec=2h

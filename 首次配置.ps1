@@ -13,7 +13,7 @@ if (Test-Path -LiteralPath $envPath) {
   Write-Host '.env 已存在，首次配置未覆盖。' -ForegroundColor Yellow
   exit 0
 }
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+if ($Mode -eq 'native' -and -not (Get-Command node -ErrorAction SilentlyContinue)) {
   throw '未检测到 Node.js，无法完成首次配置。'
 }
 

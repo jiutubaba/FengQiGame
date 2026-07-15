@@ -61,7 +61,11 @@ function Get-OssCrc64 {
 
   $output = & $ossutil -c $ossConfigPath hash crc64 $Source 2>&1
   if ($LASTEXITCODE -ne 0) { throw "CRC64 校验命令失败：$Source" }
-  $match = [regex]::Match(($output -join "`n"), '(?im)crc(?:64|-64)[^:\r\n]*:\s*(\d+)')
+  $text = $output -join "`n"
+  $match = [regex]::Match($text, '(?m)^\s*(\d{1,20})\s{2,}\S')
+  if (-not $match.Success) {
+    $match = [regex]::Match($text, '(?im)crc(?:64|-64)[^:\r\n]*:\s*(\d+)')
+  }
   if (-not $match.Success) { throw "无法读取 CRC64 校验值：$Source" }
   return $match.Groups[1].Value
 }
@@ -87,10 +91,15 @@ try {
     & (Join-Path $PSScriptRoot '备份上传文件.ps1') -RetentionDays $RetentionDays -PassThru
   )
 
-  $remoteDirectory = "oss://$bucket/prod/$(Get-Date -Format 'yyyy/MM/dd')"
+  $remoteKeyDirectory = "prod/$(Get-Date -Format 'yyyy/MM/dd')"
   foreach ($file in @($databaseBackup, $uploadsBackup)) {
-    $remotePath = "$remoteDirectory/$($file.Name)"
-    & $ossutil -c $ossConfigPath cp $file.FullName $remotePath --acl private --meta=x-oss-server-side-encryption:AES256
+    $remoteKey = "$remoteKeyDirectory/$($file.Name)"
+    $remotePath = "oss://$bucket/$remoteKey"
+    & $ossutil -c $ossConfigPath api put-object `
+      --bucket $bucket `
+      --key $remoteKey `
+      --body "file://$($file.FullName)" `
+      --server-side-encryption AES256
     if ($LASTEXITCODE -ne 0) { throw "OSS 上传失败：$($file.Name)" }
 
     $localCrc64 = Get-OssCrc64 -Source $file.FullName
