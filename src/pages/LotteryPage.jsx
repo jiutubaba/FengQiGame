@@ -76,7 +76,7 @@ export default function LotteryPage() {
   return (
     <div className="lottery-page">
       <header className="lottery-brand">
-        <img src="/assets/fengqi-mark.svg" alt="" />
+        <img src="/assets/fengqi-mark.svg?v=attio" alt="" />
         <span>
           <strong>风起游戏</strong>
           <small>GROUP LOTTERY</small>

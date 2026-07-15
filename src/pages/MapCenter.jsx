@@ -3,11 +3,9 @@ import {
   ArrowUpRight,
   Grid2X2,
   List,
-  MapPinned,
   Plus,
   Search,
   ShieldCheck,
-  Users,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
@@ -77,7 +75,7 @@ export default function MapCenter() {
   };
 
   return (
-    <div className="page-stack page-enter">
+    <div className="page-stack page-enter map-center-page">
       <SectionHead
         eyebrow="MAP DIRECTORY"
         title="地图中心"
@@ -134,20 +132,31 @@ export default function MapCenter() {
             <article
               className="map-card"
               key={map.id}
+              role="link"
+              tabIndex={0}
+              aria-label={`打开地图 ${map.name}`}
               onClick={() => navigate(`/maps/${map.id}/metrics`)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  navigate(`/maps/${map.id}/metrics`);
+                }
+              }}
             >
-              <div className="map-cover">
+              <div
+                className={`map-cover ${map.coverPath ? "has-cover" : "is-placeholder"}`}
+              >
                 <img
-                  src={map.coverPath || "/assets/fengqi-mark.svg"}
-                  alt={map.name}
+                  src={map.coverPath || "/assets/fengqi-mark.svg?v=attio"}
+                  alt={map.coverPath ? `${map.name} 封面` : ""}
+                  loading="lazy"
                 />
                 <div className="map-cover-shade" />
                 <Badge tone="positive" dot>
                   {environmentLabel(map.runtimeEnv)}
                 </Badge>
-                <button aria-label="打开地图">
+                <span className="map-open-icon" aria-hidden="true">
                   <ArrowUpRight size={18} />
-                </button>
+                </span>
               </div>
               <div className="map-card-body">
                 <div className="map-title-row">
@@ -155,19 +164,19 @@ export default function MapCenter() {
                     <span>MAP / {String(map.id).padStart(3, "0")}</span>
                     <h3>{map.name}</h3>
                   </div>
-                  <small>打开工作区</small>
                 </div>
                 <div className="map-meta">
                   <span>
-                    <MapPinned size={15} />
-                    地图 ID <b>{map.id}</b>
+                    <small>地图 ID</small>
+                    <b>{map.id}</b>
                   </span>
                   <span>
-                    <Users size={15} />
-                    累计用户 <b>{formatNumber(map.cumulativeUsers)}</b>
+                    <small>累计用户</small>
+                    <b>{formatNumber(map.cumulativeUsers)}</b>
                   </span>
-                  <span>
-                    总局数 <b>{formatNumber(map.totalGameCount)}</b>
+                  <span className="map-meta-games">
+                    <small>总局数</small>
+                    <b>{formatNumber(map.totalGameCount)}</b>
                   </span>
                 </div>
                 <div className="map-card-foot">

@@ -72,7 +72,7 @@ export default function AuthPage() {
         <form className="auth-form" onSubmit={submit}>
           <div className="auth-brand">
             <span className="brand-mark">
-              <img src="/assets/fengqi-mark.svg" alt="风起游戏" />
+              <img src="/assets/fengqi-mark.svg?v=attio" alt="风起游戏" />
             </span>
             <div>
               <strong>风起游戏</strong>
@@ -110,6 +110,8 @@ export default function AuthPage() {
               <button
                 type="button"
                 onClick={() => setVisible((value) => !value)}
+                aria-label={visible ? "隐藏密码" : "显示密码"}
+                aria-pressed={visible}
               >
                 {visible ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
@@ -120,6 +122,9 @@ export default function AuthPage() {
               type="button"
               className={remember ? "checked" : ""}
               onClick={() => setRemember((value) => !value)}
+              role="checkbox"
+              aria-checked={remember}
+              aria-label="在此设备保持登录"
             >
               {remember && <Check size={13} />}
             </button>

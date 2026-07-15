@@ -13,9 +13,9 @@ const username = args.username || process.env.ADMIN_USERNAME;
 const password = args.password || process.env.ADMIN_PASSWORD;
 const displayName = args.name || process.env.ADMIN_DISPLAY_NAME || "系统管理员";
 
-if (!username || !password || password.length < 12) {
+if (!username || !password || password.length < 6) {
   process.stderr.write(
-    "用法：npm run admin:create -- --username=admin --password=至少12位强密码 --name=系统管理员\n",
+    "用法：npm run admin:create -- --username=admin --password=至少6位密码 --name=系统管理员\n",
   );
   process.exit(1);
 }

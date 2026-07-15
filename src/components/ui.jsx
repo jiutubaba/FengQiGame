@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useState,
 } from "react";
 import { CheckCircle2, CircleAlert, Info, X } from "lucide-react";
@@ -13,10 +14,12 @@ export function Button({
   icon: Icon,
   className = "",
   children,
+  type = "button",
   ...props
 }) {
   return (
     <button
+      type={type}
       className={`btn btn-${variant} btn-${size} ${className}`}
       {...props}
     >
@@ -58,6 +61,7 @@ export function Modal({
   danger = false,
   wide = false,
 }) {
+  const titleId = useId();
   useEffect(() => {
     if (!open) return undefined;
     const handler = (event) => event.key === "Escape" && onClose();
@@ -71,13 +75,21 @@ export function Modal({
       <section
         className={`modal ${wide ? "modal-wide" : ""} ${danger ? "modal-danger" : ""}`}
         onMouseDown={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
       >
         <header className="modal-head">
           <div>
             {eyebrow && <span className="eyebrow">{eyebrow}</span>}
-            <h2>{title}</h2>
+            <h2 id={titleId}>{title}</h2>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="关闭">
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onClose}
+            aria-label="关闭"
+          >
             <X size={18} />
           </button>
         </header>
@@ -145,6 +157,7 @@ export function Switch({ checked, onChange, label }) {
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={label}
         className={`switch ${checked ? "is-on" : ""}`}
         onClick={() => onChange?.(!checked)}
       >

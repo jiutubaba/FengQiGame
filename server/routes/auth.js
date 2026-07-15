@@ -131,7 +131,7 @@ router.post(
   validate(
     z.object({
       username: z.string().trim().min(2).max(64),
-      password: z.string().min(12).max(256),
+      password: z.string().min(6).max(256),
       displayName: z.string().trim().min(1).max(100),
       phone: z.string().trim().max(32).optional(),
     }),
@@ -184,7 +184,7 @@ router.post(
   validate(
     z.object({
       currentPassword: z.string().min(1).max(256),
-      newPassword: z.string().min(12).max(256),
+      newPassword: z.string().min(6).max(256),
     }),
   ),
   async (req, res) => {

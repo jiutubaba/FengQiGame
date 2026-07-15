@@ -19,7 +19,7 @@ function Protected({ children }) {
   if (loading)
     return (
       <div className="boot-screen">
-        <img src="/assets/fengqi-mark.svg" alt="" />
+        <img src="/assets/fengqi-mark.svg?v=attio" alt="" />
         <span>正在验证安全会话…</span>
       </div>
     );

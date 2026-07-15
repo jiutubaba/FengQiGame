@@ -14,7 +14,7 @@ export default function PublicHome() {
       <header className="landing-header">
         <Link className="landing-brand" to="/">
           <span className="brand-mark">
-            <img src="/assets/fengqi-mark.svg" alt="风起游戏" />
+            <img src="/assets/fengqi-mark.svg?v=attio" alt="风起游戏" />
           </span>
           <span>
             <strong>风起游戏</strong>
@@ -56,7 +56,7 @@ export default function PublicHome() {
           <div className="hero-visual" aria-hidden="true">
             <div className="orbital-ring ring-one" />
             <div className="orbital-ring ring-two" />
-            <img src="/assets/fengqi-mark.svg" alt="" />
+            <img src="/assets/fengqi-mark.svg?v=attio" alt="" />
             <span className="visual-coordinate coordinate-one">MAP / 018</span>
             <span className="visual-coordinate coordinate-two">
               ONLINE · 00

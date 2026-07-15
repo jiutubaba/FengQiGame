@@ -158,13 +158,18 @@ export default function AppShell() {
       <aside className={`sidebar ${mobileOpen ? "is-open" : ""}`}>
         <div className="sidebar-brand">
           <div className="brand-mark">
-            <img src="/assets/fengqi-mark.svg" alt="风起游戏" />
+            <img src="/assets/fengqi-mark.svg?v=attio" alt="风起游戏" />
           </div>
           <div>
             <strong>风起游戏</strong>
             <span>FENGQI GAMES</span>
           </div>
-          <button className="mobile-close" onClick={closeMobile}>
+          <button
+            type="button"
+            className="mobile-close"
+            onClick={closeMobile}
+            aria-label="关闭导航"
+          >
             <X size={18} />
           </button>
         </div>
@@ -181,7 +186,7 @@ export default function AppShell() {
             <>
               <div className="map-context">
                 <img
-                  src={selectedMap.coverPath || "/assets/fengqi-mark.svg"}
+                  src={selectedMap.coverPath || "/assets/fengqi-mark.svg?v=attio"}
                   alt=""
                 />
                 <div>
@@ -269,7 +274,13 @@ export default function AppShell() {
       <div className="app-main">
         <header className="topbar">
           <div className="topbar-left">
-            <button className="mobile-menu" onClick={() => setMobileOpen(true)}>
+            <button
+              type="button"
+              className="mobile-menu"
+              onClick={() => setMobileOpen(true)}
+              aria-label="打开导航"
+              aria-expanded={mobileOpen}
+            >
               <Menu size={19} />
             </button>
             <div className="breadcrumb">
@@ -289,8 +300,11 @@ export default function AppShell() {
             </a>
             <div className="profile-menu-wrap">
               <button
+                type="button"
                 className="profile-trigger"
                 onClick={() => setProfileOpen((value) => !value)}
+                aria-haspopup="menu"
+                aria-expanded={profileOpen}
               >
                 <span className="avatar">{user?.displayName?.[0] || "用"}</span>
                 <span className="profile-copy">
@@ -323,7 +337,14 @@ export default function AppShell() {
           <Outlet context={{ maps, selectedMap, refreshMaps }} />
         </main>
       </div>
-      {mobileOpen && <div className="mobile-scrim" onClick={closeMobile} />}
+      {mobileOpen && (
+        <button
+          type="button"
+          className="mobile-scrim"
+          onClick={closeMobile}
+          aria-label="关闭导航"
+        />
+      )}
     </div>
   );
 }

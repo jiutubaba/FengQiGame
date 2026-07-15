@@ -223,7 +223,7 @@ export default function AdminUsersPage() {
               disabled={
                 !createForm.username ||
                 !createForm.displayName ||
-                createForm.password.length < 12
+                createForm.password.length < 6
               }
             >
               创建账号
@@ -253,7 +253,7 @@ export default function AdminUsersPage() {
               }
             />
           </Field>
-          <Field label="初始密码" hint="至少 12 位，创建后请通知用户立即修改">
+          <Field label="初始密码" hint="至少 6 位，创建后请通知用户立即修改">
             <input
               className="input"
               type="password"
@@ -361,7 +361,7 @@ export default function AdminUsersPage() {
             <Button
               variant="danger"
               onClick={resetPassword}
-              disabled={newPassword.length < 12}
+              disabled={newPassword.length < 6}
             >
               重置并退出会话
             </Button>
@@ -371,7 +371,7 @@ export default function AdminUsersPage() {
         <p className="warning-note">
           密码重置后，该账号的全部登录会话立即失效。
         </p>
-        <Field label="新密码" hint="至少 12 位">
+        <Field label="新密码" hint="至少 6 位">
           <input
             className="input"
             type="password"

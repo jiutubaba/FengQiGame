@@ -10,7 +10,7 @@ import { createUser } from "../../services/users.js";
 
 const adminPassword = "Admin-password-2026!";
 const userPassword = "User-password-2026!";
-const updatedUserPassword = "User-password-updated-2026!";
+const updatedUserPassword = "User6!";
 
 describe.sequential("管理员、普通用户与游戏客户端全链路", () => {
   const admin = request.agent(app);
@@ -23,6 +23,8 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     gameKeyId,
     releaseToken,
     releaseKeyId,
+    lobbyToken,
+    lobbyKeyId,
     anchorId,
     pointId;
 
@@ -462,7 +464,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     ).toBe(true);
   });
 
-  it("测试服与正式服的数据和凭据严格隔离", async () => {
+  it("测试服、正式服与大厅服的数据和凭据严格隔离", async () => {
     const keyResponse = await admin
       .post(`/api/maps/${mapId}/api-keys`)
       .send({
@@ -473,10 +475,25 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(201);
     releaseToken = keyResponse.body.data.token;
     releaseKeyId = keyResponse.body.data.id;
+    const lobbyKeyResponse = await admin
+      .post(`/api/maps/${mapId}/api-keys`)
+      .send({
+        name: "大厅服验收客户端",
+        environment: "lobby",
+        permissions: ["game.players.write"],
+      })
+      .expect(201);
+    lobbyToken = lobbyKeyResponse.body.data.token;
+    lobbyKeyId = lobbyKeyResponse.body.data.id;
     await request(app)
       .post("/api/game/players/upsert")
       .set("x-map-key", releaseToken)
       .send({ uid: "player-001", name: "正式服同 UID 玩家", level: 2 })
+      .expect(200);
+    await request(app)
+      .post("/api/game/players/upsert")
+      .set("x-map-key", lobbyToken)
+      .send({ uid: "player-001", name: "大厅服同 UID 玩家", level: 3 })
       .expect(200);
 
     const testPlayers = await admin
@@ -485,10 +502,15 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     const releasePlayers = await admin
       .get(`/api/maps/${mapId}/players?environment=release`)
       .expect(200);
+    const lobbyPlayers = await admin
+      .get(`/api/maps/${mapId}/players?environment=lobby`)
+      .expect(200);
     expect(testPlayers.body.data).toHaveLength(1);
     expect(testPlayers.body.data[0].name).toBe("链路玩家");
     expect(releasePlayers.body.data).toHaveLength(1);
     expect(releasePlayers.body.data[0].name).toBe("正式服同 UID 玩家");
+    expect(lobbyPlayers.body.data).toHaveLength(1);
+    expect(lobbyPlayers.body.data[0].name).toBe("大厅服同 UID 玩家");
   });
 
   it("文件夹、文件上传、列表、下载和级联删除形成闭环", async () => {
@@ -585,6 +607,13 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(profile.body.data.user.profile.description).toBe("全链路");
     await normalUser
       .post("/api/auth/password")
+      .send({
+        currentPassword: userPassword,
+        newPassword: "Ab1!x",
+      })
+      .expect(400);
+    await normalUser
+      .post("/api/auth/password")
       .send({ currentPassword: userPassword, newPassword: updatedUserPassword })
       .expect(200);
     await normalUser.post("/api/auth/logout").expect(200);
@@ -643,6 +672,9 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(401);
     await admin
       .delete(`/api/maps/${mapId}/api-keys/${releaseKeyId}`)
+      .expect(200);
+    await admin
+      .delete(`/api/maps/${mapId}/api-keys/${lobbyKeyId}`)
       .expect(200);
     await admin.delete(`/api/maps/${mapId}`).expect(200);
     expect((await admin.get("/api/maps").expect(200)).body.data).toHaveLength(
