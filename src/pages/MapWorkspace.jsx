@@ -2801,7 +2801,7 @@ function LogsPanel({ mapId, environment, can }) {
       <div className="module-toolbar">
         <div className="api-inline">
           <span>GAME CLIENT API</span>
-          <code>POST /api/game/logs</code>
+          <code>POST /api/fq/logs</code>
           <small>需要 game.logs.write 权限</small>
         </div>
         <Button icon={RefreshCw} onClick={load}>
@@ -3083,6 +3083,8 @@ function FilesPanel({ mapId }) {
 
 const apiPermissionLabels = {
   "game.players.write": "写入玩家",
+  "game.archives.read": "读取存档",
+  "game.archives.write": "写入存档",
   "game.logs.write": "上报日志",
   "game.metrics.write": "上报指标",
   "game.points.write": "写入埋点",
@@ -3140,7 +3142,7 @@ function ApiKeysPanel({ mapId, environment }) {
       <div className="module-toolbar">
         <div className="api-inline">
           <span>HEADER</span>
-          <code>X-Map-Key: fqmap_...</code>
+          <code>FQ-Map-Key: fqmap_...</code>
           <small>Token 只在创建成功时显示一次</small>
         </div>
         <Button variant="primary" icon={KeyRound} onClick={() => setOpen(true)}>

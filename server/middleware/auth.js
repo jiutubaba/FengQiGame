@@ -79,9 +79,11 @@ export function requireMapPermission(permission) {
 }
 
 export async function loadApiKey(req, _res, next) {
-  const token = req.get("x-map-key");
+  const token = req.get("fq-map-key");
   if (!token)
-    return next(new HttpError(401, "缺少地图 API Key", "MISSING_API_KEY"));
+    return next(
+      new HttpError(401, "缺少 FQ 地图 API Key", "FQ_MISSING_API_KEY"),
+    );
   const result = await query(
     `UPDATE api_keys SET last_used_at=NOW()
       WHERE token_hash=$1 AND status='active'
@@ -89,7 +91,9 @@ export async function loadApiKey(req, _res, next) {
     [hashToken(token)],
   );
   if (!result.rows[0])
-    return next(new HttpError(401, "地图 API Key 无效", "INVALID_API_KEY"));
+    return next(
+      new HttpError(401, "FQ 地图 API Key 无效", "FQ_INVALID_API_KEY"),
+    );
   req.apiKey = result.rows[0];
   return next();
 }

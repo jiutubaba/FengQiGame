@@ -20,7 +20,7 @@ import systemRouter from "./routes/system.js";
 export const LOG_REDACT_PATHS = [
   "req.headers.cookie",
   "req.headers.authorization",
-  "req.headers.x-map-key",
+  "req.headers.fq-map-key",
   'res.headers["set-cookie"]',
   "password",
   "*.password",
@@ -68,7 +68,7 @@ app.use(cookieParser());
 app.use((req, _res, next) => {
   if (
     ["GET", "HEAD", "OPTIONS"].includes(req.method) ||
-    req.path.startsWith("/api/game/")
+    req.path.startsWith("/api/fq/")
   )
     return next();
   const origin = req.get("origin");
@@ -87,7 +87,7 @@ app.use((req, _res, next) => {
 app.use(loadSession);
 app.use("/api/auth", authRouter);
 app.use("/api/admin", adminRouter);
-app.use("/api/game", gameRouter);
+app.use("/api/fq", gameRouter);
 app.use("/api/maps", mapsRouter);
 app.use("/api/public", publicRouter);
 app.use("/api/system", systemRouter);
