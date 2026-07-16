@@ -1,11 +1,333 @@
 import { Router } from "express";
 import { z } from "zod";
 import { query, transaction } from "../db/index.js";
+import { HttpError } from "../lib/errors.js";
+import { hashToken } from "../lib/security.js";
 import { loadApiKey, requireApiPermission } from "../middleware/auth.js";
 import { validate } from "../middleware/validation.js";
 
 const router = Router();
 router.use(loadApiKey);
+
+const playerUidSchema = z.string().trim().min(1).max(128);
+const fqRequestIdSchema = z
+  .string()
+  .trim()
+  .min(4)
+  .max(128)
+  .regex(
+    /^FQ-[A-Za-z0-9._:-]+$/,
+    "requestId 必须以 FQ- 开头，且只能包含字母、数字、点、下划线、冒号和连字符",
+  );
+const archiveValuesSchema = z
+  .record(z.string().trim().min(1).max(128), z.unknown())
+  .refine(
+    (values) => Buffer.byteLength(JSON.stringify(values), "utf8") <= 512 * 1024,
+    "单份存档不能超过 512 KiB",
+  );
+const archiveSaveSchema = z.object({
+  requestId: fqRequestIdSchema,
+  expectedRevision: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  values: archiveValuesSchema,
+});
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, canonicalJson(value[key])]),
+    );
+  }
+  return value;
+}
+
+function archiveRequestHash(operation, target, body) {
+  return hashToken(
+    JSON.stringify(
+      canonicalJson({
+        operation,
+        target,
+        expectedRevision: body.expectedRevision,
+        values: body.values,
+      }),
+    ),
+  );
+}
+
+function playerArchiveRow(row, uid, dataBanned = false) {
+  if (dataBanned) {
+    return {
+      uid,
+      dataBanned: true,
+      revision: 0,
+      values: {},
+      updatedAt: null,
+    };
+  }
+  return {
+    uid,
+    dataBanned: false,
+    revision: Number(row?.revision || 0),
+    values: row?.archive_data || {},
+    updatedAt: row?.updated_at || null,
+  };
+}
+
+function globalArchiveRow(row) {
+  return {
+    revision: Number(row?.revision || 0),
+    values: row?.archive_data || {},
+    updatedAt: row?.updated_at || null,
+  };
+}
+
+function assertMatchingRequest(row, requestId, requestHash) {
+  if (row.last_request_id !== requestId) return false;
+  if (row.last_request_hash !== requestHash) {
+    throw new HttpError(
+      409,
+      "同一个 FQ requestId 不能提交不同内容",
+      "FQ_REQUEST_REUSED",
+    );
+  }
+  return true;
+}
+
+function assertExpectedRevision(expectedRevision, currentRevision) {
+  if (expectedRevision === currentRevision) return;
+  throw new HttpError(
+    409,
+    "存档版本已变化，请重新读取后再保存",
+    "FQ_ARCHIVE_REVISION_CONFLICT",
+    { currentRevision },
+  );
+}
+
+router.post(
+  "/bootstrap",
+  requireApiPermission("game.archives.read"),
+  validate(
+    z.object({
+      uids: z
+        .array(playerUidSchema)
+        .min(1)
+        .max(24)
+        .transform((uids) => [...new Set(uids)]),
+      includeGlobal: z.boolean().optional().default(true),
+    }),
+  ),
+  async (req, res) => {
+    const [archives, bannedPlayers, globalArchive] = await Promise.all([
+      query(
+        `SELECT player_uid,archive_data,revision,updated_at
+           FROM fq_player_archives
+          WHERE map_id=$1 AND environment=$2 AND player_uid=ANY($3::text[])`,
+        [req.apiKey.map_id, req.apiKey.environment, req.body.uids],
+      ),
+      query(
+        `SELECT uid FROM players
+          WHERE map_id=$1 AND environment=$2 AND uid=ANY($3::text[]) AND data_ban=TRUE`,
+        [req.apiKey.map_id, req.apiKey.environment, req.body.uids],
+      ),
+      req.body.includeGlobal
+        ? query(
+            `SELECT archive_data,revision,updated_at
+               FROM fq_global_archives
+              WHERE map_id=$1 AND environment=$2`,
+            [req.apiKey.map_id, req.apiKey.environment],
+          )
+        : Promise.resolve({ rows: [] }),
+    ]);
+    const archiveByUid = new Map(
+      archives.rows.map((row) => [row.player_uid, row]),
+    );
+    const bannedUids = new Set(bannedPlayers.rows.map((row) => row.uid));
+    res.json({
+      success: true,
+      data: {
+        mapId: Number(req.apiKey.map_id),
+        environment: req.apiKey.environment,
+        players: req.body.uids.map((uid) =>
+          playerArchiveRow(archiveByUid.get(uid), uid, bannedUids.has(uid)),
+        ),
+        ...(req.body.includeGlobal
+          ? { global: globalArchiveRow(globalArchive.rows[0]) }
+          : {}),
+      },
+    });
+  },
+);
+
+router.get(
+  "/archives/players/:uid",
+  requireApiPermission("game.archives.read"),
+  validate(z.object({ uid: playerUidSchema }), "params"),
+  async (req, res) => {
+    const [archive, player] = await Promise.all([
+      query(
+        `SELECT archive_data,revision,updated_at
+           FROM fq_player_archives
+          WHERE map_id=$1 AND environment=$2 AND player_uid=$3`,
+        [req.apiKey.map_id, req.apiKey.environment, req.params.uid],
+      ),
+      query(
+        `SELECT data_ban FROM players
+          WHERE map_id=$1 AND environment=$2 AND uid=$3`,
+        [req.apiKey.map_id, req.apiKey.environment, req.params.uid],
+      ),
+    ]);
+    if (player.rows[0]?.data_ban) {
+      throw new HttpError(403, "玩家存档已被后台封禁", "FQ_ARCHIVE_BANNED");
+    }
+    res.json({
+      success: true,
+      data: playerArchiveRow(archive.rows[0], req.params.uid),
+    });
+  },
+);
+
+router.post(
+  "/archives/players/:uid/save",
+  requireApiPermission("game.archives.write"),
+  validate(z.object({ uid: playerUidSchema }), "params"),
+  validate(archiveSaveSchema),
+  async (req, res) => {
+    const requestHash = archiveRequestHash(
+      "player.save",
+      req.params.uid,
+      req.body,
+    );
+    const result = await transaction(async (client) => {
+      const player = await client.query(
+        `SELECT data_ban FROM players
+          WHERE map_id=$1 AND environment=$2 AND uid=$3`,
+        [req.apiKey.map_id, req.apiKey.environment, req.params.uid],
+      );
+      if (player.rows[0]?.data_ban) {
+        throw new HttpError(403, "玩家存档已被后台封禁", "FQ_ARCHIVE_BANNED");
+      }
+      await client.query(
+        `INSERT INTO fq_player_archives(map_id,environment,player_uid)
+         VALUES($1,$2,$3)
+         ON CONFLICT(map_id,environment,player_uid) DO NOTHING`,
+        [req.apiKey.map_id, req.apiKey.environment, req.params.uid],
+      );
+      const currentResult = await client.query(
+        `SELECT archive_data,revision,last_request_id,last_request_hash,updated_at
+           FROM fq_player_archives
+          WHERE map_id=$1 AND environment=$2 AND player_uid=$3
+          FOR UPDATE`,
+        [req.apiKey.map_id, req.apiKey.environment, req.params.uid],
+      );
+      const current = currentResult.rows[0];
+      if (assertMatchingRequest(current, req.body.requestId, requestHash)) {
+        return {
+          replayed: true,
+          archive: playerArchiveRow(current, req.params.uid),
+        };
+      }
+      const currentRevision = Number(current.revision);
+      assertExpectedRevision(req.body.expectedRevision, currentRevision);
+      const saved = await client.query(
+        `UPDATE fq_player_archives
+            SET archive_data=$4::jsonb,
+                revision=revision+1,
+                last_request_id=$5,
+                last_request_hash=$6,
+                updated_at=NOW()
+          WHERE map_id=$1 AND environment=$2 AND player_uid=$3
+          RETURNING archive_data,revision,updated_at`,
+        [
+          req.apiKey.map_id,
+          req.apiKey.environment,
+          req.params.uid,
+          JSON.stringify(req.body.values),
+          req.body.requestId,
+          requestHash,
+        ],
+      );
+      return {
+        replayed: false,
+        archive: playerArchiveRow(saved.rows[0], req.params.uid),
+      };
+    });
+    res.json({
+      success: true,
+      data: { requestId: req.body.requestId, ...result },
+    });
+  },
+);
+
+router.get(
+  "/archives/global",
+  requireApiPermission("game.archives.read"),
+  async (req, res) => {
+    const result = await query(
+      `SELECT archive_data,revision,updated_at
+         FROM fq_global_archives
+        WHERE map_id=$1 AND environment=$2`,
+      [req.apiKey.map_id, req.apiKey.environment],
+    );
+    res.json({ success: true, data: globalArchiveRow(result.rows[0]) });
+  },
+);
+
+router.post(
+  "/archives/global/save",
+  requireApiPermission("game.archives.write"),
+  validate(archiveSaveSchema),
+  async (req, res) => {
+    const requestHash = archiveRequestHash("global.save", "global", req.body);
+    const result = await transaction(async (client) => {
+      await client.query(
+        `INSERT INTO fq_global_archives(map_id,environment)
+         VALUES($1,$2)
+         ON CONFLICT(map_id,environment) DO NOTHING`,
+        [req.apiKey.map_id, req.apiKey.environment],
+      );
+      const currentResult = await client.query(
+        `SELECT archive_data,revision,last_request_id,last_request_hash,updated_at
+           FROM fq_global_archives
+          WHERE map_id=$1 AND environment=$2
+          FOR UPDATE`,
+        [req.apiKey.map_id, req.apiKey.environment],
+      );
+      const current = currentResult.rows[0];
+      if (assertMatchingRequest(current, req.body.requestId, requestHash)) {
+        return { replayed: true, archive: globalArchiveRow(current) };
+      }
+      const currentRevision = Number(current.revision);
+      assertExpectedRevision(req.body.expectedRevision, currentRevision);
+      const saved = await client.query(
+        `UPDATE fq_global_archives
+            SET archive_data=$3::jsonb,
+                revision=revision+1,
+                last_request_id=$4,
+                last_request_hash=$5,
+                updated_at=NOW()
+          WHERE map_id=$1 AND environment=$2
+          RETURNING archive_data,revision,updated_at`,
+        [
+          req.apiKey.map_id,
+          req.apiKey.environment,
+          JSON.stringify(req.body.values),
+          req.body.requestId,
+          requestHash,
+        ],
+      );
+      return {
+        replayed: false,
+        archive: globalArchiveRow(saved.rows[0]),
+      };
+    });
+    res.json({
+      success: true,
+      data: { requestId: req.body.requestId, ...result },
+    });
+  },
+);
 
 router.post(
   "/players/upsert",

@@ -4,10 +4,10 @@
 
 - 项目：`fengqi-game-admin`
 - 版本：`1.0.0`
-- API 路由：85
+- API 路由：90
 - 地图权限：15
-- 客户端权限：8
-- 数据库迁移：3
+- 客户端权限：10
+- 数据库迁移：4
 
 ## 地图权限
 
@@ -31,6 +31,8 @@
 
 ## 游戏客户端权限
 
+- `game.archives.read`
+- `game.archives.write`
 - `game.gifts.read`
 - `game.leaderboards.write`
 - `game.logs.write`
@@ -59,16 +61,21 @@
 | POST | `/api/auth/password` | requireAuth | `server/routes/auth.js` |
 | PATCH | `/api/auth/profile` | requireAuth | `server/routes/auth.js` |
 | POST | `/api/auth/register` | public | `server/routes/auth.js` |
-| POST | `/api/game/gifts/:grantId/ack` | api:game.gifts.read, loadApiKey | `server/routes/game.js` |
-| POST | `/api/game/leaderboards/:leaderboardKey/entries` | api:game.leaderboards.write, loadApiKey | `server/routes/game.js` |
-| POST | `/api/game/logs` | api:game.logs.write, loadApiKey | `server/routes/game.js` |
-| POST | `/api/game/messages/:messageId/ack` | api:game.messages.read, loadApiKey | `server/routes/game.js` |
-| POST | `/api/game/metrics` | api:game.metrics.write, loadApiKey | `server/routes/game.js` |
-| GET | `/api/game/players/:uid/gifts` | api:game.gifts.read, loadApiKey | `server/routes/game.js` |
-| GET | `/api/game/players/:uid/messages` | api:game.messages.read, loadApiKey | `server/routes/game.js` |
-| POST | `/api/game/players/upsert` | api:game.players.write, loadApiKey | `server/routes/game.js` |
-| POST | `/api/game/points/:pointKey/increment` | api:game.points.write, loadApiKey | `server/routes/game.js` |
-| POST | `/api/game/risk/events` | api:game.risk.write, loadApiKey | `server/routes/game.js` |
+| GET | `/api/fq/archives/global` | api:game.archives.read, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/archives/global/save` | api:game.archives.write, loadApiKey | `server/routes/game.js` |
+| GET | `/api/fq/archives/players/:uid` | api:game.archives.read, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/archives/players/:uid/save` | api:game.archives.write, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/bootstrap` | api:game.archives.read, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/gifts/:grantId/ack` | api:game.gifts.read, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/leaderboards/:leaderboardKey/entries` | api:game.leaderboards.write, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/logs` | api:game.logs.write, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/messages/:messageId/ack` | api:game.messages.read, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/metrics` | api:game.metrics.write, loadApiKey | `server/routes/game.js` |
+| GET | `/api/fq/players/:uid/gifts` | api:game.gifts.read, loadApiKey | `server/routes/game.js` |
+| GET | `/api/fq/players/:uid/messages` | api:game.messages.read, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/players/upsert` | api:game.players.write, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/points/:pointKey/increment` | api:game.points.write, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/risk/events` | api:game.risk.write, loadApiKey | `server/routes/game.js` |
 | GET | `/api/maps/` | requireAuth | `server/routes/maps.js` |
 | POST | `/api/maps/` | requireAdmin, requireAuth | `server/routes/maps.js` |
 | DELETE | `/api/maps/:mapId` | requireAdmin, requireAuth | `server/routes/maps.js` |
@@ -151,6 +158,7 @@
 | `server/db/migrations/001_initial.sql` | anchors, api_keys, audit_logs, gift_grants, gifts, map_configs, map_files, map_logs, map_metrics, map_permissions, maps, players, sessions, system_settings, tracking_points, users | — | `5bf35b512a29` |
 | `server/db/migrations/002_messages_lotteries.sql` | lottery_campaigns, lottery_entries, player_messages | gift_grants | `4d11a4f69d16` |
 | `server/db/migrations/003_leaderboards_risk.sql` | leaderboard_entries, leaderboard_snapshot_entries, leaderboard_snapshots, leaderboards, risk_events, risk_rules | — | `754bde1002a9` |
+| `server/db/migrations/004_fq_archives.sql` | fq_global_archives, fq_player_archives | — | `145ebc293e1e` |
 
 ## 环境变量
 
@@ -165,6 +173,7 @@
 - 管理员登录并创建地图与普通用户
 - 普通用户只能访问被授权的地图与功能
 - 游戏客户端写入玩家，后台发送消息与礼包，客户端确认领取
+- FQ 存档支持首次读取、版本写入、幂等重放、冲突保护和存档封禁
 - 客户端上报日志和指标并进入后台查询链路
 - 地图局部编辑、地图配置和系统设置均能持久化
 - 主播和埋点支持增改查，游戏客户端可上报埋点

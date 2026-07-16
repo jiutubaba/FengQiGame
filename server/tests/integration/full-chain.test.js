@@ -142,6 +142,8 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
         environment: "test",
         permissions: [
           "game.players.write",
+          "game.archives.read",
+          "game.archives.write",
           "game.logs.write",
           "game.metrics.write",
           "game.points.write",
@@ -156,8 +158,8 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     gameKeyId = keyResponse.body.data.id;
 
     await request(app)
-      .post("/api/game/players/upsert")
-      .set("x-map-key", gameToken)
+      .post("/api/fq/players/upsert")
+      .set("fq-map-key", gameToken)
       .send({ uid: "player-001", name: "链路玩家", level: 10, gameLevel: "N2" })
       .expect(200);
     const players = await admin
@@ -184,50 +186,207 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(201);
 
     const gifts = await request(app)
-      .get("/api/game/players/player-001/gifts")
-      .set("x-map-key", gameToken)
+      .get("/api/fq/players/player-001/gifts")
+      .set("fq-map-key", gameToken)
       .expect(200);
     const messages = await request(app)
-      .get("/api/game/players/player-001/messages")
-      .set("x-map-key", gameToken)
+      .get("/api/fq/players/player-001/messages")
+      .set("fq-map-key", gameToken)
       .expect(200);
     expect(gifts.body.data).toHaveLength(1);
     expect(messages.body.data).toHaveLength(1);
     await request(app)
-      .post(`/api/game/gifts/${gifts.body.data[0].id}/ack`)
-      .set("x-map-key", gameToken)
+      .post(`/api/fq/gifts/${gifts.body.data[0].id}/ack`)
+      .set("fq-map-key", gameToken)
       .send({ uid: "player-001" })
       .expect(200);
     await request(app)
-      .post(`/api/game/messages/${messages.body.data[0].id}/ack`)
-      .set("x-map-key", gameToken)
+      .post(`/api/fq/messages/${messages.body.data[0].id}/ack`)
+      .set("fq-map-key", gameToken)
       .send({ uid: "player-001" })
       .expect(200);
     expect(
       (
         await request(app)
-          .get("/api/game/players/player-001/gifts")
-          .set("x-map-key", gameToken)
+          .get("/api/fq/players/player-001/gifts")
+          .set("fq-map-key", gameToken)
       ).body.data,
     ).toHaveLength(0);
     expect(
       (
         await request(app)
-          .get("/api/game/players/player-001/messages")
-          .set("x-map-key", gameToken)
+          .get("/api/fq/players/player-001/messages")
+          .set("fq-map-key", gameToken)
       ).body.data,
     ).toHaveLength(0);
   });
 
+  it("FQ 存档支持首次读取、版本写入、幂等重放、冲突保护和存档封禁", async () => {
+    const empty = await request(app)
+      .post("/api/fq/bootstrap")
+      .set("fq-map-key", gameToken)
+      .send({ uids: ["player-001"] })
+      .expect(200);
+    expect(empty.body.data.environment).toBe("test");
+    expect(empty.body.data.players[0]).toMatchObject({
+      uid: "player-001",
+      dataBanned: false,
+      revision: 0,
+      values: {},
+    });
+    expect(empty.body.data.global).toMatchObject({ revision: 0, values: {} });
+
+    const firstSaveBody = {
+      requestId: "FQ-player-001-save-1",
+      expectedRevision: 0,
+      values: { gold: 100, inventory: ["sword"] },
+    };
+    const firstSave = await request(app)
+      .post("/api/fq/archives/players/player-001/save")
+      .set("fq-map-key", gameToken)
+      .send(firstSaveBody)
+      .expect(200);
+    expect(firstSave.body.data.replayed).toBe(false);
+    expect(firstSave.body.data.archive).toMatchObject({
+      uid: "player-001",
+      revision: 1,
+      values: firstSaveBody.values,
+    });
+
+    const replayed = await request(app)
+      .post("/api/fq/archives/players/player-001/save")
+      .set("fq-map-key", gameToken)
+      .send(firstSaveBody)
+      .expect(200);
+    expect(replayed.body.data.replayed).toBe(true);
+    expect(replayed.body.data.archive.revision).toBe(1);
+
+    const concurrentBody = {
+      requestId: "FQ-player-002-concurrent",
+      expectedRevision: 0,
+      values: { gold: 20 },
+    };
+    const concurrent = await Promise.all([
+      request(app)
+        .post("/api/fq/archives/players/player-002/save")
+        .set("fq-map-key", gameToken)
+        .send(concurrentBody)
+        .expect(200),
+      request(app)
+        .post("/api/fq/archives/players/player-002/save")
+        .set("fq-map-key", gameToken)
+        .send(concurrentBody)
+        .expect(200),
+    ]);
+    expect(
+      concurrent.map((response) => response.body.data.replayed).sort(),
+    ).toEqual([false, true]);
+    expect(
+      concurrent.every((response) => response.body.data.archive.revision === 1),
+    ).toBe(true);
+
+    const reused = await request(app)
+      .post("/api/fq/archives/players/player-001/save")
+      .set("fq-map-key", gameToken)
+      .send({ ...firstSaveBody, values: { gold: 999 } })
+      .expect(409);
+    expect(reused.body.error.code).toBe("FQ_REQUEST_REUSED");
+
+    const stale = await request(app)
+      .post("/api/fq/archives/players/player-001/save")
+      .set("fq-map-key", gameToken)
+      .send({
+        requestId: "FQ-player-001-stale",
+        expectedRevision: 0,
+        values: { gold: 120 },
+      })
+      .expect(409);
+    expect(stale.body.error).toMatchObject({
+      code: "FQ_ARCHIVE_REVISION_CONFLICT",
+      details: { currentRevision: 1 },
+    });
+
+    await request(app)
+      .post("/api/fq/archives/global/save")
+      .set("fq-map-key", gameToken)
+      .send({
+        requestId: "FQ-global-save-1",
+        expectedRevision: 0,
+        values: { season: 1, serverOpen: true },
+      })
+      .expect(200);
+    const loaded = await request(app)
+      .post("/api/fq/bootstrap")
+      .set("fq-map-key", gameToken)
+      .send({ uids: ["player-001"] })
+      .expect(200);
+    expect(loaded.body.data.players[0].values.gold).toBe(100);
+    expect(loaded.body.data.global.values).toEqual({
+      season: 1,
+      serverOpen: true,
+    });
+
+    await admin
+      .patch(`/api/maps/${mapId}/players/${playerId}?environment=test`)
+      .send({ dataBan: true })
+      .expect(200);
+    await request(app)
+      .get("/api/fq/archives/players/player-001")
+      .set("fq-map-key", gameToken)
+      .expect(403);
+    await request(app)
+      .post("/api/fq/archives/players/player-001/save")
+      .set("fq-map-key", gameToken)
+      .send({
+        requestId: "FQ-player-001-banned",
+        expectedRevision: 1,
+        values: { gold: 120 },
+      })
+      .expect(403);
+    const bannedBootstrap = await request(app)
+      .post("/api/fq/bootstrap")
+      .set("fq-map-key", gameToken)
+      .send({ uids: ["player-001"] })
+      .expect(200);
+    expect(bannedBootstrap.body.data.players[0]).toMatchObject({
+      dataBanned: true,
+      revision: 0,
+      values: {},
+    });
+    await admin
+      .patch(`/api/maps/${mapId}/players/${playerId}?environment=test`)
+      .send({ dataBan: false })
+      .expect(200);
+    await admin
+      .patch(`/api/maps/${mapId}/players/${playerId}?environment=test`)
+      .send({ uid: "player-renamed" })
+      .expect(200);
+    const renamedArchive = await request(app)
+      .get("/api/fq/archives/players/player-renamed")
+      .set("fq-map-key", gameToken)
+      .expect(200);
+    expect(renamedArchive.body.data.values.gold).toBe(100);
+    await admin
+      .patch(`/api/maps/${mapId}/players/${playerId}?environment=test`)
+      .send({ uid: "player-001" })
+      .expect(200);
+
+    await request(app)
+      .post("/api/fq/bootstrap")
+      .set("x-map-key", gameToken)
+      .send({ uids: ["player-001"] })
+      .expect(401);
+  });
+
   it("客户端上报日志和指标并进入后台查询链路", async () => {
     await request(app)
-      .post("/api/game/logs")
-      .set("x-map-key", gameToken)
+      .post("/api/fq/logs")
+      .set("fq-map-key", gameToken)
       .send({ context: "[integration] chain ok", playerCount: 1 })
       .expect(200);
     await request(app)
-      .post("/api/game/metrics")
-      .set("x-map-key", gameToken)
+      .post("/api/fq/metrics")
+      .set("fq-map-key", gameToken)
       .send({
         date: "2026-07-14",
         cumulativeUsers: 1,
@@ -301,8 +460,8 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(201);
     pointId = point.body.data.id;
     await request(app)
-      .post("/api/game/points/acceptance_start/increment")
-      .set("x-map-key", gameToken)
+      .post("/api/fq/points/acceptance_start/increment")
+      .set("fq-map-key", gameToken)
       .send({ amount: 3 })
       .expect(200);
     const points = await admin
@@ -331,8 +490,8 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(201);
     const leaderboardId = leaderboard.body.data.id;
     await request(app)
-      .post("/api/game/leaderboards/game_power/entries")
-      .set("x-map-key", gameToken)
+      .post("/api/fq/leaderboards/game_power/entries")
+      .set("fq-map-key", gameToken)
       .send({
         entries: [
           {
@@ -379,8 +538,8 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(201);
     expect(rule.body.data.ruleKey).toBe("abnormal_power_growth");
     const reported = await request(app)
-      .post("/api/game/risk/events")
-      .set("x-map-key", gameToken)
+      .post("/api/fq/risk/events")
+      .set("fq-map-key", gameToken)
       .send({
         eventId: "risk-event-001",
         ruleKey: "abnormal_power_growth",
@@ -392,8 +551,8 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(201);
     expect(reported.body.data.created).toBe(true);
     const repeated = await request(app)
-      .post("/api/game/risk/events")
-      .set("x-map-key", gameToken)
+      .post("/api/fq/risk/events")
+      .set("fq-map-key", gameToken)
       .send({
         eventId: "risk-event-001",
         ruleKey: "abnormal_power_growth",
@@ -470,7 +629,12 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .send({
         name: "正式服验收客户端",
         environment: "release",
-        permissions: ["game.players.write", "game.metrics.write"],
+        permissions: [
+          "game.players.write",
+          "game.metrics.write",
+          "game.archives.read",
+          "game.archives.write",
+        ],
       })
       .expect(201);
     releaseToken = keyResponse.body.data.token;
@@ -480,20 +644,42 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .send({
         name: "大厅服验收客户端",
         environment: "lobby",
-        permissions: ["game.players.write"],
+        permissions: [
+          "game.players.write",
+          "game.archives.read",
+          "game.archives.write",
+        ],
       })
       .expect(201);
     lobbyToken = lobbyKeyResponse.body.data.token;
     lobbyKeyId = lobbyKeyResponse.body.data.id;
     await request(app)
-      .post("/api/game/players/upsert")
-      .set("x-map-key", releaseToken)
+      .post("/api/fq/players/upsert")
+      .set("fq-map-key", releaseToken)
       .send({ uid: "player-001", name: "正式服同 UID 玩家", level: 2 })
       .expect(200);
     await request(app)
-      .post("/api/game/players/upsert")
-      .set("x-map-key", lobbyToken)
+      .post("/api/fq/players/upsert")
+      .set("fq-map-key", lobbyToken)
       .send({ uid: "player-001", name: "大厅服同 UID 玩家", level: 3 })
+      .expect(200);
+    await request(app)
+      .post("/api/fq/archives/players/player-001/save")
+      .set("fq-map-key", releaseToken)
+      .send({
+        requestId: "FQ-release-player-001",
+        expectedRevision: 0,
+        values: { environment: "release" },
+      })
+      .expect(200);
+    await request(app)
+      .post("/api/fq/archives/players/player-001/save")
+      .set("fq-map-key", lobbyToken)
+      .send({
+        requestId: "FQ-lobby-player-001",
+        expectedRevision: 0,
+        values: { environment: "lobby" },
+      })
       .expect(200);
 
     const testPlayers = await admin
@@ -511,6 +697,20 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(releasePlayers.body.data[0].name).toBe("正式服同 UID 玩家");
     expect(lobbyPlayers.body.data).toHaveLength(1);
     expect(lobbyPlayers.body.data[0].name).toBe("大厅服同 UID 玩家");
+    const [testArchive, releaseArchive, lobbyArchive] = await Promise.all([
+      request(app)
+        .get("/api/fq/archives/players/player-001")
+        .set("fq-map-key", gameToken),
+      request(app)
+        .get("/api/fq/archives/players/player-001")
+        .set("fq-map-key", releaseToken),
+      request(app)
+        .get("/api/fq/archives/players/player-001")
+        .set("fq-map-key", lobbyToken),
+    ]);
+    expect(testArchive.body.data.values.gold).toBe(100);
+    expect(releaseArchive.body.data.values.environment).toBe("release");
+    expect(lobbyArchive.body.data.values.environment).toBe("lobby");
   });
 
   it("文件夹、文件上传、列表、下载和级联删除形成闭环", async () => {
@@ -652,6 +852,8 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(cleared.body.data.leaderboardEntries).toBe(2);
     expect(cleared.body.data.leaderboardSnapshots).toBe(1);
     expect(cleared.body.data.riskEvents).toBe(1);
+    expect(cleared.body.data.playerArchives).toBe(2);
+    expect(cleared.body.data.globalArchives).toBe(1);
     const pointsAfterClear = await admin
       .get(`/api/maps/${mapId}/points?environment=test`)
       .expect(200);
@@ -666,16 +868,14 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     await admin.delete(`/api/maps/${mapId}/gifts/${giftId}`).expect(200);
     await admin.delete(`/api/maps/${mapId}/api-keys/${gameKeyId}`).expect(200);
     await request(app)
-      .post("/api/game/logs")
-      .set("x-map-key", gameToken)
+      .post("/api/fq/logs")
+      .set("fq-map-key", gameToken)
       .send({ context: "disabled key" })
       .expect(401);
     await admin
       .delete(`/api/maps/${mapId}/api-keys/${releaseKeyId}`)
       .expect(200);
-    await admin
-      .delete(`/api/maps/${mapId}/api-keys/${lobbyKeyId}`)
-      .expect(200);
+    await admin.delete(`/api/maps/${mapId}/api-keys/${lobbyKeyId}`).expect(200);
     await admin.delete(`/api/maps/${mapId}`).expect(200);
     expect((await admin.get("/api/maps").expect(200)).body.data).toHaveLength(
       0,

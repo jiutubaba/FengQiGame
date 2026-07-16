@@ -15,7 +15,7 @@
 
 ```text
 浏览器 -> Caddy/同源站点 -> Express -> 会话与地图权限 -> PostgreSQL/上传卷
-游戏客户端 -> X-Map-Key -> Express API Key 权限 -> 绑定地图与环境 -> PostgreSQL
+游戏客户端 -> /api/fq + FQ-Map-Key -> Express API Key 权限 -> 绑定地图与环境 -> PostgreSQL
 公开参与者 -> 不可猜测群抽 Token -> 限流公开接口 -> 群抽数据
 ```
 

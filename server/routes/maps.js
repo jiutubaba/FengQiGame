@@ -398,23 +398,34 @@ router.patch(
     );
     if (!current.rows[0]) throw notFound("玩家不存在");
     const row = current.rows[0];
-    const result = await query(
-      `UPDATE players SET uid=$1,name=$2,level=$3,game_level=$4,item_ban=$5,data_ban=$6,rank_ban=$7,profile=$8::jsonb,updated_at=NOW()
-      WHERE id=$9 AND map_id=$10 AND environment=$11 RETURNING *`,
-      [
-        req.body.uid ?? row.uid,
-        req.body.name ?? row.name,
-        req.body.level ?? row.level,
-        req.body.gameLevel ?? row.game_level,
-        req.body.itemBan ?? row.item_ban,
-        req.body.dataBan ?? row.data_ban,
-        req.body.rankBan ?? row.rank_ban,
-        JSON.stringify(req.body.profile ?? row.profile),
-        playerId,
-        mapId,
-        environment,
-      ],
-    );
+    const nextUid = req.body.uid ?? row.uid;
+    const result = await transaction(async (client) => {
+      const updated = await client.query(
+        `UPDATE players SET uid=$1,name=$2,level=$3,game_level=$4,item_ban=$5,data_ban=$6,rank_ban=$7,profile=$8::jsonb,updated_at=NOW()
+        WHERE id=$9 AND map_id=$10 AND environment=$11 RETURNING *`,
+        [
+          nextUid,
+          req.body.name ?? row.name,
+          req.body.level ?? row.level,
+          req.body.gameLevel ?? row.game_level,
+          req.body.itemBan ?? row.item_ban,
+          req.body.dataBan ?? row.data_ban,
+          req.body.rankBan ?? row.rank_ban,
+          JSON.stringify(req.body.profile ?? row.profile),
+          playerId,
+          mapId,
+          environment,
+        ],
+      );
+      if (nextUid !== row.uid) {
+        await client.query(
+          `UPDATE fq_player_archives SET player_uid=$1,updated_at=NOW()
+            WHERE map_id=$2 AND environment=$3 AND player_uid=$4`,
+          [nextUid, mapId, environment, row.uid],
+        );
+      }
+      return updated;
+    });
     await writeAudit(req, {
       action: "player.update",
       resourceType: "player",
@@ -433,11 +444,18 @@ router.delete(
     const mapId = idSchema.parse(req.params.mapId);
     const environment = envFrom(req);
     const playerId = idSchema.parse(req.params.playerId);
-    const result = await query(
-      "DELETE FROM players WHERE id=$1 AND map_id=$2 AND environment=$3 RETURNING id,uid,name",
-      [playerId, mapId, environment],
-    );
-    if (!result.rows[0]) throw notFound("玩家不存在");
+    const result = await transaction(async (client) => {
+      const deleted = await client.query(
+        "DELETE FROM players WHERE id=$1 AND map_id=$2 AND environment=$3 RETURNING id,uid,name",
+        [playerId, mapId, environment],
+      );
+      if (!deleted.rows[0]) throw notFound("玩家不存在");
+      await client.query(
+        "DELETE FROM fq_player_archives WHERE map_id=$1 AND environment=$2 AND player_uid=$3",
+        [mapId, environment, deleted.rows[0].uid],
+      );
+      return deleted;
+    });
     await writeAudit(req, {
       action: "player.delete",
       resourceType: "player",
@@ -1410,6 +1428,14 @@ router.post(
         "DELETE FROM risk_events WHERE map_id=$1 AND environment=$2",
         [mapId, req.body.environment],
       );
+      const playerArchives = await client.query(
+        "DELETE FROM fq_player_archives WHERE map_id=$1 AND environment=$2",
+        [mapId, req.body.environment],
+      );
+      const globalArchives = await client.query(
+        "DELETE FROM fq_global_archives WHERE map_id=$1 AND environment=$2",
+        [mapId, req.body.environment],
+      );
       const players = await client.query(
         "DELETE FROM players WHERE map_id=$1 AND environment=$2",
         [mapId, req.body.environment],
@@ -1432,6 +1458,8 @@ router.post(
         leaderboardSnapshots: leaderboardSnapshots.rowCount,
         leaderboardEntries: leaderboardEntries.rowCount,
         riskEvents: riskEvents.rowCount,
+        playerArchives: playerArchives.rowCount,
+        globalArchives: globalArchives.rowCount,
         players: players.rowCount,
         logs: logs.rowCount,
         metrics: metrics.rowCount,
@@ -1744,6 +1772,8 @@ router.post(
         .array(
           z.enum([
             "game.players.write",
+            "game.archives.read",
+            "game.archives.write",
             "game.logs.write",
             "game.metrics.write",
             "game.points.write",

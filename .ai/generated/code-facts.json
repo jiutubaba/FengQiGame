@@ -149,8 +149,53 @@
       "guards": []
     },
     {
+      "method": "GET",
+      "path": "/api/fq/archives/global",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.archives.read",
+        "loadApiKey"
+      ]
+    },
+    {
       "method": "POST",
-      "path": "/api/game/gifts/:grantId/ack",
+      "path": "/api/fq/archives/global/save",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.archives.write",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/fq/archives/players/:uid",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.archives.read",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/fq/archives/players/:uid/save",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.archives.write",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/fq/bootstrap",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.archives.read",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/fq/gifts/:grantId/ack",
       "source": "server/routes/game.js",
       "guards": [
         "api:game.gifts.read",
@@ -159,7 +204,7 @@
     },
     {
       "method": "POST",
-      "path": "/api/game/leaderboards/:leaderboardKey/entries",
+      "path": "/api/fq/leaderboards/:leaderboardKey/entries",
       "source": "server/routes/game.js",
       "guards": [
         "api:game.leaderboards.write",
@@ -168,7 +213,7 @@
     },
     {
       "method": "POST",
-      "path": "/api/game/logs",
+      "path": "/api/fq/logs",
       "source": "server/routes/game.js",
       "guards": [
         "api:game.logs.write",
@@ -177,7 +222,7 @@
     },
     {
       "method": "POST",
-      "path": "/api/game/messages/:messageId/ack",
+      "path": "/api/fq/messages/:messageId/ack",
       "source": "server/routes/game.js",
       "guards": [
         "api:game.messages.read",
@@ -186,7 +231,7 @@
     },
     {
       "method": "POST",
-      "path": "/api/game/metrics",
+      "path": "/api/fq/metrics",
       "source": "server/routes/game.js",
       "guards": [
         "api:game.metrics.write",
@@ -195,7 +240,7 @@
     },
     {
       "method": "GET",
-      "path": "/api/game/players/:uid/gifts",
+      "path": "/api/fq/players/:uid/gifts",
       "source": "server/routes/game.js",
       "guards": [
         "api:game.gifts.read",
@@ -204,7 +249,7 @@
     },
     {
       "method": "GET",
-      "path": "/api/game/players/:uid/messages",
+      "path": "/api/fq/players/:uid/messages",
       "source": "server/routes/game.js",
       "guards": [
         "api:game.messages.read",
@@ -213,7 +258,7 @@
     },
     {
       "method": "POST",
-      "path": "/api/game/players/upsert",
+      "path": "/api/fq/players/upsert",
       "source": "server/routes/game.js",
       "guards": [
         "api:game.players.write",
@@ -222,7 +267,7 @@
     },
     {
       "method": "POST",
-      "path": "/api/game/points/:pointKey/increment",
+      "path": "/api/fq/points/:pointKey/increment",
       "source": "server/routes/game.js",
       "guards": [
         "api:game.points.write",
@@ -231,7 +276,7 @@
     },
     {
       "method": "POST",
-      "path": "/api/game/risk/events",
+      "path": "/api/fq/risk/events",
       "source": "server/routes/game.js",
       "guards": [
         "api:game.risk.write",
@@ -794,6 +839,8 @@
     }
   ],
   "apiPermissions": [
+    "game.archives.read",
+    "game.archives.write",
     "game.gifts.read",
     "game.leaderboards.write",
     "game.logs.write",
@@ -899,6 +946,15 @@
         "risk_rules"
       ],
       "alteredTables": []
+    },
+    {
+      "file": "server/db/migrations/004_fq_archives.sql",
+      "sha256": "145ebc293e1e5cd5903f7a2cb75a1ec9c7047f2616e377de88a8ca7cdb3879cc",
+      "tables": [
+        "fq_global_archives",
+        "fq_player_archives"
+      ],
+      "alteredTables": []
     }
   ],
   "environmentVariables": {
@@ -946,6 +1002,7 @@
         "管理员登录并创建地图与普通用户",
         "普通用户只能访问被授权的地图与功能",
         "游戏客户端写入玩家，后台发送消息与礼包，客户端确认领取",
+        "FQ 存档支持首次读取、版本写入、幂等重放、冲突保护和存档封禁",
         "客户端上报日志和指标并进入后台查询链路",
         "地图局部编辑、地图配置和系统设置均能持久化",
         "主播和埋点支持增改查，游戏客户端可上报埋点",
@@ -1011,6 +1068,10 @@
       "lines": 101
     },
     {
+      "file": "server/db/migrations/004_fq_archives.sql",
+      "lines": 40
+    },
+    {
       "file": "server/index.js",
       "lines": 33
     },
@@ -1028,7 +1089,7 @@
     },
     {
       "file": "server/middleware/auth.js",
-      "lines": 103
+      "lines": 107
     },
     {
       "file": "server/middleware/errors.js",
@@ -1048,11 +1109,11 @@
     },
     {
       "file": "server/routes/game.js",
-      "lines": 370
+      "lines": 692
     },
     {
       "file": "server/routes/maps.js",
-      "lines": 2175
+      "lines": 2205
     },
     {
       "file": "server/routes/public.js",
@@ -1080,7 +1141,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 688
+      "lines": 888
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1144,7 +1205,7 @@
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 3302
+      "lines": 3304
     },
     {
       "file": "src/pages/ProfilePage.jsx",

@@ -7,7 +7,7 @@
 - 密码使用安全哈希；会话与 API Key 只保存哈希，完整 Token 不落库。
 - 登录有限流；停用用户、重置密码和修改密码必须使既有会话失效。
 - Cookie 的 Secure 策略由环境决定；公网生产必须 HTTPS、`COOKIE_SECURE=true`、正确配置 `TRUST_PROXY`。
-- 日志必须脱敏 Cookie、Authorization、`X-Map-Key` 和密码字段。
+- 日志必须脱敏 Cookie、Authorization、`FQ-Map-Key` 和密码字段。
 
 ## 授权
 

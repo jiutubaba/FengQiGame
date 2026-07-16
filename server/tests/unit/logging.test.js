@@ -15,7 +15,7 @@ describe("日志脱敏", () => {
         headers: {
           cookie: "fq_session=request-secret",
           authorization: "Bearer request-secret",
-          "x-map-key": "map-secret",
+          "fq-map-key": "map-secret",
         },
       },
       res: {
@@ -30,7 +30,7 @@ describe("日志脱敏", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].req.headers.cookie).toBe("[Redacted]");
     expect(rows[0].req.headers.authorization).toBe("[Redacted]");
-    expect(rows[0].req.headers["x-map-key"]).toBe("[Redacted]");
+    expect(rows[0].req.headers["fq-map-key"]).toBe("[Redacted]");
     expect(rows[0].res.headers["set-cookie"]).toBe("[Redacted]");
     expect(rows[0].res.headers["content-type"]).toBe("application/json");
     expect(rows[0].password).toBe("[Redacted]");
