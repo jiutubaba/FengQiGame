@@ -1017,11 +1017,11 @@ curl -sS \
   "${FQ_BASE_URL}/api/fq/archives/players/player-001/save"
 ```
 
-## 15. 《沧澜》YasioHttpClient 适配示例
+## 15. 《沧澜》现有 FQ 适配与维护示例
 
-《沧澜》现有 `YasioHttpClient:send` 已支持 `headers`，但旧 `util.SendPost` 没有传递 Key，而且仍判断旧响应格式 `result.status == "success"`。FQ 适配层应独立封装，判断 `result.success == true`。
+《沧澜》已在 `scripts/maps/server/FQHttpClient.lua`、`FQServer.lua` 与 `init.lua` 中完成独立 FQ 适配：固定正式基址、统一添加 `FQ-Map-Key`、判断 `result.success == true`，并维护 bootstrap、玩家/全局 revision、重试与启动离线门闩。下面的代码保留为协议调用示例，不是待创建的新适配层。
 
-示例只说明调用方式，Key 必须由项目私有配置提供：
+Key 必须由被 Git 忽略的 `FQPrivateConfig.lua` 私有配置提供；每次构建只携带当前 environment 对应的一把 Key：
 
 ```lua
 local YasioHttpClient = require 'maps.server.YasioHttpClient'
@@ -1136,12 +1136,9 @@ fq_request('post', '/api/fq/archives/players/player-001/save', {
 end)
 ```
 
-当前 `ServerPlayerData:new` 会对每个值执行 Base64 解码，而 FQ 存档按原样保存 JSON，不自动编码或解码。游戏项目必须统一选择一种策略：
+当前《沧澜》实现已经选择原始 JSON，不再对 FQ 值执行旧 Base64 解码；同一字段不得重新混入旧编码格式。
 
-1. 继续复用现有类：游戏侧保存前编码，读取后由现有类解码；
-2. 改为原始 JSON：移除该层 Base64 解码，直接使用 `values`。
-
-同一字段不能混用两种格式。
+截至 2026-07-21，纯 Lua 适配自检已通过，但本机私有配置尚未创建，真实游戏仍未完成 `test` 环境验收。现有三套 Key 只含玩家写入和存档读写权限，而《沧澜》启动链还会读取消息与礼包；联调前必须按最小权限补充 `game.messages.read` 与 `game.gifts.read`。详细交接见 [沧澜项目 AI 技术交接](沧澜项目AI技术交接.md)。
 
 ## 16. 游戏侧最低验收清单
 
