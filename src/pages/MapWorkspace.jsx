@@ -165,6 +165,7 @@ export default function MapWorkspace() {
       setMap(next);
       await refreshMaps();
     },
+    refreshMaps,
   };
   const panels = {
     metrics: <MetricsPanel {...panelProps} />,
@@ -370,7 +371,15 @@ const configSections = [
   ["preloadCode", "预加载代码"],
 ];
 
-function ConfigPanel({ map, mapId, environment, isAdmin, can, refreshMap }) {
+function ConfigPanel({
+  map,
+  mapId,
+  environment,
+  isAdmin,
+  can,
+  refreshMap,
+  refreshMaps,
+}) {
   const [active, setActive] = useState("basic");
   const [config, setConfig] = useState(null);
   const [mapForm, setMapForm] = useState({
@@ -382,6 +391,8 @@ function ConfigPanel({ map, mapId, environment, isAdmin, can, refreshMap }) {
   const [editor, setEditor] = useState("");
   const [clearOpen, setClearOpen] = useState(false);
   const [confirmName, setConfirmName] = useState("");
+  const [deleteStep, setDeleteStep] = useState(0);
+  const [deleting, setDeleting] = useState(false);
   const navigate = useNavigate();
   const toast = useToast();
   const editable = can("map.edit");
@@ -470,6 +481,23 @@ function ConfigPanel({ map, mapId, environment, isAdmin, can, refreshMap }) {
       navigate("/maps");
     } catch (error) {
       toast(error.message, "danger");
+    }
+  };
+  const deleteMapPermanently = async () => {
+    setDeleting(true);
+    try {
+      await api(`/api/maps/${mapId}/permanent`, {
+        method: "DELETE",
+        body: { confirmMapId: map.id, confirmName: map.name },
+      });
+      setDeleteStep(0);
+      await refreshMaps();
+      toast("地图及服务器数据已永久删除");
+      navigate("/maps");
+    } catch (error) {
+      toast(error.message, "danger");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -579,6 +607,27 @@ function ConfigPanel({ map, mapId, environment, isAdmin, can, refreshMap }) {
                 </>
               )}
             </div>
+            {isAdmin && (
+              <div className="danger-zone map-delete-zone">
+                <div>
+                  <ShieldAlert size={19} />
+                  <span>
+                    <strong>永久删除地图</strong>
+                    <small>
+                      清除全部环境的玩家、存档、配置、榜单、礼包、日志、API Key
+                      和上传文件，不可撤销。
+                    </small>
+                  </span>
+                </div>
+                <Button
+                  variant="danger"
+                  icon={Trash2}
+                  onClick={() => setDeleteStep(1)}
+                >
+                  永久删除
+                </Button>
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -637,6 +686,66 @@ function ConfigPanel({ map, mapId, environment, isAdmin, can, refreshMap }) {
             onChange={(event) => setConfirmName(event.target.value)}
           />
         </Field>
+      </Modal>
+      <Modal
+        open={deleteStep === 1}
+        onClose={() => setDeleteStep(0)}
+        danger
+        title="永久删除地图"
+        eyebrow="PERMANENT DELETION · 第一次确认"
+        footer={
+          <>
+            <Button onClick={() => setDeleteStep(0)}>取消</Button>
+            <Button
+              variant="danger"
+              icon={ShieldAlert}
+              onClick={() => setDeleteStep(2)}
+            >
+              确认风险，继续删除
+            </Button>
+          </>
+        }
+      >
+        <p className="warning-note danger-warning">
+          此操作不是归档，也不是清理单个环境。继续后将进入最终确认。
+        </p>
+        <ul className="danger-consequence-list">
+          <li>删除正式服、大厅服和测试服的全部玩家与存档数据。</li>
+          <li>删除地图配置、礼包、榜单及快照、风控、日志和 API Key。</li>
+          <li>删除服务器上传卷中该地图的全部文件。</li>
+          <li>后台不提供撤销或恢复按钮。</li>
+        </ul>
+      </Modal>
+      <Modal
+        open={deleteStep === 2}
+        onClose={() => !deleting && setDeleteStep(0)}
+        danger
+        title={`最终确认：永久删除“${map.name}”`}
+        eyebrow="PERMANENT DELETION · 第二次确认"
+        footer={
+          <>
+            <Button onClick={() => setDeleteStep(0)} disabled={deleting}>
+              取消
+            </Button>
+            <Button
+              variant="danger"
+              icon={Trash2}
+              onClick={deleteMapPermanently}
+              disabled={deleting}
+            >
+              {deleting ? "正在永久删除…" : "确认永久删除"}
+            </Button>
+          </>
+        }
+      >
+        <div className="permanent-delete-target">
+          <span>即将永久删除</span>
+          <strong>{map.name}</strong>
+          <code>地图 ID：{map.id}</code>
+        </div>
+        <p className="warning-note danger-warning">
+          确认后，当前在线数据库和上传卷中的地图数据将不可恢复。历史审计记录会保留，已有数据库与上传卷备份仍按原保留期管理。
+        </p>
       </Modal>
     </div>
   );

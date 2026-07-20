@@ -606,6 +606,15 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/permanent",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "requireAdmin",
+        "requireAuth"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/maps/:mapId/players",
       "source": "server/routes/maps.js",
@@ -878,6 +887,7 @@
     "map.archive",
     "map.config.update",
     "map.create",
+    "map.delete",
     "map.runtime.clear",
     "map.update",
     "player.create",
@@ -1011,13 +1021,22 @@
         "文件夹、文件上传、列表、下载和级联删除形成闭环",
         "公开抽奖支持报名、防重复、开奖与中奖结果公开",
         "个人资料、密码更新、退出登录和重新登录均有效",
-        "管理员运维、审计、清理、凭据停用和地图归档完整生效"
+        "管理员运维、审计、清理、凭据停用和地图归档完整生效",
+        "永久删除地图经过双重服务端校验并清除数据库与上传目录"
       ]
     },
     {
       "file": "server/tests/unit/logging.test.js",
       "tests": [
         "请求凭据和响应 Set-Cookie 不写入日志"
+      ]
+    },
+    {
+      "file": "server/tests/unit/map-deletion.test.js",
+      "tests": [
+        "数据库流程失败时可以恢复暂存目录",
+        "成功删除时同时清理暂存目录和并发重建的原目录",
+        "启动清理仅删除地图已不存在的受控残留目录"
       ]
     },
     {
@@ -1034,7 +1053,8 @@
         "PATCH 只保留客户端实际提交的字段，不注入 schema 默认值",
         "POST 会保留 schema 默认值",
         "内部异常不向客户端泄露原始错误",
-        "非法 JSON 返回稳定的 400 错误码"
+        "非法 JSON 返回稳定的 400 错误码",
+        "显式服务端错误保留约定的错误码并记录日志"
       ]
     }
   ],
@@ -1073,11 +1093,11 @@
     },
     {
       "file": "server/index.js",
-      "lines": 33
+      "lines": 52
     },
     {
       "file": "server/lib/audit.js",
-      "lines": 22
+      "lines": 26
     },
     {
       "file": "server/lib/errors.js",
@@ -1093,7 +1113,7 @@
     },
     {
       "file": "server/middleware/errors.js",
-      "lines": 54
+      "lines": 56
     },
     {
       "file": "server/middleware/validation.js",
@@ -1113,7 +1133,7 @@
     },
     {
       "file": "server/routes/maps.js",
-      "lines": 2205
+      "lines": 2359
     },
     {
       "file": "server/routes/public.js",
@@ -1136,16 +1156,24 @@
       "lines": 69
     },
     {
+      "file": "server/services/map-deletion.js",
+      "lines": 146
+    },
+    {
       "file": "server/services/users.js",
       "lines": 41
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 888
+      "lines": 1184
     },
     {
       "file": "server/tests/unit/logging.test.js",
       "lines": 39
+    },
+    {
+      "file": "server/tests/unit/map-deletion.test.js",
+      "lines": 106
     },
     {
       "file": "server/tests/unit/security.test.js",
@@ -1153,7 +1181,7 @@
     },
     {
       "file": "server/tests/unit/validation.test.js",
-      "lines": 70
+      "lines": 91
     },
     {
       "file": "src/api/client.js",
@@ -1173,7 +1201,7 @@
     },
     {
       "file": "src/components/ui.jsx",
-      "lines": 183
+      "lines": 185
     },
     {
       "file": "src/main.jsx",
@@ -1205,7 +1233,7 @@
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 3304
+      "lines": 3413
     },
     {
       "file": "src/pages/ProfilePage.jsx",
@@ -1213,11 +1241,11 @@
     },
     {
       "file": "src/pages/PublicHome.jsx",
-      "lines": 82
+      "lines": 91
     },
     {
       "file": "src/styles.css",
-      "lines": 4035
+      "lines": 4139
     },
     {
       "file": "src/utils/format.js",

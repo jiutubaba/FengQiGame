@@ -6,6 +6,7 @@ import {
   useId,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { CheckCircle2, CircleAlert, Info, X } from "lucide-react";
 
 export function Button({
@@ -70,7 +71,7 @@ export function Modal({
   }, [open, onClose]);
 
   if (!open) return null;
-  return (
+  return createPortal(
     <div className="modal-backdrop" onMouseDown={onClose}>
       <section
         className={`modal ${wide ? "modal-wide" : ""} ${danger ? "modal-danger" : ""}`}
@@ -96,7 +97,8 @@ export function Modal({
         <div className="modal-body">{children}</div>
         {footer && <footer className="modal-footer">{footer}</footer>}
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
