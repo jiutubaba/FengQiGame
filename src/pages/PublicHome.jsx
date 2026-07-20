@@ -73,7 +73,16 @@ export default function PublicHome() {
         </section>
       </main>
       <footer className="landing-footer">
-        <span>© 2026 风起游戏 · 湖北风起文化有限公司</span>
+        <span className="landing-footer-records">
+          <span>© 2026 风起游戏 · 湖北风起文化有限公司</span>
+          <a
+            href="https://beian.miit.gov.cn/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            鄂ICP备2024058688号-2
+          </a>
+        </span>
         <span>安全会话 · 权限隔离 · 操作审计</span>
       </footer>
     </div>

@@ -41,9 +41,11 @@ export function errorHandler(error, req, res, _next) {
 
   if (status >= 500) {
     req.log?.error({ err: error }, "request failed");
-    code = "INTERNAL_ERROR";
-    message = "服务器内部错误";
-    details = undefined;
+    if (!(error instanceof HttpError)) {
+      code = "INTERNAL_ERROR";
+      message = "服务器内部错误";
+      details = undefined;
+    }
   }
   res.status(status).json({
     success: false,

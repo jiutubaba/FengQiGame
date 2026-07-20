@@ -4,7 +4,7 @@
 
 - 项目：`fengqi-game-admin`
 - 版本：`1.0.0`
-- API 路由：90
+- API 路由：91
 - 地图权限：15
 - 客户端权限：10
 - 数据库迁移：4
@@ -116,6 +116,7 @@
 | GET | `/api/maps/:mapId/messages` | map:PLAYERS_VIEW | `server/routes/maps.js` |
 | POST | `/api/maps/:mapId/messages` | map:PLAYERS_MANAGE | `server/routes/maps.js` |
 | GET | `/api/maps/:mapId/metrics` | map:METRICS_VIEW | `server/routes/maps.js` |
+| DELETE | `/api/maps/:mapId/permanent` | requireAdmin, requireAuth | `server/routes/maps.js` |
 | GET | `/api/maps/:mapId/players` | map:PLAYERS_VIEW | `server/routes/maps.js` |
 | POST | `/api/maps/:mapId/players` | map:PLAYERS_MANAGE | `server/routes/maps.js` |
 | DELETE | `/api/maps/:mapId/players/:playerId` | map:PLAYERS_MANAGE | `server/routes/maps.js` |
@@ -183,10 +184,17 @@
 - 公开抽奖支持报名、防重复、开奖与中奖结果公开
 - 个人资料、密码更新、退出登录和重新登录均有效
 - 管理员运维、审计、清理、凭据停用和地图归档完整生效
+- 永久删除地图经过双重服务端校验并清除数据库与上传目录
 
 ### `server/tests/unit/logging.test.js`
 
 - 请求凭据和响应 Set-Cookie 不写入日志
+
+### `server/tests/unit/map-deletion.test.js`
+
+- 数据库流程失败时可以恢复暂存目录
+- 成功删除时同时清理暂存目录和并发重建的原目录
+- 启动清理仅删除地图已不存在的受控残留目录
 
 ### `server/tests/unit/security.test.js`
 
@@ -200,6 +208,7 @@
 - POST 会保留 schema 默认值
 - 内部异常不向客户端泄露原始错误
 - 非法 JSON 返回稳定的 400 错误码
+- 显式服务端错误保留约定的错误码并记录日志
 
 ## 审计动作
 
@@ -230,6 +239,7 @@
 - `map.archive`
 - `map.config.update`
 - `map.create`
+- `map.delete`
 - `map.runtime.clear`
 - `map.update`
 - `player.create`

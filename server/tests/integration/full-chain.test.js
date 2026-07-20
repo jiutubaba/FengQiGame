@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { access, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -883,5 +883,301 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(
       (await normalUser.get("/api/maps").expect(200)).body.data,
     ).toHaveLength(0);
+  });
+
+  it("永久删除地图经过双重服务端校验并清除数据库与上传目录", async () => {
+    const mapName = "全链路验收地图";
+    const confirmation = { confirmMapId: mapId, confirmName: mapName };
+
+    await normalUser
+      .delete(`/api/maps/${mapId}/permanent`)
+      .send(confirmation)
+      .expect(403);
+    const mismatch = await admin
+      .delete(`/api/maps/${mapId}/permanent`)
+      .send({ confirmMapId: mapId, confirmName: "错误地图名称" })
+      .expect(409);
+    expect(mismatch.body.error.code).toBe("MAP_DELETE_CONFIRMATION_MISMATCH");
+
+    const deleteKeyResponse = await admin
+      .post(`/api/maps/${mapId}/api-keys`)
+      .send({
+        name: "永久删除验收 Key",
+        environment: "test",
+        permissions: ["game.players.write"],
+      })
+      .expect(201);
+    const deleteToken = deleteKeyResponse.body.data.token;
+    const players = {};
+    for (const environment of ["release", "lobby", "test"]) {
+      const result = await query(
+        `INSERT INTO players(map_id,environment,uid,name)
+         VALUES($1,$2,$3,$4)
+         ON CONFLICT(map_id,environment,uid)
+         DO UPDATE SET name=EXCLUDED.name
+         RETURNING id`,
+        [
+          mapId,
+          environment,
+          `delete-player-${environment}`,
+          `待删${environment}玩家`,
+        ],
+      );
+      players[environment] = result.rows[0].id;
+      await query(
+        `INSERT INTO fq_player_archives(map_id,environment,player_uid,archive_data)
+         VALUES($1,$2,$3,$4::jsonb)
+         ON CONFLICT(map_id,environment,player_uid)
+         DO UPDATE SET archive_data=EXCLUDED.archive_data`,
+        [
+          mapId,
+          environment,
+          `delete-player-${environment}`,
+          JSON.stringify({ deleteCheck: true }),
+        ],
+      );
+      await query(
+        `INSERT INTO fq_global_archives(map_id,environment,archive_data)
+         VALUES($1,$2,$3::jsonb)
+         ON CONFLICT(map_id,environment)
+         DO UPDATE SET archive_data=EXCLUDED.archive_data`,
+        [mapId, environment, JSON.stringify({ deleteCheck: true })],
+      );
+    }
+    const gift = await query(
+      `INSERT INTO gifts(map_id,gift_key,name)
+       VALUES($1,'delete-check-gift','永久删除验收礼包')
+       RETURNING id`,
+      [mapId],
+    );
+    await query(
+      `INSERT INTO gift_grants(map_id,environment,gift_id,player_id)
+       VALUES($1,'test',$2,$3)`,
+      [mapId, gift.rows[0].id, players.test],
+    );
+    await query(
+      `INSERT INTO player_messages(map_id,environment,player_id,subject,content,created_by)
+       VALUES($1,'test',$2,'永久删除验收','待删除',$3)`,
+      [mapId, players.test, userId],
+    );
+    await query(
+      `INSERT INTO anchors(map_id,environment,name)
+       VALUES($1,'test','永久删除验收主播')`,
+      [mapId],
+    );
+    await query(
+      `INSERT INTO tracking_points(map_id,environment,point_key,name)
+       VALUES($1,'test','delete-check-point','永久删除验收埋点')`,
+      [mapId],
+    );
+    await query(
+      `INSERT INTO map_logs(map_id,environment,context)
+       VALUES($1,'test','永久删除验收日志')`,
+      [mapId],
+    );
+    await query(
+      `INSERT INTO map_metrics(map_id,environment,metric_date,cumulative_users)
+       VALUES($1,'test','2026-07-16',1)
+       ON CONFLICT(map_id,environment,metric_date)
+       DO UPDATE SET cumulative_users=EXCLUDED.cumulative_users`,
+      [mapId],
+    );
+    const leaderboard = await query(
+      `INSERT INTO leaderboards(map_id,environment,leaderboard_key,name)
+       VALUES($1,'test','delete-check-board','永久删除验收榜单')
+       RETURNING id`,
+      [mapId],
+    );
+    await query(
+      `INSERT INTO leaderboard_entries(leaderboard_id,player_uid,player_name,score)
+       VALUES($1,'delete-player-test','待删测试玩家',10)`,
+      [leaderboard.rows[0].id],
+    );
+    const snapshot = await query(
+      `INSERT INTO leaderboard_snapshots(leaderboard_id,entry_count,published_by)
+       VALUES($1,1,$2)
+       RETURNING id`,
+      [leaderboard.rows[0].id, userId],
+    );
+    await query(
+      `INSERT INTO leaderboard_snapshot_entries(snapshot_id,rank,player_uid,player_name,score)
+       VALUES($1,1,'delete-player-test','待删测试玩家',10)`,
+      [snapshot.rows[0].id],
+    );
+    const riskRule = await query(
+      `INSERT INTO risk_rules(map_id,environment,rule_key,name)
+       VALUES($1,'test','delete-check-rule','永久删除验收规则')
+       RETURNING id`,
+      [mapId],
+    );
+    await query(
+      `INSERT INTO risk_events(map_id,environment,event_key,rule_id,rule_key,rule_name,severity,player_uid,player_name)
+       VALUES($1,'test','delete-check-event',$2,'delete-check-rule','永久删除验收规则','high','delete-player-test','待删测试玩家')`,
+      [mapId, riskRule.rows[0].id],
+    );
+    const campaign = await query(
+      `INSERT INTO lottery_campaigns(map_id,environment,public_token,title,created_by)
+       VALUES($1,'test','delete-check-public-token','永久删除验收群抽',$2)
+       RETURNING id`,
+      [mapId, userId],
+    );
+    await query(
+      `INSERT INTO lottery_entries(campaign_id,participant_key,player_name)
+       VALUES($1,'delete-check-player','永久删除验收参与者')`,
+      [campaign.rows[0].id],
+    );
+    await admin
+      .post(`/api/maps/${mapId}/files/upload`)
+      .attach(
+        "files",
+        Buffer.from("permanent deletion acceptance"),
+        "permanent-delete.txt",
+      )
+      .expect(201);
+
+    const mapUploadDir = path.join(config.uploadDir, `map-${mapId}`);
+    expect((await readdir(mapUploadDir)).length).toBeGreaterThan(0);
+
+    await query(`
+      CREATE OR REPLACE FUNCTION test_reject_map_delete()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        RAISE EXCEPTION 'forced map delete rollback';
+      END;
+      $$
+    `);
+    await query(`
+      CREATE TRIGGER test_reject_map_delete
+      BEFORE DELETE ON maps
+      FOR EACH ROW EXECUTE FUNCTION test_reject_map_delete()
+    `);
+    try {
+      await admin
+        .delete(`/api/maps/${mapId}/permanent`)
+        .send(confirmation)
+        .expect(500);
+    } finally {
+      await query("DROP TRIGGER IF EXISTS test_reject_map_delete ON maps");
+      await query("DROP FUNCTION IF EXISTS test_reject_map_delete()");
+    }
+    await admin.get(`/api/maps/${mapId}`).expect(200);
+    await access(mapUploadDir);
+    expect(
+      (await readdir(config.uploadDir)).some((name) =>
+        name.startsWith(`.deleting-map-${mapId}-`),
+      ),
+    ).toBe(false);
+
+    const deleted = await admin
+      .delete(`/api/maps/${mapId}/permanent`)
+      .send(confirmation)
+      .expect(200);
+    expect(deleted.body.data).toMatchObject({
+      id: mapId,
+      name: mapName,
+      fileCleanup: { directoryExisted: true },
+    });
+    await admin.get(`/api/maps/${mapId}`).expect(404);
+    await admin
+      .delete(`/api/maps/${mapId}/permanent`)
+      .send(confirmation)
+      .expect(404);
+    await request(app)
+      .post("/api/fq/players/upsert")
+      .set("fq-map-key", deleteToken)
+      .send({ uid: "after-delete", name: "删除后请求" })
+      .expect(401);
+
+    for (const table of [
+      "map_permissions",
+      "map_configs",
+      "players",
+      "gifts",
+      "gift_grants",
+      "anchors",
+      "tracking_points",
+      "map_logs",
+      "map_files",
+      "map_metrics",
+      "api_keys",
+      "player_messages",
+      "lottery_campaigns",
+      "leaderboards",
+      "risk_rules",
+      "risk_events",
+      "fq_player_archives",
+      "fq_global_archives",
+    ]) {
+      const count = await query(
+        `SELECT COUNT(*)::int AS count FROM ${table} WHERE map_id=$1`,
+        [mapId],
+      );
+      expect(count.rows[0].count, table).toBe(0);
+    }
+    expect(
+      (
+        await query(
+          "SELECT COUNT(*)::int AS count FROM leaderboard_entries WHERE leaderboard_id=$1",
+          [leaderboard.rows[0].id],
+        )
+      ).rows[0].count,
+    ).toBe(0);
+    expect(
+      (
+        await query(
+          "SELECT COUNT(*)::int AS count FROM leaderboard_snapshots WHERE leaderboard_id=$1",
+          [leaderboard.rows[0].id],
+        )
+      ).rows[0].count,
+    ).toBe(0);
+    expect(
+      (
+        await query(
+          "SELECT COUNT(*)::int AS count FROM leaderboard_snapshot_entries WHERE snapshot_id=$1",
+          [snapshot.rows[0].id],
+        )
+      ).rows[0].count,
+    ).toBe(0);
+    expect(
+      (
+        await query(
+          "SELECT COUNT(*)::int AS count FROM lottery_entries WHERE campaign_id=$1",
+          [campaign.rows[0].id],
+        )
+      ).rows[0].count,
+    ).toBe(0);
+
+    const deleteAudit = await query(
+      `SELECT map_id,details
+         FROM audit_logs
+        WHERE action='map.delete' AND resource_id=$1
+        ORDER BY id DESC
+        LIMIT 1`,
+      [mapId],
+    );
+    expect(deleteAudit.rows[0].map_id).toBeNull();
+    expect(deleteAudit.rows[0].details).toMatchObject({
+      mapId,
+      name: mapName,
+      fileCleanup: "completed",
+      directoryExisted: true,
+    });
+    const historicalAudit = await query(
+      `SELECT COUNT(*)::int AS count
+         FROM audit_logs
+        WHERE action='map.create' AND resource_id=$1 AND map_id IS NULL`,
+      [mapId],
+    );
+    expect(historicalAudit.rows[0].count).toBe(1);
+    await expect(access(mapUploadDir)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(
+      (await readdir(config.uploadDir)).some((name) =>
+        name.startsWith(`.deleting-map-${mapId}-`),
+      ),
+    ).toBe(false);
   });
 });

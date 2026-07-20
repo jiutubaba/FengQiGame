@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { HttpError } from "../../lib/errors.js";
 import { errorHandler } from "../../middleware/errors.js";
 import { validate } from "../../middleware/validation.js";
 
@@ -65,5 +66,25 @@ describe("错误响应", () => {
       error: { code: "INVALID_JSON", message: "请求数据不是有效的 JSON" },
       requestId: "request-2",
     });
+  });
+
+  it("显式服务端错误保留约定的错误码并记录日志", () => {
+    const req = { id: "request-3", log: { error: vi.fn() } };
+    const res = createResponse();
+    errorHandler(
+      new HttpError(500, "地图文件清理失败", "MAP_DELETE_FILE_CLEANUP_FAILED"),
+      req,
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith({
+      success: false,
+      error: {
+        code: "MAP_DELETE_FILE_CLEANUP_FAILED",
+        message: "地图文件清理失败",
+      },
+      requestId: "request-3",
+    });
+    expect(req.log.error).toHaveBeenCalledOnce();
   });
 });

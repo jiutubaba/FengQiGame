@@ -16,6 +16,11 @@ import {
   sanitizeFileName,
 } from "../lib/security.js";
 import {
+  removeDeletedMapUploadDirectories,
+  restoreMapUploadDirectory,
+  stageMapUploadDirectory,
+} from "../services/map-deletion.js";
+import {
   ALL_MAP_PERMISSIONS,
   PERMISSIONS,
   requireAdmin,
@@ -215,6 +220,155 @@ router.delete("/:mapId", requireAuth, requireAdmin, async (req, res) => {
   });
   res.json({ success: true });
 });
+
+router.delete(
+  "/:mapId/permanent",
+  requireAuth,
+  requireAdmin,
+  validate(
+    z.object({
+      confirmMapId: z.coerce.number().int().positive(),
+      confirmName: z.string().trim().min(1).max(160),
+    }),
+  ),
+  async (req, res) => {
+    const mapId = idSchema.parse(req.params.mapId);
+    let stagedUpload = null;
+    let deletedMap = null;
+    try {
+      deletedMap = await transaction(async (client) => {
+        const result = await client.query(
+          "SELECT id,name FROM maps WHERE id=$1 FOR UPDATE",
+          [mapId],
+        );
+        const map = result.rows[0];
+        if (!map) throw notFound("地图不存在");
+        if (
+          req.body.confirmMapId !== Number(map.id) ||
+          req.body.confirmName !== map.name
+        )
+          throw new HttpError(
+            409,
+            "地图删除确认信息不匹配",
+            "MAP_DELETE_CONFIRMATION_MISMATCH",
+          );
+
+        stagedUpload = await stageMapUploadDirectory(mapId);
+        const auditId = await writeAudit(
+          req,
+          {
+            action: "map.delete",
+            resourceType: "map",
+            resourceId: mapId,
+            mapId,
+            details: {
+              mapId,
+              name: map.name,
+              deletedAt: new Date().toISOString(),
+              fileCleanup: stagedUpload.existed ? "pending" : "not_found",
+            },
+          },
+          client,
+        );
+        await client.query("DELETE FROM gift_grants WHERE map_id=$1", [mapId]);
+        await client.query("DELETE FROM maps WHERE id=$1", [mapId]);
+        return { id: Number(map.id), name: map.name, auditId };
+      });
+    } catch (error) {
+      let restoreError = null;
+      if (stagedUpload?.staged) {
+        try {
+          await restoreMapUploadDirectory(stagedUpload);
+        } catch (caughtError) {
+          restoreError = caughtError;
+          req.log?.error(
+            {
+              err: caughtError,
+              mapId,
+              directory: path.basename(stagedUpload.staged),
+            },
+            "map delete upload restore failed",
+          );
+        }
+      }
+      if (restoreError)
+        throw new HttpError(
+          500,
+          "地图数据库删除已回滚，但服务器上传目录恢复失败，请立即检查服务器文件",
+          "MAP_DELETE_FILE_RESTORE_FAILED",
+        );
+      throw error;
+    }
+
+    let fileCleanup;
+    try {
+      fileCleanup = await removeDeletedMapUploadDirectories(
+        mapId,
+        stagedUpload,
+      );
+    } catch (error) {
+      req.log?.error(
+        { err: error, mapId, auditId: deletedMap.auditId },
+        "map delete file cleanup failed",
+      );
+      try {
+        await query(
+          `UPDATE audit_logs
+              SET details=details || $1::jsonb
+            WHERE id=$2`,
+          [
+            JSON.stringify({
+              fileCleanup: "failed",
+              cleanupError: "filesystem_cleanup_failed",
+            }),
+            deletedMap.auditId,
+          ],
+        );
+      } catch (auditError) {
+        req.log?.error(
+          { err: auditError, mapId, auditId: deletedMap.auditId },
+          "map delete cleanup audit update failed",
+        );
+      }
+      throw new HttpError(
+        500,
+        "地图数据库数据已删除，但服务器上传目录清理失败；系统将在下次启动时重试",
+        "MAP_DELETE_FILE_CLEANUP_FAILED",
+      );
+    }
+
+    try {
+      await query(
+        `UPDATE audit_logs
+            SET details=details || $1::jsonb
+          WHERE id=$2`,
+        [
+          JSON.stringify({ fileCleanup: "completed", ...fileCleanup }),
+          deletedMap.auditId,
+        ],
+      );
+    } catch (error) {
+      req.log?.error(
+        { err: error, mapId, auditId: deletedMap.auditId },
+        "map delete audit finalization failed",
+      );
+      throw new HttpError(
+        500,
+        "地图及服务器文件已删除，但审计状态更新失败，请检查服务器日志",
+        "MAP_DELETE_AUDIT_UPDATE_FAILED",
+      );
+    }
+
+    res.json({
+      success: true,
+      data: {
+        id: deletedMap.id,
+        name: deletedMap.name,
+        fileCleanup,
+      },
+    });
+  },
+);
 
 router.get(
   "/:mapId/metrics",
