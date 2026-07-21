@@ -1240,6 +1240,7 @@ function LeaderboardsPanel({ mapId, environment, can }) {
             name: editing.name,
             valueLabel: editing.valueLabel,
             sortDirection: editing.sortDirection,
+            scoreUpdateMode: editing.scoreUpdateMode,
             enabled: editing.enabled,
           },
         },
@@ -1339,6 +1340,7 @@ function LeaderboardsPanel({ mapId, environment, can }) {
                     name: "",
                     valueLabel: "积分",
                     sortDirection: "desc",
+                    scoreUpdateMode: "latest",
                     enabled: true,
                   })
                 }
@@ -1412,6 +1414,14 @@ function LeaderboardsPanel({ mapId, environment, can }) {
                     {current.sortDirection === "desc"
                       ? "数值由高到低"
                       : "数值由低到高"}
+                  </strong>
+                </div>
+                <div>
+                  <span>更新策略</span>
+                  <strong>
+                    {current.scoreUpdateMode === "best"
+                      ? "仅保留历史最佳"
+                      : "使用最新上报"}
                   </strong>
                 </div>
                 <div>
@@ -1544,6 +1554,7 @@ function LeaderboardsPanel({ mapId, environment, can }) {
                         name: "",
                         valueLabel: "积分",
                         sortDirection: "desc",
+                        scoreUpdateMode: "latest",
                         enabled: true,
                       })
                     }
@@ -1633,6 +1644,21 @@ function LeaderboardsPanel({ mapId, environment, can }) {
                 </select>
               </Field>
             </div>
+            <Field label="分数更新策略">
+              <select
+                className="input"
+                value={editing.scoreUpdateMode}
+                onChange={(event) =>
+                  setEditing({
+                    ...editing,
+                    scoreUpdateMode: event.target.value,
+                  })
+                }
+              >
+                <option value="latest">使用最新上报</option>
+                <option value="best">仅保留历史最佳</option>
+              </select>
+            </Field>
             <Field label="接收上报">
               <Switch
                 checked={editing.enabled}
@@ -3197,6 +3223,7 @@ const apiPermissionLabels = {
   "game.logs.write": "上报日志",
   "game.metrics.write": "上报指标",
   "game.points.write": "写入埋点",
+  "game.leaderboards.read": "读取排行榜",
   "game.leaderboards.write": "写入排行榜",
   "game.risk.write": "上报风险事件",
   "game.messages.read": "读取消息",
