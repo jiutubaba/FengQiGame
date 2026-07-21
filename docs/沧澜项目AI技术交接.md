@@ -122,11 +122,11 @@ curl -fsS https://fengqigame.com/api/system/health
 - 旧 `Server*` Lua 调用面的兼容包装
 - `tools/test_fq_server.lua` 15 项 FQ 纯 Lua 自检和 `tools/test_landing_power.lua` 16 项公式自检
 
-2026-07-21 源码已切换为批量开局、每日首次采集和人工发布快照协议。后台 `006_leaderboard_publication_and_daily_collection.sql`、新接口和地图改动尚未部署或实机验收；旧版实时读榜的真实 API 结果不能作为本轮结论。
+2026-07-21 后台批量开局、每日首次采集和人工发布快照协议已部署，`006_leaderboard_publication_and_daily_collection.sql` 已应用，正式域名冒烟通过；地图改动尚未完成游戏内验收。
 
 ### 4.3 当前联调阻塞项
 
-1. 先在隔离 PostgreSQL 完成本轮迁移和全链路测试，再部署后台；部署后为 `test` 榜单人工发布一份新快照。
+1. 后台部署与 `test` 发布快照已完成；下一步直接用当前测试地图验证 1～4 人四请求开局、每日边界、投递和发布前后显示。
 2. `FQPrivateConfig.lua` 已按测试环境创建并被 Git 忽略。每次构建仍只能携带当前环境对应的一把 Key，不得把多环境 Key 同时打进地图。
 3. 在 `test` 环境完成真实游戏验收后，再决定是否分别配置并验证 `lobby` 与 `release`。不得拿正式玩家 UID 做测试。
 4. 正式环境 Key 曾在受控会话画面中明文输入，用户当时选择暂不轮换。它未写入 Git 或文档，但正式地图对外分发前应停用旧 Key、创建新 Key，并只把新 Key 写入私有构建配置。
@@ -134,7 +134,7 @@ curl -fsS https://fengqigame.com/api/system/health
 ## 5. 游戏侧实际验收顺序
 
 1. 运行《沧澜》的 15 项 FQ 自检、16 项落地战力公式自检和 Lua 语法检查。
-2. 已完成：后台 `test` 环境已创建并启用 `landing_power_v1`（降序、`best`、数值名称“落地战力”）；已创建具备消息/礼包读取和排行榜读写权限的新测试 Key 及本地私有配置，且未提交真实 Key。
+2. 已完成：后台 `test` 环境已创建并启用 `landing_power`（降序、`best`、数值名称“落地战力”）并发布快照；已创建具备消息/礼包读取和排行榜读写权限的新测试 Key 及本地私有配置，且未提交真实 Key。
 3. 单人新档：确认 bootstrap 返回 revision `0` 和空对象，玩家资料 upsert 成功。
 4. 保存与重进：写入玩家和全局完整快照，确认 revision 更新，重新开局后读取一致。
 5. 幂等与冲突：同一请求重发不重复写；同 ID 改内容和旧 revision 都被 409 拒绝并触发权威重读。
