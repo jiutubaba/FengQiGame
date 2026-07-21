@@ -805,7 +805,7 @@ router.get(
       );
       params.push(limit, offset);
       rows = await query(
-        `SELECT rank,player_uid,player_name,game_level,score,game_count,metadata,NULL::timestamptz AS updated_at
+        `SELECT rank,player_uid,player_name,game_level,score,game_count,metadata,achieved_at AS updated_at
            FROM leaderboard_snapshot_entries WHERE snapshot_id=$1 AND ${filter}
           ORDER BY rank LIMIT $${params.length - 1} OFFSET $${params.length}`,
         params,
@@ -872,8 +872,8 @@ router.post(
       );
       const direction = leaderboard.sort_direction === "asc" ? "ASC" : "DESC";
       const inserted = await client.query(
-        `INSERT INTO leaderboard_snapshot_entries(snapshot_id,rank,player_uid,player_name,game_level,score,game_count,metadata)
-         SELECT $1,(ROW_NUMBER() OVER (ORDER BY e.score ${direction},e.updated_at,e.id))::int,e.player_uid,e.player_name,e.game_level,e.score,e.game_count,e.metadata
+        `INSERT INTO leaderboard_snapshot_entries(snapshot_id,rank,player_uid,player_name,game_level,score,game_count,metadata,achieved_at)
+         SELECT $1,(ROW_NUMBER() OVER (ORDER BY e.score ${direction},e.updated_at,e.id))::int,e.player_uid,e.player_name,e.game_level,e.score,e.game_count,e.metadata,e.updated_at
            FROM leaderboard_entries e
            LEFT JOIN players p ON p.map_id=$2 AND p.environment=$3 AND p.uid=e.player_uid
           WHERE e.leaderboard_id=$4 AND p.rank_ban IS DISTINCT FROM TRUE
