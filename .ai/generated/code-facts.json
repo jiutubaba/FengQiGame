@@ -213,6 +213,15 @@
     },
     {
       "method": "POST",
+      "path": "/api/fq/leaderboards/:leaderboardKey/query",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.leaderboards.read",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
       "path": "/api/fq/logs",
       "source": "server/routes/game.js",
       "guards": [
@@ -851,6 +860,7 @@
     "game.archives.read",
     "game.archives.write",
     "game.gifts.read",
+    "game.leaderboards.read",
     "game.leaderboards.write",
     "game.logs.write",
     "game.messages.read",
@@ -965,6 +975,14 @@
         "fq_player_archives"
       ],
       "alteredTables": []
+    },
+    {
+      "file": "server/db/migrations/005_leaderboard_score_update_mode.sql",
+      "sha256": "530af8c3068bc6df50bb8137659b500dee1df20a0b3012813df0f61bd5bc98e2",
+      "tables": [],
+      "alteredTables": [
+        "leaderboards"
+      ]
     }
   ],
   "environmentVariables": {
@@ -1092,6 +1110,10 @@
       "lines": 40
     },
     {
+      "file": "server/db/migrations/005_leaderboard_score_update_mode.sql",
+      "lines": 10
+    },
+    {
       "file": "server/index.js",
       "lines": 52
     },
@@ -1129,11 +1151,11 @@
     },
     {
       "file": "server/routes/game.js",
-      "lines": 692
+      "lines": 806
     },
     {
       "file": "server/routes/maps.js",
-      "lines": 2359
+      "lines": 2364
     },
     {
       "file": "server/routes/public.js",
@@ -1165,7 +1187,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 1184
+      "lines": 1281
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1233,7 +1255,7 @@
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 3413
+      "lines": 3440
     },
     {
       "file": "src/pages/ProfilePage.jsx",

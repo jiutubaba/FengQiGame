@@ -470,6 +470,12 @@ router.post(
   },
 );
 
+const leaderboardKeySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9._-]+$/);
 const leaderboardEntrySchema = z.object({
   uid: z.string().trim().min(1).max(128),
   name: z.string().trim().min(1).max(160),
@@ -478,6 +484,106 @@ const leaderboardEntrySchema = z.object({
   gameCount: z.coerce.number().int().min(0).max(1e12).optional().default(0),
   metadata: z.record(z.string(), z.unknown()).optional().default({}),
 });
+const leaderboardQuerySchema = z.object({
+  uids: z.array(playerUidSchema).max(24).optional().default([]),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(100),
+});
+const fqChinaTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+function fqChinaTime(value) {
+  if (!value) return "";
+  const parts = Object.fromEntries(
+    fqChinaTimeFormatter
+      .formatToParts(new Date(value))
+      .map((part) => [part.type, part.value]),
+  );
+  return `${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+}
+
+function gameLeaderboardEntryRow(row) {
+  return {
+    rank: Number(row.rank),
+    uid: row.player_uid,
+    name: row.player_name,
+    gameLevel: row.game_level,
+    score: Number(row.score),
+    gameCount: Number(row.game_count),
+    metadata: row.metadata,
+    achievedAt: row.updated_at,
+    achievedAtText: fqChinaTime(row.updated_at),
+  };
+}
+
+router.post(
+  "/leaderboards/:leaderboardKey/query",
+  requireApiPermission("game.leaderboards.read"),
+  validate(leaderboardQuerySchema),
+  async (req, res) => {
+    const leaderboardKey = leaderboardKeySchema.parse(
+      req.params.leaderboardKey,
+    );
+    const leaderboardResult = await query(
+      `SELECT id,name,value_label,sort_direction FROM leaderboards
+        WHERE map_id=$1 AND environment=$2 AND leaderboard_key=$3 AND enabled=TRUE`,
+      [req.apiKey.map_id, req.apiKey.environment, leaderboardKey],
+    );
+    const leaderboard = leaderboardResult.rows[0];
+    if (!leaderboard)
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "LEADERBOARD_NOT_FOUND",
+          message: "排行榜不存在或已停用",
+        },
+      });
+
+    const direction = leaderboard.sort_direction === "asc" ? "ASC" : "DESC";
+    const ranked = `WITH ranked AS (
+      SELECT ROW_NUMBER() OVER (ORDER BY e.score ${direction},e.updated_at,e.id) AS rank,
+             e.player_uid,e.player_name,e.game_level,e.score,e.game_count,e.metadata,e.updated_at
+        FROM leaderboard_entries e
+        LEFT JOIN players p ON p.map_id=$2 AND p.environment=$3 AND p.uid=e.player_uid
+       WHERE e.leaderboard_id=$1 AND p.rank_ban IS DISTINCT FROM TRUE
+    )`;
+    const params = [
+      leaderboard.id,
+      req.apiKey.map_id,
+      req.apiKey.environment,
+    ];
+    const [entriesResult, playerRanksResult, totalResult] = await Promise.all([
+      query(
+        `${ranked} SELECT * FROM ranked ORDER BY rank LIMIT $4`,
+        [...params, req.body.limit],
+      ),
+      query(
+        `${ranked} SELECT * FROM ranked WHERE player_uid=ANY($4::text[]) ORDER BY rank`,
+        [...params, req.body.uids],
+      ),
+      query(`${ranked} SELECT COUNT(*)::int AS count FROM ranked`, params),
+    ]);
+    const generatedAt = new Date();
+    res.json({
+      success: true,
+      data: {
+        leaderboardKey,
+        name: leaderboard.name,
+        valueLabel: leaderboard.value_label,
+        generatedAt,
+        generatedAtText: fqChinaTime(generatedAt),
+        totalEntries: totalResult.rows[0].count,
+        entries: entriesResult.rows.map(gameLeaderboardEntryRow),
+        playerRanks: playerRanksResult.rows.map(gameLeaderboardEntryRow),
+      },
+    });
+  },
+);
 
 router.post(
   "/leaderboards/:leaderboardKey/entries",
@@ -488,15 +594,11 @@ router.post(
     }),
   ),
   async (req, res) => {
-    const leaderboardKey = z
-      .string()
-      .trim()
-      .min(1)
-      .max(128)
-      .regex(/^[A-Za-z0-9._-]+$/)
-      .parse(req.params.leaderboardKey);
+    const leaderboardKey = leaderboardKeySchema.parse(
+      req.params.leaderboardKey,
+    );
     const leaderboardResult = await query(
-      `SELECT id FROM leaderboards
+      `SELECT id,sort_direction,score_update_mode FROM leaderboards
         WHERE map_id=$1 AND environment=$2 AND leaderboard_key=$3 AND enabled=TRUE`,
       [req.apiKey.map_id, req.apiKey.environment, leaderboardKey],
     );
@@ -516,12 +618,22 @@ router.post(
           `INSERT INTO leaderboard_entries(leaderboard_id,player_uid,player_name,game_level,score,game_count,metadata)
            VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)
            ON CONFLICT(leaderboard_id,player_uid) DO UPDATE SET
-             player_name=EXCLUDED.player_name,
-             game_level=EXCLUDED.game_level,
-             score=EXCLUDED.score,
-             game_count=EXCLUDED.game_count,
-             metadata=EXCLUDED.metadata,
-             updated_at=NOW()`,
+              player_name=EXCLUDED.player_name,
+              game_level=CASE
+                WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                THEN EXCLUDED.game_level ELSE leaderboard_entries.game_level END,
+              score=CASE
+                WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                THEN EXCLUDED.score ELSE leaderboard_entries.score END,
+              game_count=CASE
+                WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                THEN EXCLUDED.game_count ELSE leaderboard_entries.game_count END,
+              metadata=CASE
+                WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                THEN EXCLUDED.metadata ELSE leaderboard_entries.metadata END,
+              updated_at=CASE
+                WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                THEN NOW() ELSE leaderboard_entries.updated_at END`,
           [
             leaderboard.id,
             entry.uid,
@@ -530,6 +642,8 @@ router.post(
             entry.score,
             entry.gameCount,
             JSON.stringify(entry.metadata),
+            leaderboard.score_update_mode,
+            leaderboard.sort_direction,
           ],
         );
       }

@@ -634,6 +634,7 @@ const leaderboardSchema = z.object({
   name: z.string().trim().min(1).max(160),
   valueLabel: z.string().trim().min(1).max(80).default("积分"),
   sortDirection: z.enum(["asc", "desc"]).default("desc"),
+  scoreUpdateMode: z.enum(["latest", "best"]).default("latest"),
   enabled: z.boolean().default(true),
 });
 
@@ -672,8 +673,8 @@ router.post(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const result = await query(
-      `INSERT INTO leaderboards(map_id,environment,leaderboard_key,name,value_label,sort_direction,enabled)
-       VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      `INSERT INTO leaderboards(map_id,environment,leaderboard_key,name,value_label,sort_direction,score_update_mode,enabled)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [
         mapId,
         envFrom(req),
@@ -681,6 +682,7 @@ router.post(
         req.body.name,
         req.body.valueLabel,
         req.body.sortDirection,
+        req.body.scoreUpdateMode,
         req.body.enabled,
       ],
     );
@@ -713,13 +715,14 @@ router.patch(
     if (!current.rows[0]) throw notFound("排行榜不存在");
     const row = current.rows[0];
     const result = await query(
-      `UPDATE leaderboards SET leaderboard_key=$1,name=$2,value_label=$3,sort_direction=$4,enabled=$5,updated_at=NOW()
-        WHERE id=$6 AND map_id=$7 AND environment=$8 RETURNING *`,
+      `UPDATE leaderboards SET leaderboard_key=$1,name=$2,value_label=$3,sort_direction=$4,score_update_mode=$5,enabled=$6,updated_at=NOW()
+        WHERE id=$7 AND map_id=$8 AND environment=$9 RETURNING *`,
       [
         req.body.leaderboardKey ?? row.leaderboard_key,
         req.body.name ?? row.name,
         req.body.valueLabel ?? row.value_label,
         req.body.sortDirection ?? row.sort_direction,
+        req.body.scoreUpdateMode ?? row.score_update_mode,
         req.body.enabled ?? row.enabled,
         leaderboardId,
         mapId,
@@ -1931,6 +1934,7 @@ router.post(
             "game.logs.write",
             "game.metrics.write",
             "game.points.write",
+            "game.leaderboards.read",
             "game.leaderboards.write",
             "game.risk.write",
             "game.messages.read",
@@ -2149,6 +2153,7 @@ function leaderboardRow(row) {
     name: row.name,
     valueLabel: row.value_label,
     sortDirection: row.sort_direction,
+    scoreUpdateMode: row.score_update_mode,
     enabled: row.enabled,
     entryCount: Number(row.entry_count || 0),
     latestSnapshotId: row.latest_snapshot_id

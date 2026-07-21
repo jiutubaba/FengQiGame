@@ -4,10 +4,10 @@
 
 - 项目：`fengqi-game-admin`
 - 版本：`1.0.0`
-- API 路由：91
+- API 路由：92
 - 地图权限：15
-- 客户端权限：10
-- 数据库迁移：4
+- 客户端权限：11
+- 数据库迁移：5
 
 ## 地图权限
 
@@ -34,6 +34,7 @@
 - `game.archives.read`
 - `game.archives.write`
 - `game.gifts.read`
+- `game.leaderboards.read`
 - `game.leaderboards.write`
 - `game.logs.write`
 - `game.messages.read`
@@ -68,6 +69,7 @@
 | POST | `/api/fq/bootstrap` | api:game.archives.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/gifts/:grantId/ack` | api:game.gifts.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/leaderboards/:leaderboardKey/entries` | api:game.leaderboards.write, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/leaderboards/:leaderboardKey/query` | api:game.leaderboards.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/logs` | api:game.logs.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/messages/:messageId/ack` | api:game.messages.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/metrics` | api:game.metrics.write, loadApiKey | `server/routes/game.js` |
@@ -160,6 +162,7 @@
 | `server/db/migrations/002_messages_lotteries.sql` | lottery_campaigns, lottery_entries, player_messages | gift_grants | `4d11a4f69d16` |
 | `server/db/migrations/003_leaderboards_risk.sql` | leaderboard_entries, leaderboard_snapshot_entries, leaderboard_snapshots, leaderboards, risk_events, risk_rules | — | `754bde1002a9` |
 | `server/db/migrations/004_fq_archives.sql` | fq_global_archives, fq_player_archives | — | `145ebc293e1e` |
+| `server/db/migrations/005_leaderboard_score_update_mode.sql` | — | leaderboards | `530af8c3068b` |
 
 ## 环境变量
 

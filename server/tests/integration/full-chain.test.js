@@ -147,6 +147,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
           "game.logs.write",
           "game.metrics.write",
           "game.points.write",
+          "game.leaderboards.read",
           "game.leaderboards.write",
           "game.risk.write",
           "game.messages.read",
@@ -482,15 +483,17 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     const leaderboard = await admin
       .post(`/api/maps/${mapId}/leaderboards?environment=test`)
       .send({
-        leaderboardKey: "game_power",
+        leaderboardKey: "landing_power_v1",
         name: "落地战力榜",
         valueLabel: "战力",
         sortDirection: "desc",
+        scoreUpdateMode: "best",
       })
       .expect(201);
     const leaderboardId = leaderboard.body.data.id;
+    expect(leaderboard.body.data.scoreUpdateMode).toBe("best");
     await request(app)
-      .post("/api/fq/leaderboards/game_power/entries")
+      .post("/api/fq/leaderboards/landing_power_v1/entries")
       .set("fq-map-key", gameToken)
       .send({
         entries: [
@@ -500,6 +503,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
             gameLevel: "N2",
             score: 9900,
             gameCount: 18,
+            metadata: { season: 3 },
           },
           {
             uid: "player-002",
@@ -510,6 +514,99 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
           },
         ],
       })
+      .expect(200);
+    const firstGameQuery = await request(app)
+      .post("/api/fq/leaderboards/landing_power_v1/query")
+      .set("fq-map-key", gameToken)
+      .send({ uids: ["player-001", "missing-player"], limit: 100 })
+      .expect(200);
+    expect(firstGameQuery.body.data.totalEntries).toBe(2);
+    expect(firstGameQuery.body.data.entries.map((item) => item.uid)).toEqual([
+      "player-001",
+      "player-002",
+    ]);
+    expect(firstGameQuery.body.data.playerRanks).toMatchObject([
+      { rank: 1, uid: "player-001", name: "链路玩家", score: 9900 },
+    ]);
+    expect(firstGameQuery.body.data.entries[0].achievedAtText).toMatch(
+      /^\d{2}-\d{2} \d{2}:\d{2}$/,
+    );
+
+    await request(app)
+      .post("/api/fq/leaderboards/landing_power_v1/entries")
+      .set("fq-map-key", gameToken)
+      .send({
+        entries: [
+          {
+            uid: "player-001",
+            name: "链路玩家新名",
+            gameLevel: "N9",
+            score: 8800,
+            gameCount: 99,
+            metadata: { formulaVersion: "worse" },
+          },
+        ],
+      })
+      .expect(200);
+    const afterWorseScore = await request(app)
+      .post("/api/fq/leaderboards/landing_power_v1/query")
+      .set("fq-map-key", gameToken)
+      .send({ uids: ["player-001"] })
+      .expect(200);
+    expect(afterWorseScore.body.data.playerRanks[0]).toMatchObject({
+      name: "链路玩家新名",
+      gameLevel: "N2",
+      score: 9900,
+      gameCount: 18,
+      metadata: { season: 3 },
+      achievedAt: firstGameQuery.body.data.playerRanks[0].achievedAt,
+    });
+
+    await request(app)
+      .post("/api/fq/leaderboards/landing_power_v1/entries")
+      .set("fq-map-key", gameToken)
+      .send({
+        entries: [
+          {
+            uid: "player-001",
+            name: "链路玩家新名",
+            gameLevel: "N3",
+            score: 12000,
+            gameCount: 10,
+            metadata: { formulaVersion: "landing_power_v1" },
+          },
+        ],
+      })
+      .expect(200);
+    const afterBetterScore = await request(app)
+      .post("/api/fq/leaderboards/landing_power_v1/query")
+      .set("fq-map-key", gameToken)
+      .send({ uids: ["player-001"] })
+      .expect(200);
+    expect(afterBetterScore.body.data.playerRanks[0]).toMatchObject({
+      rank: 1,
+      uid: "player-001",
+      gameLevel: "N3",
+      score: 12000,
+      gameCount: 10,
+      metadata: { formulaVersion: "landing_power_v1" },
+    });
+
+    const writeOnlyKey = await admin
+      .post(`/api/maps/${mapId}/api-keys`)
+      .send({
+        name: "仅读榜权限拒绝测试",
+        environment: "test",
+        permissions: ["game.leaderboards.write"],
+      })
+      .expect(201);
+    await request(app)
+      .post("/api/fq/leaderboards/landing_power_v1/query")
+      .set("fq-map-key", writeOnlyKey.body.data.token)
+      .send({ uids: [] })
+      .expect(403);
+    await admin
+      .delete(`/api/maps/${mapId}/api-keys/${writeOnlyKey.body.data.id}`)
       .expect(200);
     const live = await admin
       .get(
