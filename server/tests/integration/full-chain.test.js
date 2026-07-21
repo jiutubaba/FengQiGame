@@ -1011,7 +1011,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(cleared.body.data.logs).toBe(1);
     expect(cleared.body.data.metrics).toBe(1);
     expect(cleared.body.data.leaderboardEntries).toBe(2);
-    expect(cleared.body.data.leaderboardSnapshots).toBe(1);
+    expect(cleared.body.data.leaderboardSnapshots).toBe(2);
     expect(cleared.body.data.riskEvents).toBe(1);
     expect(cleared.body.data.playerArchives).toBe(2);
     expect(cleared.body.data.globalArchives).toBe(1);
