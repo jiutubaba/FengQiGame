@@ -121,19 +121,19 @@ curl -fsS https://fengqigame.com/api/system/health
 - 旧 `Server*` Lua 调用面的兼容包装
 - `tools/test_fq_server.lua` 15 项 FQ 纯 Lua 自检和 `tools/test_landing_power.lua` 5 项公式自检
 
-本次只读核对发现：`scripts/maps/server/FQPrivateConfig.lua` 当前不存在，只有被 Git 跟踪的模板。真实 Key 尚未落入本机构建私有配置，因此不能把“代码实现”和“真实游戏已联通”混为一谈。
+2026-07-21 已为 `test` 创建被 Git 忽略的 `scripts/maps/server/FQPrivateConfig.lua`，其中只包含测试环境及其唯一 Key；后台同时创建 `landing_power_v1 / best` 和一把 7 项最小权限新 Key。真实 API 已完成空榜读写与历史最佳覆盖规则验收，但尚未启动地图做真实游戏验收，因此仍不能把“后台联通”和“游戏内通过”混为一谈。
 
 ### 4.3 当前联调阻塞项
 
-1. 《沧澜》启动链会主动读取消息、礼包和落地战力榜，英雄落地后还会写榜，但现有三套 Key 缺少 `game.messages.read`、`game.gifts.read`、`game.leaderboards.read` 与 `game.leaderboards.write`。消息或礼包被 403 拒绝会令本局进入 FQ 离线模式；读榜失败只令排行榜不可用。只给需要该功能的环境补这四项最小权限，不授予无调用方的日志、指标或风控权限。
-2. 先复制 `FQPrivateConfig.example.lua` 为被 Git 忽略的 `FQPrivateConfig.lua`，每次构建只写当前环境和对应的一把 Key。不得把三把 Key 同时打进地图。
-3. 在 `test` 环境完成真实游戏验收后，再分别验证 `lobby` 与 `release`。不得拿正式玩家 UID 做测试。
+1. `test` 新 Key 已具备 `game.messages.read`、`game.gifts.read`、`game.leaderboards.read` 与 `game.leaderboards.write`，且未授予日志、指标、埋点或风控权限；仍需在真实地图中验证消息/礼包不会触发 403、读榜失败只降级展示。
+2. `FQPrivateConfig.lua` 已按测试环境创建并被 Git 忽略。每次构建仍只能携带当前环境对应的一把 Key，不得把多环境 Key 同时打进地图。
+3. 在 `test` 环境完成真实游戏验收后，再决定是否分别配置并验证 `lobby` 与 `release`。不得拿正式玩家 UID 做测试。
 4. 正式环境 Key 曾在受控会话画面中明文输入，用户当时选择暂不轮换。它未写入 Git 或文档，但正式地图对外分发前应停用旧 Key、创建新 Key，并只把新 Key 写入私有构建配置。
 
 ## 5. 游戏侧实际验收顺序
 
 1. 运行《沧澜》的 15 项 FQ 自检、5 项落地战力公式自检和 Lua 语法检查。
-2. 后台为 `test` 环境创建并启用 `landing_power_v1`：降序、`best` 模式、数值名称“落地战力”；为 `test` Key 补齐消息/礼包读取和排行榜读写权限；创建本地私有配置，不提交。
+2. 已完成：后台 `test` 环境已创建并启用 `landing_power_v1`（降序、`best`、数值名称“落地战力”）；已创建具备消息/礼包读取和排行榜读写权限的新测试 Key 及本地私有配置，且未提交真实 Key。
 3. 单人新档：确认 bootstrap 返回 revision `0` 和空对象，玩家资料 upsert 成功。
 4. 保存与重进：写入玩家和全局完整快照，确认 revision 更新，重新开局后读取一致。
 5. 幂等与冲突：同一请求重发不重复写；同 ID 改内容和旧 revision 都被 409 拒绝并触发权威重读。
@@ -177,8 +177,8 @@ npm run audit:prod
 
 | 优先级 | 事项 | 完成条件 |
 | --- | --- | --- |
-| P0 | FQ Key 与《沧澜》权限闭环 | 三环境创建 `landing_power_v1` 并设为降序 `best`；`test` Key 补消息/礼包读取与排行榜读写权限；正式发版前轮换曾暴露的 `release` Key；私有配置不进 Git |
 | P0 | 《沧澜》真实客户端验收 | 本文第 5 节全部通过，并把结果归档到《沧澜》`.ai` 文档 |
+| P0 | 正式环境推广与 Key 轮换 | `test` 游戏内验收通过后再配置 `lobby/release`；正式发版前轮换曾暴露的 `release` Key；私有配置继续不进 Git |
 | P0 | 公安联网备案与页脚公示 | 审核通过后在公共页脚展示公安备案号并链接公安查询页 |
 | P2 | 后台模块边界评估 | 先形成不改变 API 的拆分方案，再处理过大的地图工作台和地图路由文件 |
 
