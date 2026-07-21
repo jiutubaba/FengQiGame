@@ -119,7 +119,7 @@ curl -fsS https://fengqigame.com/api/system/health
 - 英雄落地后按统一公式计算战力，并按房间批量上报一次
 - 深黑暗金四页签排行榜 UI，战力榜展示前三、前 100、本人名次和成绩达成时间
 - 旧 `Server*` Lua 调用面的兼容包装
-- `tools/test_fq_server.lua` 15 项 FQ 纯 Lua 自检和 `tools/test_landing_power.lua` 5 项公式自检
+- `tools/test_fq_server.lua` 15 项 FQ 纯 Lua 自检和 `tools/test_landing_power.lua` 16 项公式自检
 
 2026-07-21 已为 `test` 创建被 Git 忽略的 `scripts/maps/server/FQPrivateConfig.lua`，其中只包含测试环境及其唯一 Key；后台同时创建 `landing_power_v1 / best` 和一把 7 项最小权限新 Key。真实 API 已完成空榜读写与历史最佳覆盖规则验收，但尚未启动地图做真实游戏验收，因此仍不能把“后台联通”和“游戏内通过”混为一谈。
 
@@ -132,7 +132,7 @@ curl -fsS https://fengqigame.com/api/system/health
 
 ## 5. 游戏侧实际验收顺序
 
-1. 运行《沧澜》的 15 项 FQ 自检、5 项落地战力公式自检和 Lua 语法检查。
+1. 运行《沧澜》的 15 项 FQ 自检、16 项落地战力公式自检和 Lua 语法检查。
 2. 已完成：后台 `test` 环境已创建并启用 `landing_power_v1`（降序、`best`、数值名称“落地战力”）；已创建具备消息/礼包读取和排行榜读写权限的新测试 Key 及本地私有配置，且未提交真实 Key。
 3. 单人新档：确认 bootstrap 返回 revision `0` 和空对象，玩家资料 upsert 成功。
 4. 保存与重进：写入玩家和全局完整快照，确认 revision 更新，重新开局后读取一致。
