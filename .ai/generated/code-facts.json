@@ -195,6 +195,16 @@
     },
     {
       "method": "POST",
+      "path": "/api/fq/deliveries/query",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.gifts.read",
+        "api:game.messages.read",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
       "path": "/api/fq/gifts/:grantId/ack",
       "source": "server/routes/game.js",
       "guards": [
@@ -244,24 +254,6 @@
       "source": "server/routes/game.js",
       "guards": [
         "api:game.metrics.write",
-        "loadApiKey"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/api/fq/players/:uid/gifts",
-      "source": "server/routes/game.js",
-      "guards": [
-        "api:game.gifts.read",
-        "loadApiKey"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/api/fq/players/:uid/messages",
-      "source": "server/routes/game.js",
-      "guards": [
-        "api:game.messages.read",
         "loadApiKey"
       ]
     },
@@ -983,6 +975,15 @@
       "alteredTables": [
         "leaderboards"
       ]
+    },
+    {
+      "file": "server/db/migrations/006_leaderboard_publication_and_daily_collection.sql",
+      "sha256": "38b8f27fbe7b6f02099dfae48bf8441a54804e83d7494c2ad546e91ef7a0cd52",
+      "tables": [],
+      "alteredTables": [
+        "leaderboard_entries",
+        "leaderboard_snapshot_entries"
+      ]
     }
   ],
   "environmentVariables": {
@@ -1114,6 +1115,10 @@
       "lines": 10
     },
     {
+      "file": "server/db/migrations/006_leaderboard_publication_and_daily_collection.sql",
+      "lines": 6
+    },
+    {
       "file": "server/index.js",
       "lines": 52
     },
@@ -1151,7 +1156,7 @@
     },
     {
       "file": "server/routes/game.js",
-      "lines": 806
+      "lines": 902
     },
     {
       "file": "server/routes/maps.js",
@@ -1187,7 +1192,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 1281
+      "lines": 1345
     },
     {
       "file": "server/tests/unit/logging.test.js",

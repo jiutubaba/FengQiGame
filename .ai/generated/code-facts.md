@@ -4,10 +4,10 @@
 
 - 项目：`fengqi-game-admin`
 - 版本：`1.0.0`
-- API 路由：92
+- API 路由：91
 - 地图权限：15
 - 客户端权限：11
-- 数据库迁移：5
+- 数据库迁移：6
 
 ## 地图权限
 
@@ -67,14 +67,13 @@
 | GET | `/api/fq/archives/players/:uid` | api:game.archives.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/archives/players/:uid/save` | api:game.archives.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/bootstrap` | api:game.archives.read, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/deliveries/query` | api:game.gifts.read, api:game.messages.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/gifts/:grantId/ack` | api:game.gifts.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/leaderboards/:leaderboardKey/entries` | api:game.leaderboards.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/leaderboards/:leaderboardKey/query` | api:game.leaderboards.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/logs` | api:game.logs.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/messages/:messageId/ack` | api:game.messages.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/metrics` | api:game.metrics.write, loadApiKey | `server/routes/game.js` |
-| GET | `/api/fq/players/:uid/gifts` | api:game.gifts.read, loadApiKey | `server/routes/game.js` |
-| GET | `/api/fq/players/:uid/messages` | api:game.messages.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/players/upsert` | api:game.players.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/points/:pointKey/increment` | api:game.points.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/risk/events` | api:game.risk.write, loadApiKey | `server/routes/game.js` |
@@ -163,6 +162,7 @@
 | `server/db/migrations/003_leaderboards_risk.sql` | leaderboard_entries, leaderboard_snapshot_entries, leaderboard_snapshots, leaderboards, risk_events, risk_rules | — | `754bde1002a9` |
 | `server/db/migrations/004_fq_archives.sql` | fq_global_archives, fq_player_archives | — | `145ebc293e1e` |
 | `server/db/migrations/005_leaderboard_score_update_mode.sql` | — | leaderboards | `530af8c3068b` |
+| `server/db/migrations/006_leaderboard_publication_and_daily_collection.sql` | — | leaderboard_entries, leaderboard_snapshot_entries | `38b8f27fbe7b` |
 
 ## 环境变量
 

@@ -100,7 +100,7 @@ curl -fsS https://fengqigame.com/api/system/health
 
 - 正式数据库已创建地图“沧澜”，地图 ID 为 `1`，默认环境为 `release`。
 - `release`、`lobby`、`test` 三套 Key 均已创建并启用，完整 Token 不在仓库中保存。
-- 三套 Key 当前只授予：`game.players.write`、`game.archives.read`、`game.archives.write`。
+- 三套既有 Key 的实际权限必须以后台当前配置为准；完整 Token 不进入文档。
 - 已通过正式域名完成三环境鉴权、玩家 upsert、玩家存档首次保存、相同请求幂等重放、requestId 复用拦截、旧 revision 冲突、最小权限拒绝和同 UID 环境隔离。
 - 冒烟数据已精确清理，正式库测试残留为 0；服务器临时 Key 文件和冒烟脚本已删除。
 - 玩家与全局存档使用完整 JSON 快照、独立 revision 和 `FQ-` requestId；数据库维护始终留在后台侧。
@@ -113,19 +113,20 @@ curl -fsS https://fengqigame.com/api/system/health
 - 自动添加 `FQ-Map-Key`
 - bootstrap、玩家/全局完整 JSON 快照与独立 revision
 - 相同 requestId 安全重试、409 权威重读、`dataBanned` 封锁
-- 消息/礼包先落玩家存档再 ACK
+- 四人无待投递时使用 4 个批量 HTTP 完成存档、资料、发布榜和投递读取
+- 消息/礼包批量读取后先落玩家存档再 ACK
 - 10 秒启动门闩、失败后本局 FQ 离线开局且不热恢复
-- 赛前读取 `landing_power_v1` 前 100 名和本局玩家名次，读榜失败只降级排行榜展示
-- 英雄落地后按统一公式计算战力，并按房间批量上报一次
-- 深黑暗金四页签排行榜 UI，战力榜展示前三、前 100、本人名次和成绩达成时间
+- 赛前只读取 `landing_power` 最新人工发布前 100 名和快照内本人名次，读榜失败只降级展示
+- 英雄落地后按统一公式计算战力，只批量提交北京时间当天尚未采集的玩家
+- 排行榜使用“地图榜 / 战力榜”两页签，展示前三、前 100、快照内本人名次和人工发布时间
 - 旧 `Server*` Lua 调用面的兼容包装
 - `tools/test_fq_server.lua` 15 项 FQ 纯 Lua 自检和 `tools/test_landing_power.lua` 16 项公式自检
 
-2026-07-21 已为 `test` 创建被 Git 忽略的 `scripts/maps/server/FQPrivateConfig.lua`，其中只包含测试环境及其唯一 Key；后台同时创建 `landing_power_v1 / best` 和一把 7 项最小权限新 Key。真实 API 已完成空榜读写与历史最佳覆盖规则验收，但尚未启动地图做真实游戏验收，因此仍不能把“后台联通”和“游戏内通过”混为一谈。
+2026-07-21 源码已切换为批量开局、每日首次采集和人工发布快照协议。后台 `006_leaderboard_publication_and_daily_collection.sql`、新接口和地图改动尚未部署或实机验收；旧版实时读榜的真实 API 结果不能作为本轮结论。
 
 ### 4.3 当前联调阻塞项
 
-1. `test` 新 Key 已具备 `game.messages.read`、`game.gifts.read`、`game.leaderboards.read` 与 `game.leaderboards.write`，且未授予日志、指标、埋点或风控权限；仍需在真实地图中验证消息/礼包不会触发 403、读榜失败只降级展示。
+1. 先在隔离 PostgreSQL 完成本轮迁移和全链路测试，再部署后台；部署后为 `test` 榜单人工发布一份新快照。
 2. `FQPrivateConfig.lua` 已按测试环境创建并被 Git 忽略。每次构建仍只能携带当前环境对应的一把 Key，不得把多环境 Key 同时打进地图。
 3. 在 `test` 环境完成真实游戏验收后，再决定是否分别配置并验证 `lobby` 与 `release`。不得拿正式玩家 UID 做测试。
 4. 正式环境 Key 曾在受控会话画面中明文输入，用户当时选择暂不轮换。它未写入 Git 或文档，但正式地图对外分发前应停用旧 Key、创建新 Key，并只把新 Key 写入私有构建配置。
@@ -139,8 +140,8 @@ curl -fsS https://fengqigame.com/api/system/health
 5. 幂等与冲突：同一请求重发不重复写；同 ID 改内容和旧 revision 都被 409 拒绝并触发权威重读。
 6. 封禁：`dataBanned` 玩家不导入旧值、不能保存，且不会被错误当作商城封禁。
 7. 消息/礼包：投递只在游戏内落档成功后 ACK；重复 pending 不重复发放；布尔与数量礼包都正确。
-8. 落地战力榜：赛前缓存 Top100/本人名次；英雄注册和属性系统稳定后每人只上报一次；较低或同分不覆盖历史最佳成绩与时间，较高分正常更新；读榜失败不阻断开局。
-9. 多人：验证 1～4 人 UID 映射、批量上报、同步分段和同标签长消息交错，不串玩家、不串环境。
+8. 落地战力榜：未发布时明确空榜；人工发布后新对局缓存 Top100 和快照内本人名次；同一玩家当天只有首次样本生效，次日才重新采集。
+9. 多人：验证 1～4 人 UID 映射、四请求批量开局、每日资格混合上报和同步分段，不串玩家、不串环境。
 10. 故障：缺配置、域名不可达和服务不回包时，立即或 10 秒后只提示一次并正常离线开局；迟到响应不热恢复，本局写入被拒绝。
 11. `test` 全部通过后再构建 `lobby`，最后构建 `release`；每个构建只携带本环境 Key。
 

@@ -333,37 +333,65 @@ router.post(
   "/players/upsert",
   requireApiPermission("game.players.write"),
   validate(
-    z.object({
-      uid: z.string().trim().min(1).max(128),
-      name: z.string().trim().min(1).max(160),
-      level: z.coerce
-        .number()
-        .int()
-        .min(0)
-        .max(1_000_000)
-        .optional()
-        .default(0),
-      gameLevel: z.string().trim().max(32).optional().default(""),
-      profile: z.record(z.string(), z.unknown()).optional().default({}),
-    }),
+    z
+      .object({
+        players: z
+          .array(
+            z.object({
+              uid: playerUidSchema,
+              name: z.string().trim().min(1).max(160),
+              level: z.coerce
+                .number()
+                .int()
+                .min(0)
+                .max(1_000_000)
+                .optional()
+                .default(0),
+              gameLevel: z.string().trim().max(32).optional().default(""),
+              profile: z.record(z.string(), z.unknown()).optional().default({}),
+            }),
+          )
+          .min(1)
+          .max(24),
+      })
+      .superRefine(({ players }, context) => {
+        const uids = new Set();
+        for (const [index, player] of players.entries()) {
+          if (uids.has(player.uid)) {
+            context.addIssue({
+              code: "custom",
+              message: "同一批玩家资料不能包含重复 UID",
+              path: ["players", index, "uid"],
+            });
+          }
+          uids.add(player.uid);
+        }
+      }),
   ),
   async (req, res) => {
-    const result = await query(
-      `INSERT INTO players(map_id,environment,uid,name,level,game_level,profile,last_active_at)
-     VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,NOW())
-     ON CONFLICT(map_id,environment,uid) DO UPDATE SET name=EXCLUDED.name,level=EXCLUDED.level,game_level=EXCLUDED.game_level,profile=EXCLUDED.profile,last_active_at=NOW(),updated_at=NOW()
-     RETURNING id,uid,name,last_active_at`,
-      [
-        req.apiKey.map_id,
-        req.apiKey.environment,
-        req.body.uid,
-        req.body.name,
-        req.body.level,
-        req.body.gameLevel,
-        JSON.stringify(req.body.profile),
-      ],
-    );
-    res.json({ success: true, data: result.rows[0] });
+    const players = await transaction(async (client) => {
+      const rows = [];
+      for (const player of req.body.players) {
+        const result = await client.query(
+          `INSERT INTO players(map_id,environment,uid,name,level,game_level,profile,last_active_at)
+           VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,NOW())
+           ON CONFLICT(map_id,environment,uid) DO UPDATE SET name=EXCLUDED.name,level=EXCLUDED.level,game_level=EXCLUDED.game_level,profile=EXCLUDED.profile,last_active_at=NOW(),updated_at=NOW()
+           RETURNING id,uid,name,last_active_at`,
+          [
+            req.apiKey.map_id,
+            req.apiKey.environment,
+            player.uid,
+            player.name,
+            player.level,
+            player.gameLevel,
+            JSON.stringify(player.profile),
+          ],
+        );
+        rows.push(result.rows[0]);
+      }
+      return rows;
+    });
+    res.json({ success: true, data: { players } });
   },
 );
 
@@ -530,8 +558,17 @@ router.post(
       req.params.leaderboardKey,
     );
     const leaderboardResult = await query(
-      `SELECT id,name,value_label,sort_direction FROM leaderboards
-        WHERE map_id=$1 AND environment=$2 AND leaderboard_key=$3 AND enabled=TRUE`,
+      `SELECT l.id,l.name,l.value_label,
+              latest.id AS snapshot_id,latest.entry_count,latest.published_at,
+              (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date::text AS collection_date
+         FROM leaderboards l
+         LEFT JOIN LATERAL (
+           SELECT id,entry_count,published_at
+             FROM leaderboard_snapshots
+            WHERE leaderboard_id=l.id
+            ORDER BY published_at DESC,id DESC LIMIT 1
+         ) latest ON TRUE
+        WHERE l.map_id=$1 AND l.environment=$2 AND l.leaderboard_key=$3 AND l.enabled=TRUE`,
       [req.apiKey.map_id, req.apiKey.environment, leaderboardKey],
     );
     const leaderboard = leaderboardResult.rows[0];
@@ -544,42 +581,49 @@ router.post(
         },
       });
 
-    const direction = leaderboard.sort_direction === "asc" ? "ASC" : "DESC";
-    const ranked = `WITH ranked AS (
-      SELECT ROW_NUMBER() OVER (ORDER BY e.score ${direction},e.updated_at,e.id) AS rank,
-             e.player_uid,e.player_name,e.game_level,e.score,e.game_count,e.metadata,e.updated_at
-        FROM leaderboard_entries e
-        LEFT JOIN players p ON p.map_id=$2 AND p.environment=$3 AND p.uid=e.player_uid
-       WHERE e.leaderboard_id=$1 AND p.rank_ban IS DISTINCT FROM TRUE
-    )`;
-    const params = [
-      leaderboard.id,
-      req.apiKey.map_id,
-      req.apiKey.environment,
-    ];
-    const [entriesResult, playerRanksResult, totalResult] = await Promise.all([
-      query(
-        `${ranked} SELECT * FROM ranked ORDER BY rank LIMIT $4`,
-        [...params, req.body.limit],
-      ),
-      query(
-        `${ranked} SELECT * FROM ranked WHERE player_uid=ANY($4::text[]) ORDER BY rank`,
-        [...params, req.body.uids],
-      ),
-      query(`${ranked} SELECT COUNT(*)::int AS count FROM ranked`, params),
-    ]);
-    const generatedAt = new Date();
+    const submittedToday = await query(
+      `SELECT player_uid FROM leaderboard_entries
+        WHERE leaderboard_id=$1 AND player_uid=ANY($2::text[])
+          AND last_submitted_on=$3::date`,
+      [leaderboard.id, req.body.uids, leaderboard.collection_date],
+    );
+    let entries = [];
+    let playerRanks = [];
+    if (leaderboard.snapshot_id) {
+      const [entriesResult, playerRanksResult] = await Promise.all([
+        query(
+          `SELECT rank,player_uid,player_name,game_level,score,game_count,metadata,achieved_at AS updated_at
+             FROM leaderboard_snapshot_entries
+            WHERE snapshot_id=$1 ORDER BY rank LIMIT $2`,
+          [leaderboard.snapshot_id, req.body.limit],
+        ),
+        query(
+          `SELECT rank,player_uid,player_name,game_level,score,game_count,metadata,achieved_at AS updated_at
+             FROM leaderboard_snapshot_entries
+            WHERE snapshot_id=$1 AND player_uid=ANY($2::text[]) ORDER BY rank`,
+          [leaderboard.snapshot_id, req.body.uids],
+        ),
+      ]);
+      entries = entriesResult.rows.map(gameLeaderboardEntryRow);
+      playerRanks = playerRanksResult.rows.map(gameLeaderboardEntryRow);
+    }
     res.json({
       success: true,
       data: {
         leaderboardKey,
         name: leaderboard.name,
         valueLabel: leaderboard.value_label,
-        generatedAt,
-        generatedAtText: fqChinaTime(generatedAt),
-        totalEntries: totalResult.rows[0].count,
-        entries: entriesResult.rows.map(gameLeaderboardEntryRow),
-        playerRanks: playerRanksResult.rows.map(gameLeaderboardEntryRow),
+        published: Boolean(leaderboard.snapshot_id),
+        snapshotId: leaderboard.snapshot_id
+          ? Number(leaderboard.snapshot_id)
+          : null,
+        publishedAt: leaderboard.published_at || null,
+        publishedAtText: fqChinaTime(leaderboard.published_at),
+        totalEntries: Number(leaderboard.entry_count || 0),
+        entries,
+        playerRanks,
+        collectionDate: leaderboard.collection_date,
+        submittedTodayUids: submittedToday.rows.map((row) => row.player_uid),
       },
     });
   },
@@ -589,16 +633,32 @@ router.post(
   "/leaderboards/:leaderboardKey/entries",
   requireApiPermission("game.leaderboards.write"),
   validate(
-    z.object({
-      entries: z.array(leaderboardEntrySchema).min(1).max(500),
-    }),
+    z
+      .object({
+        entries: z.array(leaderboardEntrySchema).min(1).max(500),
+      })
+      .superRefine(({ entries }, context) => {
+        const uids = new Set();
+        for (const [index, entry] of entries.entries()) {
+          if (uids.has(entry.uid)) {
+            context.addIssue({
+              code: "custom",
+              message: "同一批排行榜条目不能包含重复 UID",
+              path: ["entries", index, "uid"],
+            });
+          }
+          uids.add(entry.uid);
+        }
+      }),
   ),
   async (req, res) => {
     const leaderboardKey = leaderboardKeySchema.parse(
       req.params.leaderboardKey,
     );
     const leaderboardResult = await query(
-      `SELECT id,sort_direction,score_update_mode FROM leaderboards
+      `SELECT id,sort_direction,score_update_mode,
+              (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date::text AS collection_date
+         FROM leaderboards
         WHERE map_id=$1 AND environment=$2 AND leaderboard_key=$3 AND enabled=TRUE`,
       [req.apiKey.map_id, req.apiKey.environment, leaderboardKey],
     );
@@ -612,11 +672,12 @@ router.post(
         },
       });
 
-    await transaction(async (client) => {
+    const acceptedUids = await transaction(async (client) => {
+      const accepted = [];
       for (const entry of req.body.entries) {
-        await client.query(
-          `INSERT INTO leaderboard_entries(leaderboard_id,player_uid,player_name,game_level,score,game_count,metadata)
-           VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)
+        const result = await client.query(
+          `INSERT INTO leaderboard_entries(leaderboard_id,player_uid,player_name,game_level,score,game_count,metadata,last_submitted_on)
+           VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$10::date)
            ON CONFLICT(leaderboard_id,player_uid) DO UPDATE SET
               player_name=EXCLUDED.player_name,
               game_level=CASE
@@ -633,7 +694,10 @@ router.post(
                 THEN EXCLUDED.metadata ELSE leaderboard_entries.metadata END,
               updated_at=CASE
                 WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
-                THEN NOW() ELSE leaderboard_entries.updated_at END`,
+                THEN NOW() ELSE leaderboard_entries.updated_at END,
+              last_submitted_on=EXCLUDED.last_submitted_on
+           WHERE leaderboard_entries.last_submitted_on IS DISTINCT FROM EXCLUDED.last_submitted_on
+           RETURNING player_uid`,
           [
             leaderboard.id,
             entry.uid,
@@ -644,13 +708,24 @@ router.post(
             JSON.stringify(entry.metadata),
             leaderboard.score_update_mode,
             leaderboard.sort_direction,
+            leaderboard.collection_date,
           ],
         );
+        if (result.rows[0]) accepted.push(result.rows[0].player_uid);
       }
+      return accepted;
     });
+    const accepted = new Set(acceptedUids);
     res.json({
       success: true,
-      data: { leaderboardKey, accepted: req.body.entries.length },
+      data: {
+        leaderboardKey,
+        collectionDate: leaderboard.collection_date,
+        acceptedUids,
+        skippedUids: req.body.entries
+          .filter((entry) => !accepted.has(entry.uid))
+          .map((entry) => entry.uid),
+      },
     });
   },
 );
@@ -722,18 +797,54 @@ router.post(
   },
 );
 
-router.get(
-  "/players/:uid/messages",
+router.post(
+  "/deliveries/query",
   requireApiPermission("game.messages.read"),
+  requireApiPermission("game.gifts.read"),
+  validate(
+    z.object({
+      uids: z
+        .array(playerUidSchema)
+        .min(1)
+        .max(24)
+        .transform((uids) => [...new Set(uids)]),
+    }),
+  ),
   async (req, res) => {
-    const result = await query(
-      `SELECT pm.id,pm.subject,pm.content,pm.attachments,pm.created_at
-       FROM player_messages pm JOIN players p ON p.id=pm.player_id
-      WHERE pm.map_id=$1 AND pm.environment=$2 AND p.uid=$3 AND pm.status='pending'
-      ORDER BY pm.created_at LIMIT 100`,
-      [req.apiKey.map_id, req.apiKey.environment, req.params.uid],
+    const [messages, gifts] = await Promise.all([
+      query(
+        `SELECT * FROM (
+           SELECT p.uid,pm.id,pm.subject,pm.content,pm.attachments,pm.created_at,
+                  ROW_NUMBER() OVER (PARTITION BY p.uid ORDER BY pm.created_at) AS item_order
+             FROM player_messages pm JOIN players p ON p.id=pm.player_id
+            WHERE pm.map_id=$1 AND pm.environment=$2 AND p.uid=ANY($3::text[])
+              AND p.data_ban IS DISTINCT FROM TRUE AND pm.status='pending'
+         ) pending WHERE item_order<=100 ORDER BY uid,item_order`,
+        [req.apiKey.map_id, req.apiKey.environment, req.body.uids],
+      ),
+      query(
+        `SELECT * FROM (
+           SELECT p.uid,gg.id,g.gift_key,g.name,gg.quantity,gg.boolean_value,gg.granted_at,
+                  ROW_NUMBER() OVER (PARTITION BY p.uid ORDER BY gg.granted_at) AS item_order
+             FROM gift_grants gg JOIN gifts g ON g.id=gg.gift_id JOIN players p ON p.id=gg.player_id
+            WHERE gg.map_id=$1 AND gg.environment=$2 AND p.uid=ANY($3::text[])
+              AND p.data_ban IS DISTINCT FROM TRUE AND gg.delivered_at IS NULL
+         ) pending WHERE item_order<=100 ORDER BY uid,item_order`,
+        [req.apiKey.map_id, req.apiKey.environment, req.body.uids],
+      ),
+    ]);
+    const byUid = new Map(
+      req.body.uids.map((uid) => [uid, { uid, messages: [], gifts: [] }]),
     );
-    res.json({ success: true, data: result.rows });
+    for (const message of messages.rows) {
+      const { uid, item_order: _itemOrder, ...data } = message;
+      byUid.get(uid)?.messages.push(data);
+    }
+    for (const gift of gifts.rows) {
+      const { uid, item_order: _itemOrder, ...data } = gift;
+      byUid.get(uid)?.gifts.push(data);
+    }
+    res.json({ success: true, data: { players: [...byUid.values()] } });
   },
 );
 
@@ -759,21 +870,6 @@ router.post(
         error: { code: "MESSAGE_NOT_FOUND", message: "消息不存在或已经确认" },
       });
     res.json({ success: true, data: result.rows[0] });
-  },
-);
-
-router.get(
-  "/players/:uid/gifts",
-  requireApiPermission("game.gifts.read"),
-  async (req, res) => {
-    const result = await query(
-      `SELECT gg.id,g.gift_key,g.name,gg.quantity,gg.boolean_value,gg.granted_at
-       FROM gift_grants gg JOIN gifts g ON g.id=gg.gift_id JOIN players p ON p.id=gg.player_id
-      WHERE gg.map_id=$1 AND gg.environment=$2 AND p.uid=$3 AND gg.delivered_at IS NULL
-      ORDER BY gg.granted_at LIMIT 100`,
-      [req.apiKey.map_id, req.apiKey.environment, req.params.uid],
-    );
-    res.json({ success: true, data: result.rows });
   },
 );
 
