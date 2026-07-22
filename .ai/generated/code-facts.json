@@ -1169,7 +1169,7 @@
     },
     {
       "file": "server/routes/game.js",
-      "lines": 877
+      "lines": 889
     },
     {
       "file": "server/routes/maps.js",
@@ -1205,7 +1205,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 1420
+      "lines": 1464
     },
     {
       "file": "server/tests/unit/logging.test.js",

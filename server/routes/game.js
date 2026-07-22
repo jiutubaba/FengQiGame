@@ -823,13 +823,25 @@ router.post(
         [req.apiKey.map_id, req.apiKey.environment, req.body.uids],
       ),
       query(
-        `SELECT p.uid,g.gift_key,g.name,ge.value::float8 AS value
-           FROM gift_entitlements ge
+        `WITH current_players AS (
+           SELECT uid,name
+             FROM players
+            WHERE map_id=$1 AND environment=$2 AND uid=ANY($3::text[])
+         )
+         SELECT current_players.uid,g.gift_key,g.name,MAX(ge.value)::float8 AS value
+           FROM current_players
+           JOIN players entitled_players
+             ON entitled_players.map_id=$1
+            AND entitled_players.environment=$2
+            AND entitled_players.name=current_players.name
+           JOIN gift_entitlements ge
+             ON ge.map_id=$1
+            AND ge.environment=$2
+            AND ge.player_id=entitled_players.id
            JOIN gifts g ON g.id=ge.gift_id
-           JOIN players p ON p.id=ge.player_id
-          WHERE ge.map_id=$1 AND ge.environment=$2 AND p.uid=ANY($3::text[])
-            AND ge.value>0
-          ORDER BY p.uid,g.id`,
+          WHERE ge.value>0
+          GROUP BY current_players.uid,g.id,g.gift_key,g.name
+          ORDER BY current_players.uid,g.id`,
         [req.apiKey.map_id, req.apiKey.environment, req.body.uids],
       ),
     ]);
