@@ -205,15 +205,6 @@
     },
     {
       "method": "POST",
-      "path": "/api/fq/gifts/:grantId/ack",
-      "source": "server/routes/game.js",
-      "guards": [
-        "api:game.gifts.read",
-        "loadApiKey"
-      ]
-    },
-    {
-      "method": "POST",
       "path": "/api/fq/leaderboards/:leaderboardKey/entries",
       "source": "server/routes/game.js",
       "guards": [
@@ -471,8 +462,16 @@
       ]
     },
     {
-      "method": "POST",
-      "path": "/api/maps/:mapId/gifts/grant",
+      "method": "GET",
+      "path": "/api/maps/:mapId/gifts/entitlements",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/maps/:mapId/gifts/entitlements",
       "source": "server/routes/maps.js",
       "guards": [
         "map:GIFTS_MANAGE"
@@ -875,7 +874,7 @@
     "folder.create",
     "gift.create",
     "gift.delete",
-    "gift.grant",
+    "gift.entitlements.set",
     "gift.update",
     "leaderboard.create",
     "leaderboard.delete",
@@ -984,6 +983,16 @@
         "leaderboard_entries",
         "leaderboard_snapshot_entries"
       ]
+    },
+    {
+      "file": "server/db/migrations/007_gift_entitlements.sql",
+      "sha256": "5045b63209103ab9e30d70876e5208a6846301cc61fcce08a779bdcdf884dfc3",
+      "tables": [
+        "gift_entitlements"
+      ],
+      "alteredTables": [
+        "gifts"
+      ]
     }
   ],
   "environmentVariables": {
@@ -1030,7 +1039,7 @@
         "HTTP 安全头、跨站请求和非法 JSON 均按生产规则处理",
         "管理员登录并创建地图与普通用户",
         "普通用户只能访问被授权的地图与功能",
-        "游戏客户端写入玩家，后台发送消息与礼包，客户端确认领取",
+        "游戏客户端写入玩家，后台批量设置当前礼包资格，消息仍需确认领取",
         "FQ 存档支持首次读取、版本写入、幂等重放、冲突保护和存档封禁",
         "客户端上报日志和指标并进入后台查询链路",
         "地图局部编辑、地图配置和系统设置均能持久化",
@@ -1119,6 +1128,10 @@
       "lines": 6
     },
     {
+      "file": "server/db/migrations/007_gift_entitlements.sql",
+      "lines": 36
+    },
+    {
       "file": "server/index.js",
       "lines": 52
     },
@@ -1156,11 +1169,11 @@
     },
     {
       "file": "server/routes/game.js",
-      "lines": 902
+      "lines": 877
     },
     {
       "file": "server/routes/maps.js",
-      "lines": 2364
+      "lines": 2436
     },
     {
       "file": "server/routes/public.js",
@@ -1192,7 +1205,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 1345
+      "lines": 1420
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1260,7 +1273,7 @@
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 3440
+      "lines": 3579
     },
     {
       "file": "src/pages/ProfilePage.jsx",
@@ -1272,7 +1285,7 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 4139
+      "lines": 4298
     },
     {
       "file": "src/utils/format.js",

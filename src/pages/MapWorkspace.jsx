@@ -79,7 +79,7 @@ const sectionTitles = {
   ],
   gifts: [
     "礼包与群抽",
-    "维护礼包、批量发放并创建公开群抽活动。",
+    "维护礼包、批量设置玩家资格并创建公开群抽活动。",
     "gifts.manage",
   ],
   anchors: [
@@ -677,7 +677,7 @@ function ConfigPanel({
         }
       >
         <p className="warning-note">
-          将删除当前环境的玩家、礼包发放、消息、日志、指标、排行榜实时数据与快照、风控事件，并把埋点次数归零。排行榜定义、风控规则、地图配置和文件不会删除，操作会写入审计日志。
+          将删除当前环境的玩家、礼包资格、消息、日志、指标、排行榜实时数据与快照、风控事件，并把埋点次数归零。排行榜定义、风控规则、地图配置和文件不会删除，操作会写入审计日志。
         </p>
         <Field label={`输入地图名称“${map.name}”确认`}>
           <input
@@ -2171,14 +2171,17 @@ function RiskPanel({ mapId, environment, can }) {
 function GiftsPanel({ mapId, environment }) {
   const [gifts, setGifts] = useState([]),
     [players, setPlayers] = useState([]),
+    [entitlements, setEntitlements] = useState([]),
+    [playerSearch, setPlayerSearch] = useState(""),
     [selectedPlayers, setSelectedPlayers] = useState([]),
-    [selectedGifts, setSelectedGifts] = useState([]);
+    [selectedGifts, setSelectedGifts] = useState([]),
+    [giftValues, setGiftValues] = useState({});
   const [giftOpen, setGiftOpen] = useState(false),
     [giftForm, setGiftForm] = useState({
       giftKey: "",
       name: "",
       description: "",
-      defaultValue: 1,
+      defaultValue: 0,
       enabled: true,
     });
   const [lotteries, setLotteries] = useState([]),
@@ -2192,15 +2195,26 @@ function GiftsPanel({ mapId, environment }) {
   const toast = useToast();
   const load = useCallback(async () => {
     try {
-      const [giftRows, playerRows, lotteryRows] = await Promise.all([
-        api(`/api/maps/${mapId}/gifts`),
-        api(
-          withEnvironment(`/api/maps/${mapId}/players?limit=100`, environment),
-        ),
-        api(withEnvironment(`/api/maps/${mapId}/lotteries`, environment)),
-      ]);
+      const [giftRows, playerRows, entitlementRows, lotteryRows] =
+        await Promise.all([
+          api(`/api/maps/${mapId}/gifts`),
+          api(
+            withEnvironment(
+              `/api/maps/${mapId}/players?limit=100`,
+              environment,
+            ),
+          ),
+          api(
+            withEnvironment(
+              `/api/maps/${mapId}/gifts/entitlements`,
+              environment,
+            ),
+          ),
+          api(withEnvironment(`/api/maps/${mapId}/lotteries`, environment)),
+        ]);
       setGifts(giftRows);
       setPlayers(playerRows);
+      setEntitlements(entitlementRows);
       setLotteries(lotteryRows);
     } catch (error) {
       toast(error.message, "danger");
@@ -2209,12 +2223,38 @@ function GiftsPanel({ mapId, environment }) {
   useEffect(() => {
     load();
   }, [load]);
+  useEffect(() => {
+    setSelectedPlayers([]);
+    setSelectedGifts([]);
+    setGiftValues({});
+    setPlayerSearch("");
+  }, [mapId, environment]);
   const emptyGift = {
     giftKey: "",
     name: "",
     description: "",
-    defaultValue: 1,
+    defaultValue: 0,
     enabled: true,
+  };
+  const filteredPlayers = useMemo(() => {
+    const keyword = playerSearch.trim().toLocaleLowerCase();
+    if (!keyword) return players;
+    return players.filter(
+      (player) =>
+        player.name.toLocaleLowerCase().includes(keyword) ||
+        player.uid.toLocaleLowerCase().includes(keyword),
+    );
+  }, [players, playerSearch]);
+  const entitlementValue = (playerId, giftId) =>
+    entitlements.find(
+      (item) => item.playerId === playerId && item.giftId === giftId,
+    )?.value ?? 0;
+  const currentGiftValue = (giftId) => {
+    if (!selectedPlayers.length) return "未选择玩家";
+    const values = selectedPlayers.map((playerId) =>
+      entitlementValue(playerId, giftId),
+    );
+    return values.every((value) => value === values[0]) ? values[0] : "混合";
   };
   const saveGift = async () => {
     try {
@@ -2241,26 +2281,42 @@ function GiftsPanel({ mapId, environment }) {
       toast(error.message, "danger");
     }
   };
-  const grant = async () => {
+  const copyGift = (gift) => {
+    let copyKey = `${gift.giftKey}_copy`;
+    let suffix = 2;
+    while (gifts.some((item) => item.giftKey === copyKey)) {
+      copyKey = `${gift.giftKey}_copy${suffix}`;
+      suffix += 1;
+    }
+    setGiftForm({
+      giftKey: copyKey,
+      name: `${gift.name} 副本`,
+      description: gift.description,
+      defaultValue: gift.defaultValue,
+      enabled: gift.enabled,
+    });
+    setGiftOpen(true);
+  };
+  const applyEntitlements = async () => {
     try {
       await api(
-        withEnvironment(`/api/maps/${mapId}/gifts/grant`, environment),
+        withEnvironment(`/api/maps/${mapId}/gifts/entitlements`, environment),
         {
-          method: "POST",
+          method: "PUT",
           body: {
             playerIds: selectedPlayers,
-            grants: selectedGifts.map((giftId) => ({
+            gifts: selectedGifts.map((giftId) => ({
               giftId,
-              quantity:
-                gifts.find((gift) => gift.id === giftId)?.defaultValue || 1,
-              booleanValue: false,
+              value: giftValues[giftId] ?? 0,
             })),
           },
         },
       );
-      setSelectedPlayers([]);
-      setSelectedGifts([]);
-      toast("礼包已写入游戏客户端待领取队列");
+      const entitlementRows = await api(
+        withEnvironment(`/api/maps/${mapId}/gifts/entitlements`, environment),
+      );
+      setEntitlements(entitlementRows);
+      toast("礼包资格已应用，下局将读取最新数值");
     } catch (error) {
       toast(error.message, "danger");
     }
@@ -2326,8 +2382,34 @@ function GiftsPanel({ mapId, environment }) {
             </div>
             <Badge>{selectedPlayers.length} 已选</Badge>
           </div>
-          <div className="grant-list">
-            {players.map((player) => (
+          <label className="gift-search">
+            <Search size={15} />
+            <input
+              value={playerSearch}
+              onChange={(event) => setPlayerSearch(event.target.value)}
+              placeholder="搜索名称或 UID"
+            />
+          </label>
+          <div className="gift-player-tools">
+            <button
+              type="button"
+              onClick={() =>
+                setSelectedPlayers((current) => [
+                  ...new Set([
+                    ...current,
+                    ...filteredPlayers.map((player) => player.id),
+                  ]),
+                ])
+              }
+            >
+              全选当前结果
+            </button>
+            <button type="button" onClick={() => setSelectedPlayers([])}>
+              清空
+            </button>
+          </div>
+          <div className="gift-player-list">
+            {filteredPlayers.map((player) => (
               <label
                 key={player.id}
                 className={
@@ -2351,95 +2433,146 @@ function GiftsPanel({ mapId, environment }) {
                 </span>
               </label>
             ))}
+            {!filteredPlayers.length && (
+              <p className="gift-empty-copy">没有匹配的玩家</p>
+            )}
           </div>
         </section>
-        <section className="gift-config-pane">
+        <section className="gift-catalog-pane">
           <div className="pane-head">
             <div>
-              <span className="eyebrow">GIFT GRANT</span>
-              <h3>发放礼包</h3>
+              <span className="eyebrow">GIFT CATALOG</span>
+              <h3>礼包目录</h3>
             </div>
-            <div className="section-actions">
-              <Button
-                icon={Plus}
-                onClick={() => {
-                  setGiftForm(emptyGift);
-                  setGiftOpen(true);
-                }}
-              >
-                新建礼包
-              </Button>
-              <Button icon={Sparkles} onClick={() => setLotteryOpen(true)}>
-                创建群抽
-              </Button>
-            </div>
+            <Button
+              icon={Plus}
+              onClick={() => {
+                setGiftForm(emptyGift);
+                setGiftOpen(true);
+              }}
+            >
+              新建礼包
+            </Button>
           </div>
-          <div className="grant-list">
+          <div className="gift-catalog-head" aria-hidden="true">
+            <span>礼包 / Key</span>
+            <span>说明</span>
+            <span>默认</span>
+            <span>操作</span>
+          </div>
+          <div className="gift-catalog-list">
             {gifts.map((gift) => (
-              <label
+              <div
                 key={gift.id}
                 className={selectedGifts.includes(gift.id) ? "selected" : ""}
               >
-                <input
-                  type="checkbox"
-                  checked={selectedGifts.includes(gift.id)}
-                  onChange={() =>
-                    setSelectedGifts((current) =>
-                      current.includes(gift.id)
-                        ? current.filter((id) => id !== gift.id)
-                        : [...current, gift.id],
-                    )
-                  }
-                />
-                <span>
-                  <strong>{gift.name}</strong>
-                  <small>
-                    {gift.giftKey} · {gift.description || "无说明"}
-                  </small>
-                </span>
+                <label className="gift-catalog-identity">
+                  <input
+                    type="checkbox"
+                    checked={selectedGifts.includes(gift.id)}
+                    onChange={() => {
+                      setSelectedGifts((current) =>
+                        current.includes(gift.id)
+                          ? current.filter((id) => id !== gift.id)
+                          : [...current, gift.id],
+                      );
+                      setGiftValues((current) =>
+                        current[gift.id] === undefined
+                          ? { ...current, [gift.id]: gift.defaultValue ?? 0 }
+                          : current,
+                      );
+                    }}
+                  />
+                  <span>
+                    <strong>{gift.name}</strong>
+                    <small>{gift.giftKey}</small>
+                  </span>
+                </label>
+                <p>{gift.description || "无说明"}</p>
                 <Badge>{gift.defaultValue}</Badge>
-                <button
-                  type="button"
-                  className="table-action"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    setGiftForm({ ...gift });
-                    setGiftOpen(true);
-                  }}
-                >
-                  <Edit3 size={13} />
-                  编辑
-                </button>
-                <button
-                  type="button"
-                  className="table-action danger"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    removeGift(gift);
-                  }}
-                >
-                  <Trash2 size={13} />
-                  删除
-                </button>
-              </label>
+                <div className="gift-row-actions">
+                  <button type="button" onClick={() => copyGift(gift)}>
+                    <Clipboard size={13} />
+                    复制
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGiftForm({ ...gift });
+                      setGiftOpen(true);
+                    }}
+                  >
+                    <Edit3 size={13} />
+                    编辑
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => removeGift(gift)}
+                  >
+                    <Trash2 size={13} />
+                    删除
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
-          <div className="grant-summary">
+        </section>
+        <section className="gift-setting-pane">
+          <div className="pane-head">
             <div>
-              <span>目标玩家</span>
-              <strong>{selectedPlayers.length}</strong>
+              <span className="eyebrow">ENTITLEMENT SET</span>
+              <h3>本次资格设置</h3>
             </div>
-            <div>
-              <span>已选礼包</span>
-              <strong>{selectedGifts.length}</strong>
-            </div>
+            <Badge>{selectedGifts.length} 项</Badge>
+          </div>
+          <div className="gift-setting-list">
+            {selectedGifts.map((giftId) => {
+              const gift = gifts.find((item) => item.id === giftId);
+              if (!gift) return null;
+              return (
+                <div key={gift.id}>
+                  <span>
+                    <strong>{gift.name}</strong>
+                    <small>当前：{currentGiftValue(gift.id)}</small>
+                  </span>
+                  <label>
+                    设为
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      max="1000000"
+                      value={giftValues[gift.id] ?? 0}
+                      onChange={(event) =>
+                        setGiftValues((current) => ({
+                          ...current,
+                          [gift.id]: Number(event.target.value),
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+              );
+            })}
+            {!selectedGifts.length && (
+              <p className="gift-empty-copy">从礼包目录选择要设置的项目</p>
+            )}
+          </div>
+          <div className="gift-apply-summary">
+            <p>
+              将更新{" "}
+              <strong>{selectedPlayers.length * selectedGifts.length}</strong>{" "}
+              条玩家礼包资格
+            </p>
+            <small>数值大于 0 时激活，设为 0 将取消资格。</small>
             <Button
               variant="primary"
               icon={Gift}
               disabled={!selectedPlayers.length || !selectedGifts.length}
-              onClick={grant}
+              onClick={applyEntitlements}
             >
-              确认发放
+              应用礼包资格
             </Button>
           </div>
         </section>
@@ -2451,6 +2584,9 @@ function GiftsPanel({ mapId, environment }) {
             <h3>群抽活动</h3>
             <p>公开链接无需后台账号，参与者信息与开奖结果保存在当前环境。</p>
           </div>
+          <Button icon={Sparkles} onClick={() => setLotteryOpen(true)}>
+            创建群抽
+          </Button>
         </div>
         {lotteries.length ? (
           <div className="table-shell">
@@ -2548,7 +2684,10 @@ function GiftsPanel({ mapId, environment }) {
           </>
         }
       >
-        <Field label="礼包 Key">
+        <Field
+          label="礼包 Key"
+          hint="接入沧澜福利礼包时，必须与现役礼包名称完全一致"
+        >
           <input
             className="input"
             value={giftForm.giftKey}
