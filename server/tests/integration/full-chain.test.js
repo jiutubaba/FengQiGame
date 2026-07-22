@@ -175,6 +175,18 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
             level: 5,
             gameLevel: "N1",
           },
+          {
+            uid: "player-003",
+            name: "链路玩家",
+            level: 1,
+            gameLevel: "N1",
+          },
+          {
+            uid: "player-004",
+            name: "无资格玩家",
+            level: 1,
+            gameLevel: "N1",
+          },
         ],
       })
       .expect(200);
@@ -186,6 +198,12 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     ).id;
     const secondPlayerId = players.body.data.find(
       (player) => player.uid === "player-002",
+    ).id;
+    const sameNamePlayerId = players.body.data.find(
+      (player) => player.uid === "player-003",
+    ).id;
+    const unmatchedPlayerId = players.body.data.find(
+      (player) => player.uid === "player-004",
     ).id;
 
     const giftResponse = await admin
@@ -208,12 +226,20 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
         gifts: [{ giftId, value: 2 }],
       })
       .expect(200);
+    await admin
+      .put(`/api/maps/${mapId}/gifts/entitlements?environment=test`)
+      .send({
+        playerIds: [sameNamePlayerId],
+        gifts: [{ giftId, value: 5 }],
+      })
+      .expect(200);
     const entitlements = await admin
       .get(`/api/maps/${mapId}/gifts/entitlements?environment=test`)
       .expect(200);
     expect(entitlements.body.data).toEqual([
       expect.objectContaining({ playerId, giftId, value: 2 }),
       expect.objectContaining({ playerId: secondPlayerId, giftId, value: 2 }),
+      expect.objectContaining({ playerId: sameNamePlayerId, giftId, value: 5 }),
     ]);
     expect(
       (
@@ -238,16 +264,24 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     const deliveries = await request(app)
       .post("/api/fq/deliveries/query")
       .set("fq-map-key", gameToken)
-      .send({ uids: ["player-001", "player-002"] })
+      .send({
+        uids: ["player-001", "player-002", "player-003", "player-004"],
+      })
       .expect(200);
     expect(deliveries.body.data.players[0].gifts).toHaveLength(1);
     expect(deliveries.body.data.players[0].gifts[0]).toMatchObject({
       gift_key: "chain_gift",
       name: "链路礼包",
-      value: 2,
+      value: 5,
     });
     expect(deliveries.body.data.players[0].messages).toHaveLength(1);
     expect(deliveries.body.data.players[1].gifts).toHaveLength(1);
+    expect(deliveries.body.data.players[1].gifts[0].value).toBe(2);
+    expect(deliveries.body.data.players[2].gifts).toEqual([
+      expect.objectContaining({ gift_key: "chain_gift", value: 5 }),
+    ]);
+    expect(deliveries.body.data.players[2].messages).toHaveLength(0);
+    expect(deliveries.body.data.players[3].gifts).toHaveLength(0);
     await request(app)
       .post(
         `/api/fq/messages/${deliveries.body.data.players[0].messages[0].id}/ack`,
@@ -265,19 +299,29 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     await admin
       .put(`/api/maps/${mapId}/gifts/entitlements?environment=test`)
       .send({
-        playerIds: [playerId, secondPlayerId],
+        playerIds: [playerId, secondPlayerId, sameNamePlayerId],
         gifts: [{ giftId, value: 0 }],
       })
       .expect(200);
     const cancelled = await request(app)
       .post("/api/fq/deliveries/query")
       .set("fq-map-key", gameToken)
-      .send({ uids: ["player-001", "player-002"] })
+      .send({
+        uids: ["player-001", "player-002", "player-003", "player-004"],
+      })
       .expect(200);
     expect(cancelled.body.data.players[0].gifts).toHaveLength(0);
     expect(cancelled.body.data.players[1].gifts).toHaveLength(0);
+    expect(cancelled.body.data.players[2].gifts).toHaveLength(0);
+    expect(cancelled.body.data.players[3].gifts).toHaveLength(0);
     await admin
       .delete(`/api/maps/${mapId}/players/${secondPlayerId}?environment=test`)
+      .expect(200);
+    await admin
+      .delete(`/api/maps/${mapId}/players/${sameNamePlayerId}?environment=test`)
+      .expect(200);
+    await admin
+      .delete(`/api/maps/${mapId}/players/${unmatchedPlayerId}?environment=test`)
       .expect(200);
   });
 
