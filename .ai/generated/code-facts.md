@@ -7,7 +7,7 @@
 - API 路由：91
 - 地图权限：15
 - 客户端权限：11
-- 数据库迁移：6
+- 数据库迁移：7
 
 ## 地图权限
 
@@ -68,7 +68,6 @@
 | POST | `/api/fq/archives/players/:uid/save` | api:game.archives.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/bootstrap` | api:game.archives.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/deliveries/query` | api:game.gifts.read, api:game.messages.read, loadApiKey | `server/routes/game.js` |
-| POST | `/api/fq/gifts/:grantId/ack` | api:game.gifts.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/leaderboards/:leaderboardKey/entries` | api:game.leaderboards.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/leaderboards/:leaderboardKey/query` | api:game.leaderboards.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/logs` | api:game.logs.write, loadApiKey | `server/routes/game.js` |
@@ -100,7 +99,8 @@
 | POST | `/api/maps/:mapId/gifts` | map:GIFTS_MANAGE | `server/routes/maps.js` |
 | DELETE | `/api/maps/:mapId/gifts/:giftId` | map:GIFTS_MANAGE | `server/routes/maps.js` |
 | PATCH | `/api/maps/:mapId/gifts/:giftId` | map:GIFTS_MANAGE | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/gifts/grant` | map:GIFTS_MANAGE | `server/routes/maps.js` |
+| GET | `/api/maps/:mapId/gifts/entitlements` | map:GIFTS_MANAGE | `server/routes/maps.js` |
+| PUT | `/api/maps/:mapId/gifts/entitlements` | map:GIFTS_MANAGE | `server/routes/maps.js` |
 | GET | `/api/maps/:mapId/leaderboards` | map:LEADERBOARDS_VIEW | `server/routes/maps.js` |
 | POST | `/api/maps/:mapId/leaderboards` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
 | DELETE | `/api/maps/:mapId/leaderboards/:leaderboardId` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
@@ -163,6 +163,7 @@
 | `server/db/migrations/004_fq_archives.sql` | fq_global_archives, fq_player_archives | — | `145ebc293e1e` |
 | `server/db/migrations/005_leaderboard_score_update_mode.sql` | — | leaderboards | `530af8c3068b` |
 | `server/db/migrations/006_leaderboard_publication_and_daily_collection.sql` | — | leaderboard_entries, leaderboard_snapshot_entries | `38b8f27fbe7b` |
+| `server/db/migrations/007_gift_entitlements.sql` | gift_entitlements | gifts | `5045b6320910` |
 
 ## 环境变量
 
@@ -176,7 +177,7 @@
 - HTTP 安全头、跨站请求和非法 JSON 均按生产规则处理
 - 管理员登录并创建地图与普通用户
 - 普通用户只能访问被授权的地图与功能
-- 游戏客户端写入玩家，后台发送消息与礼包，客户端确认领取
+- 游戏客户端写入玩家，后台批量设置当前礼包资格，消息仍需确认领取
 - FQ 存档支持首次读取、版本写入、幂等重放、冲突保护和存档封禁
 - 客户端上报日志和指标并进入后台查询链路
 - 地图局部编辑、地图配置和系统设置均能持久化
@@ -228,7 +229,7 @@
 - `folder.create`
 - `gift.create`
 - `gift.delete`
-- `gift.grant`
+- `gift.entitlements.set`
 - `gift.update`
 - `leaderboard.create`
 - `leaderboard.delete`

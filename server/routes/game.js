@@ -823,13 +823,13 @@ router.post(
         [req.apiKey.map_id, req.apiKey.environment, req.body.uids],
       ),
       query(
-        `SELECT * FROM (
-           SELECT p.uid,gg.id,g.gift_key,g.name,gg.quantity,gg.boolean_value,gg.granted_at,
-                  ROW_NUMBER() OVER (PARTITION BY p.uid ORDER BY gg.granted_at) AS item_order
-             FROM gift_grants gg JOIN gifts g ON g.id=gg.gift_id JOIN players p ON p.id=gg.player_id
-            WHERE gg.map_id=$1 AND gg.environment=$2 AND p.uid=ANY($3::text[])
-              AND p.data_ban IS DISTINCT FROM TRUE AND gg.delivered_at IS NULL
-         ) pending WHERE item_order<=100 ORDER BY uid,item_order`,
+        `SELECT p.uid,g.gift_key,g.name,ge.value::float8 AS value
+           FROM gift_entitlements ge
+           JOIN gifts g ON g.id=ge.gift_id
+           JOIN players p ON p.id=ge.player_id
+          WHERE ge.map_id=$1 AND ge.environment=$2 AND p.uid=ANY($3::text[])
+            AND ge.value>0
+          ORDER BY p.uid,g.id`,
         [req.apiKey.map_id, req.apiKey.environment, req.body.uids],
       ),
     ]);
@@ -841,7 +841,7 @@ router.post(
       byUid.get(uid)?.messages.push(data);
     }
     for (const gift of gifts.rows) {
-      const { uid, item_order: _itemOrder, ...data } = gift;
+      const { uid, ...data } = gift;
       byUid.get(uid)?.gifts.push(data);
     }
     res.json({ success: true, data: { players: [...byUid.values()] } });
@@ -868,31 +868,6 @@ router.post(
       return res.status(404).json({
         success: false,
         error: { code: "MESSAGE_NOT_FOUND", message: "消息不存在或已经确认" },
-      });
-    res.json({ success: true, data: result.rows[0] });
-  },
-);
-
-router.post(
-  "/gifts/:grantId/ack",
-  requireApiPermission("game.gifts.read"),
-  validate(z.object({ uid: z.string().trim().min(1).max(128) })),
-  async (req, res) => {
-    const result = await query(
-      `UPDATE gift_grants gg SET delivered_at=NOW()
-      FROM players p WHERE gg.id=$1 AND gg.player_id=p.id AND gg.map_id=$2 AND gg.environment=$3
-        AND p.uid=$4 AND gg.delivered_at IS NULL RETURNING gg.id,gg.delivered_at`,
-      [
-        req.params.grantId,
-        req.apiKey.map_id,
-        req.apiKey.environment,
-        req.body.uid,
-      ],
-    );
-    if (!result.rows[0])
-      return res.status(404).json({
-        success: false,
-        error: { code: "GIFT_NOT_FOUND", message: "礼包不存在或已经确认" },
       });
     res.json({ success: true, data: result.rows[0] });
   },

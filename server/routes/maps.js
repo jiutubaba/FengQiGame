@@ -270,7 +270,6 @@ router.delete(
           },
           client,
         );
-        await client.query("DELETE FROM gift_grants WHERE map_id=$1", [mapId]);
         await client.query("DELETE FROM maps WHERE id=$1", [mapId]);
         return { id: Number(map.id), name: map.name, auditId };
       });
@@ -1191,7 +1190,7 @@ const giftSchema = z.object({
   giftKey: z.string().trim().min(1).max(128),
   name: z.string().trim().min(1).max(160),
   description: z.string().trim().max(2000).optional().default(""),
-  defaultValue: z.coerce.number().finite().optional().default(1),
+  defaultValue: z.coerce.number().finite().optional().default(0),
   enabled: z.boolean().optional().default(true),
 });
 router.post(
@@ -1276,63 +1275,136 @@ router.delete(
   },
 );
 
-router.post(
-  "/:mapId/gifts/grant",
+router.get(
+  "/:mapId/gifts/entitlements",
+  requireMapPermission(PERMISSIONS.GIFTS_MANAGE),
+  async (req, res) => {
+    const mapId = idSchema.parse(req.params.mapId);
+    const environment = envFrom(req);
+    const result = await query(
+      `SELECT ge.player_id,ge.gift_id,ge.value,ge.updated_at
+         FROM gift_entitlements ge
+         JOIN players p ON p.id=ge.player_id
+         JOIN gifts g ON g.id=ge.gift_id
+        WHERE ge.map_id=$1 AND ge.environment=$2
+          AND p.map_id=$1 AND p.environment=$2 AND g.map_id=$1
+        ORDER BY ge.player_id,ge.gift_id`,
+      [mapId, environment],
+    );
+    res.json({
+      success: true,
+      data: result.rows.map((row) => ({
+        playerId: Number(row.player_id),
+        giftId: Number(row.gift_id),
+        value: Number(row.value),
+        updatedAt: row.updated_at,
+      })),
+    });
+  },
+);
+
+router.put(
+  "/:mapId/gifts/entitlements",
   requireMapPermission(PERMISSIONS.GIFTS_MANAGE),
   validate(
-    z.object({
-      playerIds: z.array(z.coerce.number().int().positive()).min(1).max(500),
-      grants: z
-        .array(
-          z.object({
-            giftId: z.coerce.number().int().positive(),
-            quantity: z.coerce.number().finite().min(0).max(1_000_000),
-            booleanValue: z.boolean().optional().default(false),
-          }),
-        )
-        .min(1)
-        .max(100),
-    }),
+    z
+      .object({
+        playerIds: z
+          .array(z.coerce.number().int().positive())
+          .min(1)
+          .max(500)
+          .transform((ids) => [...new Set(ids)]),
+        gifts: z
+          .array(
+            z.object({
+              giftId: z.coerce.number().int().positive(),
+              value: z.coerce.number().finite().min(0).max(1_000_000),
+            }),
+          )
+          .min(1)
+          .max(100),
+      })
+      .superRefine((body, context) => {
+        const giftIds = body.gifts.map((gift) => gift.giftId);
+        if (new Set(giftIds).size !== giftIds.length)
+          context.addIssue({
+            code: "custom",
+            path: ["gifts"],
+            message: "同一礼包不能重复设置",
+          });
+      }),
   ),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const environment = envFrom(req);
-    const count = await transaction(async (client) => {
-      let inserted = 0;
-      for (const playerId of req.body.playerIds) {
-        for (const grant of req.body.grants) {
-          const result = await client.query(
-            `INSERT INTO gift_grants(map_id,environment,gift_id,player_id,quantity,boolean_value,granted_by)
-           SELECT $1::bigint,$2::varchar,$3::bigint,$4::bigint,$5::numeric,$6::boolean,$7::bigint
-            WHERE EXISTS(SELECT 1 FROM players WHERE id=$4 AND map_id=$1 AND environment=$2)
-              AND EXISTS(SELECT 1 FROM gifts WHERE id=$3 AND map_id=$1)`,
-            [
-              mapId,
-              environment,
-              grant.giftId,
-              playerId,
-              grant.quantity,
-              grant.booleanValue,
-              req.user.id,
-            ],
+    const counts = await transaction(async (client) => {
+      const players = await client.query(
+        "SELECT id FROM players WHERE map_id=$1 AND environment=$2 AND id=ANY($3::bigint[])",
+        [mapId, environment, req.body.playerIds],
+      );
+      if (players.rowCount !== req.body.playerIds.length)
+        throw conflict("存在不属于当前地图或环境的玩家");
+
+      const giftIds = req.body.gifts.map((gift) => gift.giftId);
+      const gifts = await client.query(
+        "SELECT id FROM gifts WHERE map_id=$1 AND id=ANY($2::bigint[])",
+        [mapId, giftIds],
+      );
+      if (gifts.rowCount !== giftIds.length)
+        throw conflict("存在不属于当前地图的礼包");
+
+      let upserted = 0;
+      let removed = 0;
+      for (const gift of req.body.gifts) {
+        if (gift.value === 0) {
+          const deleted = await client.query(
+            `DELETE FROM gift_entitlements
+              WHERE map_id=$1 AND environment=$2 AND gift_id=$3
+                AND player_id=ANY($4::bigint[])`,
+            [mapId, environment, gift.giftId, req.body.playerIds],
           );
-          inserted += result.rowCount;
+          removed += deleted.rowCount;
+          continue;
         }
+        const updated = await client.query(
+          `INSERT INTO gift_entitlements(map_id,environment,gift_id,player_id,value,updated_by)
+           SELECT $1::bigint,$2::varchar,$3::bigint,p.id,$4::numeric,$5::bigint
+             FROM players p
+            WHERE p.map_id=$1 AND p.environment=$2 AND p.id=ANY($6::bigint[])
+           ON CONFLICT(map_id,environment,player_id,gift_id) DO UPDATE
+           SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=NOW()`,
+          [
+            mapId,
+            environment,
+            gift.giftId,
+            gift.value,
+            req.user.id,
+            req.body.playerIds,
+          ],
+        );
+        upserted += updated.rowCount;
       }
-      return inserted;
+      return { upserted, removed };
     });
-    if (!count) throw conflict("没有匹配到可发放的玩家和礼包");
     await writeAudit(req, {
-      action: "gift.grant",
-      resourceType: "gift_grant",
+      action: "gift.entitlements.set",
+      resourceType: "gift_entitlement",
       mapId,
       details: {
+        environment,
         playerCount: req.body.playerIds.length,
-        grantCount: req.body.grants.length,
-        inserted: count,
+        giftCount: req.body.gifts.length,
+        values: req.body.gifts,
+        ...counts,
       },
     });
-    res.json({ success: true, data: { count } });
+    res.json({
+      success: true,
+      data: {
+        count: req.body.playerIds.length * req.body.gifts.length,
+        ...counts,
+      },
+    });
   },
 );
 
@@ -1567,8 +1639,8 @@ router.post(
         "DELETE FROM player_messages WHERE map_id=$1 AND environment=$2",
         [mapId, req.body.environment],
       );
-      const grants = await client.query(
-        "DELETE FROM gift_grants WHERE map_id=$1 AND environment=$2",
+      const entitlements = await client.query(
+        "DELETE FROM gift_entitlements WHERE map_id=$1 AND environment=$2",
         [mapId, req.body.environment],
       );
       const leaderboardSnapshots = await client.query(
@@ -1611,7 +1683,7 @@ router.post(
       );
       return {
         messages: messages.rowCount,
-        grants: grants.rowCount,
+        entitlements: entitlements.rowCount,
         leaderboardSnapshots: leaderboardSnapshots.rowCount,
         leaderboardEntries: leaderboardEntries.rowCount,
         riskEvents: riskEvents.rowCount,

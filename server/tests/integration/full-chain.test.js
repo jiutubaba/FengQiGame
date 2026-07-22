@@ -134,7 +134,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     await normalUser.get("/api/admin/users").expect(403);
   });
 
-  it("游戏客户端写入玩家，后台发送消息与礼包，客户端确认领取", async () => {
+  it("游戏客户端写入玩家，后台批量设置当前礼包资格，消息仍需确认领取", async () => {
     const keyResponse = await admin
       .post(`/api/maps/${mapId}/api-keys`)
       .send({
@@ -169,23 +169,63 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
             level: 10,
             gameLevel: "N2",
           },
+          {
+            uid: "player-002",
+            name: "批量资格玩家",
+            level: 5,
+            gameLevel: "N1",
+          },
         ],
       })
       .expect(200);
     const players = await admin
       .get(`/api/maps/${mapId}/players?environment=test`)
       .expect(200);
-    playerId = players.body.data[0].id;
+    playerId = players.body.data.find(
+      (player) => player.uid === "player-001",
+    ).id;
+    const secondPlayerId = players.body.data.find(
+      (player) => player.uid === "player-002",
+    ).id;
 
     const giftResponse = await admin
       .post(`/api/maps/${mapId}/gifts`)
-      .send({ giftKey: "chain_gift", name: "链路礼包", defaultValue: 2 })
+      .send({ giftKey: "chain_gift", name: "链路礼包" })
       .expect(201);
     giftId = giftResponse.body.data.id;
+    expect(giftResponse.body.data.defaultValue).toBe(0);
+    await normalUser
+      .put(`/api/maps/${mapId}/gifts/entitlements?environment=test`)
+      .send({
+        playerIds: [playerId],
+        gifts: [{ giftId, value: 2 }],
+      })
+      .expect(403);
     await admin
-      .post(`/api/maps/${mapId}/gifts/grant?environment=test`)
-      .send({ playerIds: [playerId], grants: [{ giftId, quantity: 2 }] })
+      .put(`/api/maps/${mapId}/gifts/entitlements?environment=test`)
+      .send({
+        playerIds: [playerId, secondPlayerId],
+        gifts: [{ giftId, value: 2 }],
+      })
       .expect(200);
+    const entitlements = await admin
+      .get(`/api/maps/${mapId}/gifts/entitlements?environment=test`)
+      .expect(200);
+    expect(entitlements.body.data).toEqual([
+      expect.objectContaining({ playerId, giftId, value: 2 }),
+      expect.objectContaining({ playerId: secondPlayerId, giftId, value: 2 }),
+    ]);
+    expect(
+      (
+        await admin
+          .get(`/api/maps/${mapId}/gifts/entitlements?environment=release`)
+          .expect(200)
+      ).body.data,
+    ).toEqual([]);
+    await admin
+      .put(`/api/maps/${mapId}/gifts/entitlements?environment=release`)
+      .send({ playerIds: [playerId], gifts: [{ giftId, value: 1 }] })
+      .expect(409);
     await admin
       .post(`/api/maps/${mapId}/messages?environment=test`)
       .send({
@@ -198,15 +238,16 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     const deliveries = await request(app)
       .post("/api/fq/deliveries/query")
       .set("fq-map-key", gameToken)
-      .send({ uids: ["player-001"] })
+      .send({ uids: ["player-001", "player-002"] })
       .expect(200);
     expect(deliveries.body.data.players[0].gifts).toHaveLength(1);
+    expect(deliveries.body.data.players[0].gifts[0]).toMatchObject({
+      gift_key: "chain_gift",
+      name: "链路礼包",
+      value: 2,
+    });
     expect(deliveries.body.data.players[0].messages).toHaveLength(1);
-    await request(app)
-      .post(`/api/fq/gifts/${deliveries.body.data.players[0].gifts[0].id}/ack`)
-      .set("fq-map-key", gameToken)
-      .send({ uid: "player-001" })
-      .expect(200);
+    expect(deliveries.body.data.players[1].gifts).toHaveLength(1);
     await request(app)
       .post(
         `/api/fq/messages/${deliveries.body.data.players[0].messages[0].id}/ack`,
@@ -219,8 +260,25 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .set("fq-map-key", gameToken)
       .send({ uids: ["player-001"] })
       .expect(200);
-    expect(clearedDeliveries.body.data.players[0].gifts).toHaveLength(0);
+    expect(clearedDeliveries.body.data.players[0].gifts).toHaveLength(1);
     expect(clearedDeliveries.body.data.players[0].messages).toHaveLength(0);
+    await admin
+      .put(`/api/maps/${mapId}/gifts/entitlements?environment=test`)
+      .send({
+        playerIds: [playerId, secondPlayerId],
+        gifts: [{ giftId, value: 0 }],
+      })
+      .expect(200);
+    const cancelled = await request(app)
+      .post("/api/fq/deliveries/query")
+      .set("fq-map-key", gameToken)
+      .send({ uids: ["player-001", "player-002"] })
+      .expect(200);
+    expect(cancelled.body.data.players[0].gifts).toHaveLength(0);
+    expect(cancelled.body.data.players[1].gifts).toHaveLength(0);
+    await admin
+      .delete(`/api/maps/${mapId}/players/${secondPlayerId}?environment=test`)
+      .expect(200);
   });
 
   it("FQ 存档支持首次读取、版本写入、幂等重放、冲突保护和存档封禁", async () => {
@@ -329,6 +387,10 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     });
 
     await admin
+      .put(`/api/maps/${mapId}/gifts/entitlements?environment=test`)
+      .send({ playerIds: [playerId], gifts: [{ giftId, value: 3 }] })
+      .expect(200);
+    await admin
       .patch(`/api/maps/${mapId}/players/${playerId}?environment=test`)
       .send({ dataBan: true })
       .expect(200);
@@ -355,6 +417,15 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       revision: 0,
       values: {},
     });
+    const bannedDeliveries = await request(app)
+      .post("/api/fq/deliveries/query")
+      .set("fq-map-key", gameToken)
+      .send({ uids: ["player-001"] })
+      .expect(200);
+    expect(bannedDeliveries.body.data.players[0].messages).toEqual([]);
+    expect(bannedDeliveries.body.data.players[0].gifts).toEqual([
+      expect.objectContaining({ gift_key: "chain_gift", value: 3 }),
+    ]);
     await admin
       .patch(`/api/maps/${mapId}/players/${playerId}?environment=test`)
       .send({ dataBan: false })
@@ -999,6 +1070,9 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(audit.body.data.some((item) => item.action === "lottery.draw")).toBe(
       true,
     );
+    expect(
+      audit.body.data.some((item) => item.action === "gift.entitlements.set"),
+    ).toBe(true);
     await admin
       .post(`/api/maps/${mapId}/runtime/clear`)
       .send({ environment: "test", confirmName: "名称不匹配" })
@@ -1015,6 +1089,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(cleared.body.data.riskEvents).toBe(1);
     expect(cleared.body.data.playerArchives).toBe(2);
     expect(cleared.body.data.globalArchives).toBe(1);
+    expect(cleared.body.data.entitlements).toBe(1);
     const pointsAfterClear = await admin
       .get(`/api/maps/${mapId}/points?environment=test`)
       .expect(200);
@@ -1112,8 +1187,8 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       [mapId],
     );
     await query(
-      `INSERT INTO gift_grants(map_id,environment,gift_id,player_id)
-       VALUES($1,'test',$2,$3)`,
+      `INSERT INTO gift_entitlements(map_id,environment,gift_id,player_id,value)
+       VALUES($1,'test',$2,$3,1)`,
       [mapId, gift.rows[0].id, players.test],
     );
     await query(
@@ -1256,7 +1331,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       "map_configs",
       "players",
       "gifts",
-      "gift_grants",
+      "gift_entitlements",
       "anchors",
       "tracking_points",
       "map_logs",

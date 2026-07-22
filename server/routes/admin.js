@@ -239,7 +239,7 @@ const permissionLabels = {
   "leaderboards.manage": "管理排行榜",
   "risk.view": "查看风控事件",
   "risk.manage": "处置风控事件",
-  "gifts.manage": "管理与发放礼包",
+  "gifts.manage": "管理礼包资格与定义",
   "anchors.manage": "管理主播",
   "points.manage": "管理埋点",
   "logs.view": "查看日志",
