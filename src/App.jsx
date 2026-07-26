@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useAuth } from "./auth/AuthContext";
 import AppShell from "./components/AppShell";
 import AdminAuditPage from "./pages/AdminAuditPage";

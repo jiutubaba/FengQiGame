@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Gift, ShieldCheck, Sparkles, Trophy } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 import { api } from "../api/client";
 import { Badge, Button, EmptyState, Field } from "../components/ui";
 import { formatDate } from "../utils/format";

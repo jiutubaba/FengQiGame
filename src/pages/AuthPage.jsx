@@ -8,7 +8,7 @@ import {
   LockKeyhole,
   UserRound,
 } from "lucide-react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router";
 import { useAuth } from "../auth/AuthContext";
 import { Button, Field, useToast } from "../components/ui";
 

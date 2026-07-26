@@ -46,6 +46,7 @@ services:
     restart: unless-stopped
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-http://localhost}
+      SITE_ALIAS_ADDRESS: ${SITE_ALIAS_ADDRESS:-http://www.localhost}
     ports:
       - "80:80"
       - "443:443"
