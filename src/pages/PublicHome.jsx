@@ -1,5 +1,5 @@
 import { ArrowRight, Boxes, Map, ShieldCheck } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 export default function PublicHome() {
   return (
@@ -75,11 +75,7 @@ export default function PublicHome() {
       <footer className="landing-footer">
         <span className="landing-footer-records">
           <span>© 2026 风起游戏 · 湖北风起文化有限公司</span>
-          <a
-            href="https://beian.miit.gov.cn/"
-            target="_blank"
-            rel="noreferrer"
-          >
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
             鄂ICP备2024058688号-2
           </a>
         </span>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { useNavigate, useOutletContext, useParams } from "react-router";
 import {
   Activity,
   ArrowLeft,
@@ -1165,6 +1165,10 @@ function LeaderboardsPanel({ mapId, environment, can }) {
   const [query, setQuery] = useState("");
   const [snapshotId, setSnapshotId] = useState("");
   const [editing, setEditing] = useState(null);
+  const [leaderboardCandidates, setLeaderboardCandidates] = useState([]);
+  const [selectedCandidate, setSelectedCandidate] = useState("");
+  const [candidatesLoading, setCandidatesLoading] = useState(false);
+  const [candidateLoadError, setCandidateLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
   const toast = useToast();
 
@@ -1223,6 +1227,79 @@ function LeaderboardsPanel({ mapId, environment, can }) {
     setSelectedId(id);
     setSnapshotId("");
     setDetail(null);
+  };
+
+  const openCreateLeaderboard = async () => {
+    setEditing({
+      leaderboardKey: "",
+      name: "",
+      valueLabel: "积分",
+      sortDirection: "desc",
+      scoreUpdateMode: "latest",
+      enabled: true,
+    });
+    setLeaderboardCandidates([]);
+    setSelectedCandidate("");
+    setCandidateLoadError(false);
+    setCandidatesLoading(true);
+
+    try {
+      const leaderboardGroups = await Promise.all(
+        environments.map(async (sourceEnvironment) => {
+          const rows = await api(
+            withEnvironment(
+              `/api/maps/${mapId}/leaderboards`,
+              sourceEnvironment,
+            ),
+          );
+          return { sourceEnvironment, rows };
+        }),
+      );
+      const existingKeys = new Set(
+        leaderboardGroups
+          .find((group) => group.sourceEnvironment === environment)
+          .rows.map((item) => item.leaderboardKey),
+      );
+      setLeaderboardCandidates(
+        leaderboardGroups
+          .filter((group) => group.sourceEnvironment !== environment)
+          .flatMap((group) =>
+            group.rows.map((item) => ({
+              ...item,
+              sourceEnvironment: group.sourceEnvironment,
+            })),
+          )
+          .filter((item) => !existingKeys.has(item.leaderboardKey))
+          .sort(
+            (left, right) =>
+              left.name.localeCompare(right.name, "zh-CN") ||
+              environments.indexOf(left.sourceEnvironment) -
+                environments.indexOf(right.sourceEnvironment),
+          ),
+      );
+    } catch (error) {
+      setCandidateLoadError(true);
+      toast(`榜单候选加载失败：${error.message}`, "danger");
+    } finally {
+      setCandidatesLoading(false);
+    }
+  };
+
+  const selectCandidate = (value) => {
+    setSelectedCandidate(value);
+    const candidate = leaderboardCandidates.find(
+      (item) => `${item.sourceEnvironment}:${item.id}` === value,
+    );
+    if (!candidate) return;
+    setEditing((currentEditing) => ({
+      ...currentEditing,
+      leaderboardKey: candidate.leaderboardKey,
+      name: candidate.name,
+      valueLabel: candidate.valueLabel,
+      sortDirection: candidate.sortDirection,
+      scoreUpdateMode: candidate.scoreUpdateMode,
+      enabled: candidate.enabled,
+    }));
   };
 
   const save = async () => {
@@ -1334,16 +1411,7 @@ function LeaderboardsPanel({ mapId, environment, can }) {
               <button
                 className="icon-button"
                 aria-label="新建排行榜"
-                onClick={() =>
-                  setEditing({
-                    leaderboardKey: "",
-                    name: "",
-                    valueLabel: "积分",
-                    sortDirection: "desc",
-                    scoreUpdateMode: "latest",
-                    enabled: true,
-                  })
-                }
+                onClick={openCreateLeaderboard}
               >
                 <Plus size={17} />
               </button>
@@ -1548,16 +1616,7 @@ function LeaderboardsPanel({ mapId, environment, can }) {
                   <Button
                     variant="primary"
                     icon={Plus}
-                    onClick={() =>
-                      setEditing({
-                        leaderboardKey: "",
-                        name: "",
-                        valueLabel: "积分",
-                        sortDirection: "desc",
-                        scoreUpdateMode: "latest",
-                        enabled: true,
-                      })
-                    }
+                    onClick={openCreateLeaderboard}
                   >
                     创建第一个榜单
                   </Button>
@@ -1597,6 +1656,42 @@ function LeaderboardsPanel({ mapId, environment, can }) {
       >
         {editing && (
           <>
+            {!editing.id && (
+              <Field
+                label="从其他环境复制"
+                hint="仅复制榜单配置，不复制实时成绩和发布快照"
+              >
+                <select
+                  className="input"
+                  value={selectedCandidate}
+                  disabled={
+                    candidatesLoading ||
+                    candidateLoadError ||
+                    !leaderboardCandidates.length
+                  }
+                  onChange={(event) => selectCandidate(event.target.value)}
+                >
+                  <option value="">
+                    {candidatesLoading
+                      ? "正在加载榜单候选…"
+                      : candidateLoadError
+                        ? "候选加载失败，可手动填写"
+                        : leaderboardCandidates.length
+                          ? "请选择榜单候选（可选）"
+                          : "其他环境暂无可复制榜单"}
+                  </option>
+                  {leaderboardCandidates.map((candidate) => (
+                    <option
+                      key={`${candidate.sourceEnvironment}:${candidate.id}`}
+                      value={`${candidate.sourceEnvironment}:${candidate.id}`}
+                    >
+                      {candidate.name} · {candidate.leaderboardKey} ·{" "}
+                      {environmentLabel(candidate.sourceEnvironment)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <Field label="榜单名称">
               <input
                 className="input"

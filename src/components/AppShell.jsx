@@ -5,7 +5,7 @@ import {
   useLocation,
   useNavigate,
   useParams,
-} from "react-router-dom";
+} from "react-router";
 import {
   Activity,
   Boxes,
@@ -179,7 +179,9 @@ export default function AppShell() {
             <>
               <div className="map-context">
                 <img
-                  src={selectedMap.coverPath || "/assets/fengqi-mark.svg?v=attio"}
+                  src={
+                    selectedMap.coverPath || "/assets/fengqi-mark.svg?v=attio"
+                  }
                   alt=""
                 />
                 <div>

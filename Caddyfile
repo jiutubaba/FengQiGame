@@ -7,3 +7,7 @@
     Permissions-Policy "camera=(), microphone=(), geolocation=()"
   }
 }
+
+{$SITE_ALIAS_ADDRESS:http://www.localhost} {
+  redir {$SITE_ADDRESS:http://localhost}{uri} permanent
+}

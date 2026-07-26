@@ -1028,6 +1028,7 @@
       "SESSION_COOKIE_NAME",
       "SESSION_TTL_HOURS",
       "SITE_ADDRESS",
+      "SITE_ALIAS_ADDRESS",
       "TRUST_PROXY",
       "UPLOAD_MAX_MB"
     ]
@@ -1237,7 +1238,7 @@
     },
     {
       "file": "src/components/AppShell.jsx",
-      "lines": 328
+      "lines": 330
     },
     {
       "file": "src/components/ui.jsx",
@@ -1273,7 +1274,7 @@
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 3579
+      "lines": 3674
     },
     {
       "file": "src/pages/ProfilePage.jsx",
@@ -1281,7 +1282,7 @@
     },
     {
       "file": "src/pages/PublicHome.jsx",
-      "lines": 91
+      "lines": 87
     },
     {
       "file": "src/styles.css",
