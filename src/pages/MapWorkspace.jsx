@@ -1170,20 +1170,28 @@ function LeaderboardsPanel({ mapId, environment, can }) {
   const [candidatesLoading, setCandidatesLoading] = useState(false);
   const [candidateLoadError, setCandidateLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const leaderboardRequestId = useRef(0);
+  const entriesRequestId = useRef(0);
   const toast = useToast();
 
   const loadLeaderboards = useCallback(async () => {
+    const requestId = ++leaderboardRequestId.current;
     try {
       const rows = await api(
         withEnvironment(`/api/maps/${mapId}/leaderboards`, environment),
       );
+      if (requestId !== leaderboardRequestId.current) return;
       setLeaderboards(rows);
     } catch (error) {
-      toast(error.message, "danger");
+      if (requestId === leaderboardRequestId.current)
+        toast(error.message, "danger");
     }
   }, [mapId, environment, toast]);
 
   useEffect(() => {
+    leaderboardRequestId.current += 1;
+    entriesRequestId.current += 1;
+    setLeaderboards([]);
     setSelectedId(null);
     setSnapshotId("");
     setDetail(null);
@@ -1200,27 +1208,35 @@ function LeaderboardsPanel({ mapId, environment, can }) {
   }, [leaderboards, selectedId]);
 
   const loadEntries = useCallback(async () => {
-    if (!selectedId) return;
+    if (!selectedId) {
+      setLoading(false);
+      return;
+    }
+    const requestId = ++entriesRequestId.current;
     setLoading(true);
     try {
       const params = new URLSearchParams({ environment, limit: "100" });
       if (query.trim()) params.set("q", query.trim());
       if (snapshotId) params.set("snapshotId", snapshotId);
-      setDetail(
-        await api(
-          `/api/maps/${mapId}/leaderboards/${selectedId}/entries?${params}`,
-        ),
+      const nextDetail = await api(
+        `/api/maps/${mapId}/leaderboards/${selectedId}/entries?${params}`,
       );
+      if (requestId !== entriesRequestId.current) return;
+      setDetail(nextDetail);
     } catch (error) {
-      toast(error.message, "danger");
+      if (requestId === entriesRequestId.current)
+        toast(error.message, "danger");
     } finally {
-      setLoading(false);
+      if (requestId === entriesRequestId.current) setLoading(false);
     }
   }, [mapId, environment, selectedId, snapshotId, query, toast]);
 
   useEffect(() => {
     const timer = setTimeout(loadEntries, 180);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      entriesRequestId.current += 1;
+    };
   }, [loadEntries]);
 
   const selectLeaderboard = (id) => {
