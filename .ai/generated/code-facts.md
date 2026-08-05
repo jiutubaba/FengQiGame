@@ -7,7 +7,7 @@
 - API 路由：95
 - 地图权限：15
 - 客户端权限：11
-- 数据库迁移：9
+- 数据库迁移：1
 
 ## 地图权限
 
@@ -161,15 +161,7 @@
 
 | 文件 | 新建表 | 修改表 | SHA-256 |
 | --- | --- | --- | --- |
-| `server/db/migrations/001_initial.sql` | anchors, api_keys, audit_logs, gift_grants, gifts, map_configs, map_files, map_logs, map_metrics, map_permissions, maps, players, sessions, system_settings, tracking_points, users | — | `5bf35b512a29` |
-| `server/db/migrations/002_messages_lotteries.sql` | lottery_campaigns, lottery_entries, player_messages | gift_grants | `4d11a4f69d16` |
-| `server/db/migrations/003_leaderboards_risk.sql` | leaderboard_entries, leaderboard_snapshot_entries, leaderboard_snapshots, leaderboards, risk_events, risk_rules | — | `754bde1002a9` |
-| `server/db/migrations/004_fq_archives.sql` | fq_global_archives, fq_player_archives | — | `145ebc293e1e` |
-| `server/db/migrations/005_leaderboard_score_update_mode.sql` | — | leaderboards | `530af8c3068b` |
-| `server/db/migrations/006_leaderboard_publication_and_daily_collection.sql` | — | leaderboard_entries, leaderboard_snapshot_entries | `38b8f27fbe7b` |
-| `server/db/migrations/007_gift_entitlements.sql` | gift_entitlements | gifts | `5045b6320910` |
-| `server/db/migrations/008_automatic_metrics.sql` | fq_metric_session_activity, fq_metric_sessions | — | `8e6bb9370f20` |
-| `server/db/migrations/009_api_key_token_encryption.sql` | — | api_keys | `c497c897ea3b` |
+| `server/db/migrations/001_single_map_baseline.sql` | anchors, api_keys, audit_logs, fq_global_archives, fq_metric_session_activity, fq_metric_sessions, fq_player_archives, gift_entitlements, gifts, leaderboard_entries, leaderboard_snapshot_entries, leaderboard_snapshots, leaderboards, lottery_campaigns, lottery_entries, map_configs, map_files, map_logs, map_metrics, map_permissions, maps, player_messages, players, risk_events, risk_rules, sessions, system_settings, tracking_points, users | — | `8abaed2687a2` |
 
 ## 环境变量
 
@@ -181,6 +173,7 @@
 ### `server/tests/integration/full-chain.test.js`
 
 - HTTP 安全头、跨站请求和非法 JSON 均按生产规则处理
+- 单运行空间基线不存在环境列
 - 管理员登录并创建地图与普通用户
 - 普通用户只能访问被授权的地图与功能
 - 游戏客户端写入玩家，后台批量设置当前礼包资格，消息仍需确认领取
@@ -190,7 +183,7 @@
 - 地图局部编辑、地图配置和系统设置均能持久化
 - 主播和埋点支持增改查，游戏客户端可上报埋点
 - 排行榜发布快照、风险事件幂等上报与玩家封禁形成闭环
-- 测试服、正式服与大厅服的数据和凭据严格隔离
+- 同地图多 Key 共享数据，同 UID 在不同地图仍隔离
 - 文件夹、文件上传、列表、下载和级联删除形成闭环
 - 公开抽奖支持报名、防重复、开奖与中奖结果公开
 - 个人资料、密码更新、退出登录和重新登录均有效

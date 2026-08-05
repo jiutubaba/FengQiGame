@@ -43,11 +43,6 @@ export async function api(path, options = {}) {
   return payload?.data;
 }
 
-export function withEnvironment(path, environment) {
-  const separator = path.includes("?") ? "&" : "?";
-  return `${path}${separator}environment=${encodeURIComponent(environment)}`;
-}
-
 export async function download(path, fileName) {
   const response = await fetch(path, { credentials: "same-origin" });
   if (!response.ok) {

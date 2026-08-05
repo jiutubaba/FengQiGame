@@ -5,7 +5,6 @@ const CHINA_TIME_ZONE = "Asia/Shanghai";
 
 export async function recordMetricSessionEvent({
   mapId,
-  environment,
   sessionId,
   uids,
   event,
@@ -18,35 +17,35 @@ export async function recordMetricSessionEvent({
     if (event === "start") {
       session = await client.query(
         `INSERT INTO fq_metric_sessions(
-           map_id,environment,session_id,started_at,last_heartbeat_at
-         ) VALUES($1,$2,$3,$4,$4)
-         ON CONFLICT(map_id,environment,session_id) DO UPDATE
+           map_id,session_id,started_at,last_heartbeat_at
+         ) VALUES($1,$2,$3,$3)
+         ON CONFLICT(map_id,session_id) DO UPDATE
            SET last_heartbeat_at=GREATEST(
                  fq_metric_sessions.last_heartbeat_at,
                  EXCLUDED.last_heartbeat_at
                ),
                updated_at=NOW()
          RETURNING session_id,started_at,last_heartbeat_at,ended_at`,
-        [mapId, environment, sessionId, occurredAt],
+        [mapId, sessionId, occurredAt],
       );
     } else if (event === "heartbeat") {
       session = await client.query(
         `UPDATE fq_metric_sessions
-            SET last_heartbeat_at=GREATEST(last_heartbeat_at,$4),
+            SET last_heartbeat_at=GREATEST(last_heartbeat_at,$3),
                 updated_at=NOW()
-          WHERE map_id=$1 AND environment=$2 AND session_id=$3
+          WHERE map_id=$1 AND session_id=$2
           RETURNING session_id,started_at,last_heartbeat_at,ended_at`,
-        [mapId, environment, sessionId, occurredAt],
+        [mapId, sessionId, occurredAt],
       );
     } else if (event === "end") {
       session = await client.query(
         `UPDATE fq_metric_sessions
-            SET last_heartbeat_at=GREATEST(last_heartbeat_at,$4),
-                ended_at=COALESCE(ended_at,$4),
+            SET last_heartbeat_at=GREATEST(last_heartbeat_at,$3),
+                ended_at=COALESCE(ended_at,$3),
                 updated_at=NOW()
-          WHERE map_id=$1 AND environment=$2 AND session_id=$3
+          WHERE map_id=$1 AND session_id=$2
           RETURNING session_id,started_at,last_heartbeat_at,ended_at`,
-        [mapId, environment, sessionId, occurredAt],
+        [mapId, sessionId, occurredAt],
       );
     } else {
       throw new Error(`未知指标会话事件：${event}`);
@@ -63,16 +62,16 @@ export async function recordMetricSessionEvent({
     if (uniqueUids.length) {
       await client.query(
         `INSERT INTO fq_metric_session_activity(
-           map_id,environment,session_id,player_uid,active_date,first_seen_at,last_seen_at
+           map_id,session_id,player_uid,active_date,first_seen_at,last_seen_at
          )
-         SELECT $1,$2,$3,uid,($4::timestamptz AT TIME ZONE '${CHINA_TIME_ZONE}')::date,$4,$4
-           FROM UNNEST($5::text[]) AS uid
-         ON CONFLICT(map_id,environment,session_id,player_uid,active_date)
+         SELECT $1,$2,uid,($3::timestamptz AT TIME ZONE '${CHINA_TIME_ZONE}')::date,$3,$3
+           FROM UNNEST($4::text[]) AS uid
+         ON CONFLICT(map_id,session_id,player_uid,active_date)
          DO UPDATE SET last_seen_at=GREATEST(
            fq_metric_session_activity.last_seen_at,
            EXCLUDED.last_seen_at
          )`,
-        [mapId, environment, sessionId, occurredAt, uniqueUids],
+        [mapId, sessionId, occurredAt, uniqueUids],
       );
     }
 
@@ -80,17 +79,13 @@ export async function recordMetricSessionEvent({
   });
 }
 
-export async function getAutomaticMetrics(
-  mapId,
-  environment,
-  now = new Date(),
-) {
+export async function getAutomaticMetrics(mapId, now = new Date()) {
   const calculatedAt = new Date(now);
   const epoch = await query(
     `SELECT MIN((started_at AT TIME ZONE '${CHINA_TIME_ZONE}')::date) AS epoch_date
        FROM fq_metric_sessions
-      WHERE map_id=$1 AND environment=$2`,
-    [mapId, environment],
+      WHERE map_id=$1`,
+    [mapId],
   );
   const epochDate = epoch.rows[0]?.epoch_date;
   if (!epochDate) return null;
@@ -98,10 +93,9 @@ export async function getAutomaticMetrics(
   const result = await query(
     `WITH params AS (
        SELECT $1::bigint AS map_id,
-              $2::text AS environment,
-              $3::timestamptz AS now_at,
-              ($3::timestamptz AT TIME ZONE '${CHINA_TIME_ZONE}')::date AS today,
-              $4::date AS epoch_date
+              $2::timestamptz AS now_at,
+              ($2::timestamptz AT TIME ZONE '${CHINA_TIME_ZONE}')::date AS today,
+              $3::date AS epoch_date
      ),
      days AS (
        SELECT GENERATE_SERIES(
@@ -117,12 +111,12 @@ export async function getAutomaticMetrics(
               s.last_heartbeat_at,
               s.ended_at
          FROM fq_metric_sessions s, params p
-        WHERE s.map_id=p.map_id AND s.environment=p.environment
+        WHERE s.map_id=p.map_id
      ),
      activity_rows AS (
        SELECT a.session_id,a.player_uid,a.active_date,a.last_seen_at
          FROM fq_metric_session_activity a, params p
-        WHERE a.map_id=p.map_id AND a.environment=p.environment
+        WHERE a.map_id=p.map_id
      ),
      user_days AS (
        SELECT DISTINCT player_uid,active_date FROM activity_rows
@@ -246,7 +240,7 @@ export async function getAutomaticMetrics(
        LEFT JOIN daily_return dr ON dr.active_date=d.metric_date
        LEFT JOIN daily_replay dp ON dp.started_date=d.metric_date
       ORDER BY d.metric_date`,
-    [mapId, environment, calculatedAt, epochDate],
+    [mapId, calculatedAt, epochDate],
   );
 
   return {

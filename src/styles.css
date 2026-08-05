@@ -739,7 +739,7 @@ textarea {
 .map-card:focus-visible,
 .table-action:focus-visible,
 .view-toggle button:focus-visible,
-.environment-switch button:focus-visible,
+.segmented-switch button:focus-visible,
 .config-sidebar button:focus-visible,
 .operations-rail-list button:focus-visible,
 .rail-row-actions button:focus-visible,
@@ -2059,14 +2059,14 @@ textarea::placeholder {
   color: var(--muted);
   font-size: 13px;
 }
-.environment-switch {
+.segmented-switch {
   display: flex;
   padding: 2px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #f1f1ef;
 }
-.environment-switch button {
+.segmented-switch button {
   min-height: 34px;
   padding: 0 12px;
   border: 0;
@@ -2076,7 +2076,7 @@ textarea::placeholder {
   cursor: pointer;
   border-radius: 6px;
 }
-.environment-switch button.active {
+.segmented-switch button.active {
   background: #fff;
   color: #202124;
   box-shadow: 0 1px 2px rgba(28, 30, 34, 0.09);
@@ -2379,27 +2379,12 @@ textarea::placeholder {
 }
 .config-surface > .form-grid,
 .cover-editor,
-.environment-map,
 .export-form,
 .config-table-wrap,
 .gift-toggle-list,
 .api-note,
 .code-toolbar {
   margin-top: 22px;
-}
-.environment-map {
-  display: flex;
-  justify-content: space-between;
-  padding: 15px;
-  border: 1px solid var(--line-soft);
-  border-radius: 11px;
-  background: #f7f7f5;
-  color: #65686e;
-  font-size: 11px;
-}
-.environment-map > div {
-  display: flex;
-  gap: 7px;
 }
 .cover-editor {
   display: grid;
@@ -3673,7 +3658,7 @@ textarea::placeholder {
 .compact-switch {
   width: auto;
 }
-.environment-switch button:disabled {
+.segmented-switch button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
@@ -4152,10 +4137,10 @@ textarea::placeholder {
   .coin-strip {
     gap: 15px;
   }
-  .environment-switch {
+  .segmented-switch {
     width: 100%;
   }
-  .environment-switch button {
+  .segmented-switch button {
     flex: 1;
     min-height: 44px;
   }
@@ -4219,13 +4204,6 @@ textarea::placeholder {
   .cover-editor img {
     width: 100%;
     height: 180px;
-  }
-  .environment-map {
-    flex-direction: column;
-    gap: 10px;
-  }
-  .environment-map > div {
-    flex-wrap: wrap;
   }
   .gift-workspace {
     display: block;

@@ -66,10 +66,6 @@ const inlineImageTypes = new Set([
 const mapSchema = z.object({
   name: z.string().trim().min(1).max(160),
   description: z.string().trim().max(4000).optional().default(""),
-  runtimeEnv: z
-    .enum(["release", "lobby", "test"])
-    .optional()
-    .default("release"),
   ownerUserId: z.coerce.number().int().positive().nullable().optional(),
   coverPath: z.string().trim().max(1000).nullable().optional(),
 });
@@ -88,9 +84,9 @@ router.get("/", requireAuth, async (req, res) => {
     where += " AND 'map.view'=ANY(mp.permissions)";
   }
   const result = await query(
-    `SELECT m.id,m.name,m.description,m.status,m.runtime_env,m.cover_path,m.created_at,m.updated_at,
+    `SELECT m.id,m.name,m.description,m.status,m.cover_path,m.created_at,m.updated_at,
             u.display_name AS owner_name,${accessSelect},
-            (SELECT COUNT(*)::int FROM players p WHERE p.map_id=m.id AND p.environment=m.runtime_env) AS player_count,
+            (SELECT COUNT(*)::int FROM players p WHERE p.map_id=m.id) AS player_count,
             COALESCE(
               CASE WHEN automatic_sessions.epoch IS NOT NULL
                 THEN automatic_activity.cumulative_users
@@ -117,7 +113,7 @@ router.get("/", requireAuth, async (req, res) => {
        LEFT JOIN LATERAL (
          SELECT MIN(started_at) AS epoch,COUNT(*)::bigint AS total_game_count
            FROM fq_metric_sessions s
-          WHERE s.map_id=m.id AND s.environment=m.runtime_env
+          WHERE s.map_id=m.id
        ) automatic_sessions ON TRUE
        LEFT JOIN LATERAL (
          SELECT COUNT(DISTINCT a.player_uid)::bigint AS cumulative_users,
@@ -129,14 +125,13 @@ router.get("/", requireAuth, async (req, res) => {
            FROM fq_metric_session_activity a
            JOIN fq_metric_sessions s
              ON s.map_id=a.map_id
-            AND s.environment=a.environment
             AND s.session_id=a.session_id
-          WHERE a.map_id=m.id AND a.environment=m.runtime_env
+          WHERE a.map_id=m.id
        ) automatic_activity ON TRUE
        LEFT JOIN LATERAL (
          SELECT cumulative_users,total_game_count,online_users
            FROM map_metrics mm
-          WHERE mm.map_id=m.id AND mm.environment=m.runtime_env
+          WHERE mm.map_id=m.id
           ORDER BY metric_date DESC
           LIMIT 1
        ) snapshot ON TRUE
@@ -154,12 +149,11 @@ router.post(
   async (req, res) => {
     const result = await transaction(async (client) => {
       const created = await client.query(
-        `INSERT INTO maps(name,description,runtime_env,owner_user_id,cover_path)
-       VALUES($1,$2,$3,$4,$5) RETURNING *`,
+        `INSERT INTO maps(name,description,owner_user_id,cover_path)
+       VALUES($1,$2,$3,$4) RETURNING *`,
         [
           req.body.name,
           req.body.description,
-          req.body.runtimeEnv,
           req.body.ownerUserId || req.user.id,
           req.body.coverPath || null,
         ],
@@ -214,7 +208,6 @@ router.patch(
       ...{
         name: req.body.name ?? current.rows[0].name,
         description: req.body.description ?? current.rows[0].description,
-        runtime_env: req.body.runtimeEnv ?? current.rows[0].runtime_env,
         owner_user_id:
           req.body.ownerUserId === undefined
             ? current.rows[0].owner_user_id
@@ -226,16 +219,9 @@ router.patch(
       },
     };
     const result = await query(
-      `UPDATE maps SET name=$1,description=$2,runtime_env=$3,owner_user_id=$4,cover_path=$5,updated_at=NOW()
-      WHERE id=$6 RETURNING *`,
-      [
-        next.name,
-        next.description,
-        next.runtime_env,
-        next.owner_user_id,
-        next.cover_path,
-        mapId,
-      ],
+      `UPDATE maps SET name=$1,description=$2,owner_user_id=$3,cover_path=$4,updated_at=NOW()
+      WHERE id=$5 RETURNING *`,
+      [next.name, next.description, next.owner_user_id, next.cover_path, mapId],
     );
     await writeAudit(req, {
       action: "map.update",
@@ -421,20 +407,18 @@ router.get(
   requireMapPermission(PERMISSIONS.METRICS_VIEW),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const environment = envFrom(req);
-    const automatic = await getAutomaticMetrics(mapId, environment);
+    const automatic = await getAutomaticMetrics(mapId);
     const trend = automatic
       ? null
       : await query(
-          "SELECT * FROM map_metrics WHERE map_id=$1 AND environment=$2 ORDER BY metric_date DESC LIMIT 30",
-          [mapId, environment],
+          "SELECT * FROM map_metrics WHERE map_id=$1 ORDER BY metric_date DESC LIMIT 30",
+          [mapId],
         );
     const rows = automatic ? automatic.rows : trend.rows.reverse();
     const latest = rows.at(-1) || emptyMetrics(mapId);
     res.json({
       success: true,
       data: {
-        environment,
         source: automatic?.source || "snapshot",
         summary: metricRow(latest),
         trends: rows.map(metricRow),
@@ -516,11 +500,10 @@ router.get(
   requireMapPermission(PERMISSIONS.PLAYERS_VIEW),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const environment = envFrom(req);
     const { page, limit, offset } = pagination(req.query);
     const q = String(req.query.q || "").trim();
-    const params = [mapId, environment];
-    let where = "map_id=$1 AND environment=$2";
+    const params = [mapId];
+    let where = "map_id=$1";
     if (q) {
       params.push(`%${q}%`);
       where += ` AND (uid ILIKE $${params.length} OR name ILIKE $${params.length})`;
@@ -560,13 +543,11 @@ router.post(
   validate(playerSchema),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const environment = envFrom(req);
     const result = await query(
-      `INSERT INTO players(map_id,environment,uid,name,level,game_level,item_ban,data_ban,rank_ban,profile)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) RETURNING *`,
+      `INSERT INTO players(map_id,uid,name,level,game_level,item_ban,data_ban,rank_ban,profile)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) RETURNING *`,
       [
         mapId,
-        environment,
         req.body.uid,
         req.body.name,
         req.body.level,
@@ -594,11 +575,10 @@ router.patch(
   validate(playerSchema.partial()),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const environment = envFrom(req);
     const playerId = idSchema.parse(req.params.playerId);
     const current = await query(
-      "SELECT * FROM players WHERE id=$1 AND map_id=$2 AND environment=$3",
-      [playerId, mapId, environment],
+      "SELECT * FROM players WHERE id=$1 AND map_id=$2",
+      [playerId, mapId],
     );
     if (!current.rows[0]) throw notFound("玩家不存在");
     const row = current.rows[0];
@@ -606,7 +586,7 @@ router.patch(
     const result = await transaction(async (client) => {
       const updated = await client.query(
         `UPDATE players SET uid=$1,name=$2,level=$3,game_level=$4,item_ban=$5,data_ban=$6,rank_ban=$7,profile=$8::jsonb,updated_at=NOW()
-        WHERE id=$9 AND map_id=$10 AND environment=$11 RETURNING *`,
+        WHERE id=$9 AND map_id=$10 RETURNING *`,
         [
           nextUid,
           req.body.name ?? row.name,
@@ -618,14 +598,13 @@ router.patch(
           JSON.stringify(req.body.profile ?? row.profile),
           playerId,
           mapId,
-          environment,
         ],
       );
       if (nextUid !== row.uid) {
         await client.query(
           `UPDATE fq_player_archives SET player_uid=$1,updated_at=NOW()
-            WHERE map_id=$2 AND environment=$3 AND player_uid=$4`,
-          [nextUid, mapId, environment, row.uid],
+            WHERE map_id=$2 AND player_uid=$3`,
+          [nextUid, mapId, row.uid],
         );
       }
       return updated;
@@ -646,17 +625,16 @@ router.delete(
   requireMapPermission(PERMISSIONS.PLAYERS_MANAGE),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const environment = envFrom(req);
     const playerId = idSchema.parse(req.params.playerId);
     const result = await transaction(async (client) => {
       const deleted = await client.query(
-        "DELETE FROM players WHERE id=$1 AND map_id=$2 AND environment=$3 RETURNING id,uid,name",
-        [playerId, mapId, environment],
+        "DELETE FROM players WHERE id=$1 AND map_id=$2 RETURNING id,uid,name",
+        [playerId, mapId],
       );
       if (!deleted.rows[0]) throw notFound("玩家不存在");
       await client.query(
-        "DELETE FROM fq_player_archives WHERE map_id=$1 AND environment=$2 AND player_uid=$3",
-        [mapId, environment, deleted.rows[0].uid],
+        "DELETE FROM fq_player_archives WHERE map_id=$1 AND player_uid=$2",
+        [mapId, deleted.rows[0].uid],
       );
       return deleted;
     });
@@ -693,7 +671,6 @@ router.get(
   requireMapPermission(PERMISSIONS.LEADERBOARDS_VIEW),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const environment = envFrom(req);
     const result = await query(
       `SELECT l.*,
               COUNT(e.id) FILTER (WHERE p.rank_ban IS DISTINCT FROM TRUE)::int AS entry_count,
@@ -702,15 +679,15 @@ router.get(
               latest.published_at AS latest_published_at
          FROM leaderboards l
          LEFT JOIN leaderboard_entries e ON e.leaderboard_id=l.id
-         LEFT JOIN players p ON p.map_id=l.map_id AND p.environment=l.environment AND p.uid=e.player_uid
+         LEFT JOIN players p ON p.map_id=l.map_id AND p.uid=e.player_uid
          LEFT JOIN LATERAL (
            SELECT id,entry_count,published_at FROM leaderboard_snapshots
             WHERE leaderboard_id=l.id ORDER BY published_at DESC LIMIT 1
          ) latest ON TRUE
-        WHERE l.map_id=$1 AND l.environment=$2
+        WHERE l.map_id=$1
         GROUP BY l.id,latest.id,latest.entry_count,latest.published_at
         ORDER BY l.created_at`,
-      [mapId, environment],
+      [mapId],
     );
     res.json({ success: true, data: result.rows.map(leaderboardRow) });
   },
@@ -723,11 +700,10 @@ router.post(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const result = await query(
-      `INSERT INTO leaderboards(map_id,environment,leaderboard_key,name,value_label,sort_direction,score_update_mode,enabled)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      `INSERT INTO leaderboards(map_id,leaderboard_key,name,value_label,sort_direction,score_update_mode,enabled)
+       VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [
         mapId,
-        envFrom(req),
         req.body.leaderboardKey,
         req.body.name,
         req.body.valueLabel,
@@ -757,16 +733,15 @@ router.patch(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const leaderboardId = idSchema.parse(req.params.leaderboardId);
-    const environment = envFrom(req);
     const current = await query(
-      "SELECT * FROM leaderboards WHERE id=$1 AND map_id=$2 AND environment=$3",
-      [leaderboardId, mapId, environment],
+      "SELECT * FROM leaderboards WHERE id=$1 AND map_id=$2",
+      [leaderboardId, mapId],
     );
     if (!current.rows[0]) throw notFound("排行榜不存在");
     const row = current.rows[0];
     const result = await query(
       `UPDATE leaderboards SET leaderboard_key=$1,name=$2,value_label=$3,sort_direction=$4,score_update_mode=$5,enabled=$6,updated_at=NOW()
-        WHERE id=$7 AND map_id=$8 AND environment=$9 RETURNING *`,
+        WHERE id=$7 AND map_id=$8 RETURNING *`,
       [
         req.body.leaderboardKey ?? row.leaderboard_key,
         req.body.name ?? row.name,
@@ -776,7 +751,6 @@ router.patch(
         req.body.enabled ?? row.enabled,
         leaderboardId,
         mapId,
-        environment,
       ],
     );
     await writeAudit(req, {
@@ -797,8 +771,8 @@ router.delete(
     const mapId = idSchema.parse(req.params.mapId);
     const leaderboardId = idSchema.parse(req.params.leaderboardId);
     const result = await query(
-      "DELETE FROM leaderboards WHERE id=$1 AND map_id=$2 AND environment=$3 RETURNING id,leaderboard_key",
-      [leaderboardId, mapId, envFrom(req)],
+      "DELETE FROM leaderboards WHERE id=$1 AND map_id=$2 RETURNING id,leaderboard_key",
+      [leaderboardId, mapId],
     );
     if (!result.rows[0]) throw notFound("排行榜不存在");
     await writeAudit(req, {
@@ -818,12 +792,11 @@ router.get(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const leaderboardId = idSchema.parse(req.params.leaderboardId);
-    const environment = envFrom(req);
     const { page, limit, offset } = pagination(req.query);
     const q = String(req.query.q || "").trim();
     const leaderboardResult = await query(
-      "SELECT * FROM leaderboards WHERE id=$1 AND map_id=$2 AND environment=$3",
-      [leaderboardId, mapId, environment],
+      "SELECT * FROM leaderboards WHERE id=$1 AND map_id=$2",
+      [leaderboardId, mapId],
     );
     const leaderboard = leaderboardResult.rows[0];
     if (!leaderboard) throw notFound("排行榜不存在");
@@ -866,14 +839,14 @@ router.get(
         SELECT e.id,ROW_NUMBER() OVER (ORDER BY e.score ${direction},e.updated_at,e.id) AS rank,
                e.player_uid,e.player_name,e.game_level,e.score,e.game_count,e.metadata,e.updated_at
           FROM leaderboard_entries e
-          LEFT JOIN players p ON p.map_id=$2 AND p.environment=$3 AND p.uid=e.player_uid
+          LEFT JOIN players p ON p.map_id=$2 AND p.uid=e.player_uid
          WHERE e.leaderboard_id=$1 AND p.rank_ban IS DISTINCT FROM TRUE
       )`;
-      const liveParams = [leaderboardId, mapId, environment];
+      const liveParams = [leaderboardId, mapId];
       let liveFilter = "TRUE";
       if (q) {
         liveParams.push(`%${q}%`);
-        liveFilter = `(player_uid ILIKE $4 OR player_name ILIKE $4)`;
+        liveFilter = `(player_uid ILIKE $3 OR player_name ILIKE $3)`;
       }
       count = await query(
         `${ranked} SELECT COUNT(*)::int AS count FROM ranked WHERE ${liveFilter}`,
@@ -908,11 +881,10 @@ router.post(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const leaderboardId = idSchema.parse(req.params.leaderboardId);
-    const environment = envFrom(req);
     const snapshot = await transaction(async (client) => {
       const current = await client.query(
-        "SELECT * FROM leaderboards WHERE id=$1 AND map_id=$2 AND environment=$3 FOR UPDATE",
-        [leaderboardId, mapId, environment],
+        "SELECT * FROM leaderboards WHERE id=$1 AND map_id=$2 FOR UPDATE",
+        [leaderboardId, mapId],
       );
       const leaderboard = current.rows[0];
       if (!leaderboard) throw notFound("排行榜不存在");
@@ -925,10 +897,10 @@ router.post(
         `INSERT INTO leaderboard_snapshot_entries(snapshot_id,rank,player_uid,player_name,game_level,score,game_count,metadata,achieved_at)
          SELECT $1,(ROW_NUMBER() OVER (ORDER BY e.score ${direction},e.updated_at,e.id))::int,e.player_uid,e.player_name,e.game_level,e.score,e.game_count,e.metadata,e.updated_at
            FROM leaderboard_entries e
-           LEFT JOIN players p ON p.map_id=$2 AND p.environment=$3 AND p.uid=e.player_uid
-          WHERE e.leaderboard_id=$4 AND p.rank_ban IS DISTINCT FROM TRUE
-          ORDER BY e.score ${direction},e.updated_at,e.id LIMIT $5`,
-        [created.rows[0].id, mapId, environment, leaderboardId, req.body.limit],
+           LEFT JOIN players p ON p.map_id=$2 AND p.uid=e.player_uid
+          WHERE e.leaderboard_id=$3 AND p.rank_ban IS DISTINCT FROM TRUE
+          ORDER BY e.score ${direction},e.updated_at,e.id LIMIT $4`,
+        [created.rows[0].id, mapId, leaderboardId, req.body.limit],
       );
       const updated = await client.query(
         "UPDATE leaderboard_snapshots SET entry_count=$1 WHERE id=$2 RETURNING *",
@@ -957,8 +929,8 @@ router.delete(
     const result = await query(
       `DELETE FROM leaderboard_entries e USING leaderboards l
         WHERE e.id=$1 AND e.leaderboard_id=$2 AND l.id=e.leaderboard_id
-          AND l.map_id=$3 AND l.environment=$4 RETURNING e.id,e.player_uid`,
-      [entryId, leaderboardId, mapId, envFrom(req)],
+          AND l.map_id=$3 RETURNING e.id,e.player_uid`,
+      [entryId, leaderboardId, mapId],
     );
     if (!result.rows[0]) throw notFound("排行榜记录不存在");
     await writeAudit(req, {
@@ -992,8 +964,8 @@ router.get(
   requireMapPermission(PERMISSIONS.RISK_VIEW),
   async (req, res) => {
     const result = await query(
-      `SELECT * FROM risk_rules WHERE map_id=$1 AND environment=$2 ORDER BY created_at`,
-      [idSchema.parse(req.params.mapId), envFrom(req)],
+      `SELECT * FROM risk_rules WHERE map_id=$1 ORDER BY created_at`,
+      [idSchema.parse(req.params.mapId)],
     );
     res.json({ success: true, data: result.rows.map(riskRuleRow) });
   },
@@ -1006,11 +978,10 @@ router.post(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const result = await query(
-      `INSERT INTO risk_rules(map_id,environment,rule_key,name,severity,enabled)
-       VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
+      `INSERT INTO risk_rules(map_id,rule_key,name,severity,enabled)
+       VALUES($1,$2,$3,$4,$5) RETURNING *`,
       [
         mapId,
-        envFrom(req),
         req.body.ruleKey,
         req.body.name,
         req.body.severity,
@@ -1035,16 +1006,15 @@ router.patch(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const ruleId = idSchema.parse(req.params.ruleId);
-    const environment = envFrom(req);
     const current = await query(
-      "SELECT * FROM risk_rules WHERE id=$1 AND map_id=$2 AND environment=$3",
-      [ruleId, mapId, environment],
+      "SELECT * FROM risk_rules WHERE id=$1 AND map_id=$2",
+      [ruleId, mapId],
     );
     if (!current.rows[0]) throw notFound("风控规则不存在");
     const row = current.rows[0];
     const result = await query(
       `UPDATE risk_rules SET rule_key=$1,name=$2,severity=$3,enabled=$4,updated_at=NOW()
-        WHERE id=$5 AND map_id=$6 AND environment=$7 RETURNING *`,
+        WHERE id=$5 AND map_id=$6 RETURNING *`,
       [
         req.body.ruleKey ?? row.rule_key,
         req.body.name ?? row.name,
@@ -1052,7 +1022,6 @@ router.patch(
         req.body.enabled ?? row.enabled,
         ruleId,
         mapId,
-        environment,
       ],
     );
     await writeAudit(req, {
@@ -1073,8 +1042,8 @@ router.delete(
     const mapId = idSchema.parse(req.params.mapId);
     const ruleId = idSchema.parse(req.params.ruleId);
     const result = await query(
-      "DELETE FROM risk_rules WHERE id=$1 AND map_id=$2 AND environment=$3 RETURNING id,rule_key",
-      [ruleId, mapId, envFrom(req)],
+      "DELETE FROM risk_rules WHERE id=$1 AND map_id=$2 RETURNING id,rule_key",
+      [ruleId, mapId],
     );
     if (!result.rows[0]) throw notFound("风控规则不存在");
     await writeAudit(req, {
@@ -1093,10 +1062,9 @@ router.get(
   requireMapPermission(PERMISSIONS.RISK_VIEW),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const environment = envFrom(req);
     const { page, limit, offset } = pagination(req.query);
-    const params = [mapId, environment];
-    let where = "r.map_id=$1 AND r.environment=$2";
+    const params = [mapId];
+    let where = "r.map_id=$1";
     const q = String(req.query.q || "").trim();
     if (q) {
       params.push(`%${q}%`);
@@ -1116,14 +1084,14 @@ router.get(
               COUNT(*) FILTER (WHERE severity='critical' AND status='open')::int AS critical_count,
               COUNT(*) FILTER (WHERE status='blocked')::int AS blocked_count,
               COUNT(*)::int AS total_count
-         FROM risk_events WHERE map_id=$1 AND environment=$2`,
-      [mapId, environment],
+         FROM risk_events WHERE map_id=$1`,
+      [mapId],
     );
     params.push(limit, offset);
     const result = await query(
       `SELECT r.*,p.item_ban,p.data_ban,p.rank_ban
          FROM risk_events r
-         LEFT JOIN players p ON p.map_id=r.map_id AND p.environment=r.environment AND p.uid=r.player_uid
+         LEFT JOIN players p ON p.map_id=r.map_id AND p.uid=r.player_uid
         WHERE ${where} ORDER BY r.occurred_at DESC,r.id DESC
         LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
@@ -1154,11 +1122,10 @@ router.patch(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const eventId = idSchema.parse(req.params.eventId);
-    const environment = envFrom(req);
     const updated = await transaction(async (client) => {
       const current = await client.query(
-        "SELECT * FROM risk_events WHERE id=$1 AND map_id=$2 AND environment=$3 FOR UPDATE",
-        [eventId, mapId, environment],
+        "SELECT * FROM risk_events WHERE id=$1 AND map_id=$2 FOR UPDATE",
+        [eventId, mapId],
       );
       const event = current.rows[0];
       if (!event) throw notFound("风控事件不存在");
@@ -1167,8 +1134,8 @@ router.patch(
       );
       if (hasBanChange) {
         const playerResult = await client.query(
-          "SELECT * FROM players WHERE map_id=$1 AND environment=$2 AND uid=$3",
-          [mapId, environment, event.player_uid],
+          "SELECT * FROM players WHERE map_id=$1 AND uid=$2",
+          [mapId, event.player_uid],
         );
         const player = playerResult.rows[0];
         if (player) {
@@ -1184,11 +1151,10 @@ router.patch(
           );
         } else {
           await client.query(
-            `INSERT INTO players(map_id,environment,uid,name,item_ban,data_ban,rank_ban)
-             VALUES($1,$2,$3,$4,$5,$6,$7)`,
+            `INSERT INTO players(map_id,uid,name,item_ban,data_ban,rank_ban)
+             VALUES($1,$2,$3,$4,$5,$6)`,
             [
               mapId,
-              environment,
               event.player_uid,
               event.player_name,
               req.body.itemBan ?? false,
@@ -1331,16 +1297,14 @@ router.get(
   requireMapPermission(PERMISSIONS.GIFTS_MANAGE),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const environment = envFrom(req);
     const result = await query(
       `SELECT ge.player_id,ge.gift_id,ge.value,ge.updated_at
          FROM gift_entitlements ge
          JOIN players p ON p.id=ge.player_id
          JOIN gifts g ON g.id=ge.gift_id
-        WHERE ge.map_id=$1 AND ge.environment=$2
-          AND p.map_id=$1 AND p.environment=$2 AND g.map_id=$1
+        WHERE ge.map_id=$1 AND p.map_id=$1 AND g.map_id=$1
         ORDER BY ge.player_id,ge.gift_id`,
-      [mapId, environment],
+      [mapId],
     );
     res.json({
       success: true,
@@ -1387,14 +1351,13 @@ router.put(
   ),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const environment = envFrom(req);
     const counts = await transaction(async (client) => {
       const players = await client.query(
-        "SELECT id FROM players WHERE map_id=$1 AND environment=$2 AND id=ANY($3::bigint[])",
-        [mapId, environment, req.body.playerIds],
+        "SELECT id FROM players WHERE map_id=$1 AND id=ANY($2::bigint[])",
+        [mapId, req.body.playerIds],
       );
       if (players.rowCount !== req.body.playerIds.length)
-        throw conflict("存在不属于当前地图或环境的玩家");
+        throw conflict("存在不属于当前地图的玩家");
 
       const giftIds = req.body.gifts.map((gift) => gift.giftId);
       const gifts = await client.query(
@@ -1410,28 +1373,21 @@ router.put(
         if (gift.value === 0) {
           const deleted = await client.query(
             `DELETE FROM gift_entitlements
-              WHERE map_id=$1 AND environment=$2 AND gift_id=$3
-                AND player_id=ANY($4::bigint[])`,
-            [mapId, environment, gift.giftId, req.body.playerIds],
+              WHERE map_id=$1 AND gift_id=$2
+                AND player_id=ANY($3::bigint[])`,
+            [mapId, gift.giftId, req.body.playerIds],
           );
           removed += deleted.rowCount;
           continue;
         }
         const updated = await client.query(
-          `INSERT INTO gift_entitlements(map_id,environment,gift_id,player_id,value,updated_by)
-           SELECT $1::bigint,$2::varchar,$3::bigint,p.id,$4::numeric,$5::bigint
+          `INSERT INTO gift_entitlements(map_id,gift_id,player_id,value,updated_by)
+           SELECT $1::bigint,$2::bigint,p.id,$3::numeric,$4::bigint
              FROM players p
-            WHERE p.map_id=$1 AND p.environment=$2 AND p.id=ANY($6::bigint[])
-           ON CONFLICT(map_id,environment,player_id,gift_id) DO UPDATE
+            WHERE p.map_id=$1 AND p.id=ANY($5::bigint[])
+           ON CONFLICT(map_id,player_id,gift_id) DO UPDATE
            SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=NOW()`,
-          [
-            mapId,
-            environment,
-            gift.giftId,
-            gift.value,
-            req.user.id,
-            req.body.playerIds,
-          ],
+          [mapId, gift.giftId, gift.value, req.user.id, req.body.playerIds],
         );
         upserted += updated.rowCount;
       }
@@ -1442,7 +1398,6 @@ router.put(
       resourceType: "gift_entitlement",
       mapId,
       details: {
-        environment,
         playerCount: req.body.playerIds.length,
         giftCount: req.body.gifts.length,
         values: req.body.gifts,
@@ -1464,18 +1419,17 @@ router.get(
   requireMapPermission(PERMISSIONS.PLAYERS_VIEW),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const environment = envFrom(req);
     const { page, limit, offset } = pagination(req.query);
     const result = await query(
       `SELECT pm.id,pm.subject,pm.content,pm.attachments,pm.status,pm.created_at,pm.delivered_at,
             p.id AS player_id,p.uid,p.name AS player_name
        FROM player_messages pm JOIN players p ON p.id=pm.player_id
-      WHERE pm.map_id=$1 AND pm.environment=$2 ORDER BY pm.created_at DESC LIMIT $3 OFFSET $4`,
-      [mapId, environment, limit, offset],
+      WHERE pm.map_id=$1 ORDER BY pm.created_at DESC LIMIT $2 OFFSET $3`,
+      [mapId, limit, offset],
     );
     const total = await query(
-      "SELECT COUNT(*)::int AS count FROM player_messages WHERE map_id=$1 AND environment=$2",
-      [mapId, environment],
+      "SELECT COUNT(*)::int AS count FROM player_messages WHERE map_id=$1",
+      [mapId],
     );
     res.json({
       success: true,
@@ -1507,15 +1461,13 @@ router.post(
   ),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const environment = envFrom(req);
     const inserted = await query(
-      `INSERT INTO player_messages(map_id,environment,player_id,subject,content,attachments,created_by)
-     SELECT $1::bigint,$2::varchar,p.id,$3::varchar,$4::text,$5::jsonb,$6::bigint FROM players p
-      WHERE p.map_id=$1 AND p.environment=$2 AND p.id=ANY($7::bigint[])
+      `INSERT INTO player_messages(map_id,player_id,subject,content,attachments,created_by)
+     SELECT $1::bigint,p.id,$2::varchar,$3::text,$4::jsonb,$5::bigint FROM players p
+      WHERE p.map_id=$1 AND p.id=ANY($6::bigint[])
      RETURNING id`,
       [
         mapId,
-        environment,
         req.body.subject,
         req.body.content,
         JSON.stringify(req.body.attachments),
@@ -1539,12 +1491,11 @@ router.get(
   requireMapPermission(PERMISSIONS.GIFTS_MANAGE),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const environment = envFrom(req);
     const result = await query(
       `SELECT c.*,COUNT(e.id)::int AS participant_count,COUNT(e.id) FILTER(WHERE e.is_winner)::int AS actual_winner_count
        FROM lottery_campaigns c LEFT JOIN lottery_entries e ON e.campaign_id=c.id
-      WHERE c.map_id=$1 AND c.environment=$2 GROUP BY c.id ORDER BY c.created_at DESC`,
-      [mapId, environment],
+      WHERE c.map_id=$1 GROUP BY c.id ORDER BY c.created_at DESC`,
+      [mapId],
     );
     res.json({ success: true, data: result.rows.map(lotteryAdminRow) });
   },
@@ -1573,14 +1524,12 @@ router.post(
   ),
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const environment = envFrom(req);
     const token = createOpaqueToken("lot_");
     const result = await query(
-      `INSERT INTO lottery_campaigns(map_id,environment,public_token,title,description,draw_at,winner_count,reward_config,created_by)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) RETURNING *`,
+      `INSERT INTO lottery_campaigns(map_id,public_token,title,description,draw_at,winner_count,reward_config,created_by)
+     VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8) RETURNING *`,
       [
         mapId,
-        environment,
         token,
         req.body.title,
         req.body.description,
@@ -1595,7 +1544,7 @@ router.post(
       resourceType: "lottery_campaign",
       resourceId: result.rows[0].id,
       mapId,
-      details: { title: req.body.title, environment },
+      details: { title: req.body.title },
     });
     res.status(201).json({
       success: true,
@@ -1675,7 +1624,6 @@ router.post(
   requireAdmin,
   validate(
     z.object({
-      environment: z.enum(["release", "lobby", "test"]),
       confirmName: z.string().trim().min(1).max(160),
     }),
   ),
@@ -1687,54 +1635,53 @@ router.post(
     if (req.body.confirmName !== map.name) throw conflict("地图名称确认不匹配");
     const counts = await transaction(async (client) => {
       const messages = await client.query(
-        "DELETE FROM player_messages WHERE map_id=$1 AND environment=$2",
-        [mapId, req.body.environment],
+        "DELETE FROM player_messages WHERE map_id=$1",
+        [mapId],
       );
       const entitlements = await client.query(
-        "DELETE FROM gift_entitlements WHERE map_id=$1 AND environment=$2",
-        [mapId, req.body.environment],
+        "DELETE FROM gift_entitlements WHERE map_id=$1",
+        [mapId],
       );
       const leaderboardSnapshots = await client.query(
         `DELETE FROM leaderboard_snapshots s USING leaderboards l
-          WHERE s.leaderboard_id=l.id AND l.map_id=$1 AND l.environment=$2`,
-        [mapId, req.body.environment],
+          WHERE s.leaderboard_id=l.id AND l.map_id=$1`,
+        [mapId],
       );
       const leaderboardEntries = await client.query(
         `DELETE FROM leaderboard_entries e USING leaderboards l
-          WHERE e.leaderboard_id=l.id AND l.map_id=$1 AND l.environment=$2`,
-        [mapId, req.body.environment],
+          WHERE e.leaderboard_id=l.id AND l.map_id=$1`,
+        [mapId],
       );
       const riskEvents = await client.query(
-        "DELETE FROM risk_events WHERE map_id=$1 AND environment=$2",
-        [mapId, req.body.environment],
+        "DELETE FROM risk_events WHERE map_id=$1",
+        [mapId],
       );
       const playerArchives = await client.query(
-        "DELETE FROM fq_player_archives WHERE map_id=$1 AND environment=$2",
-        [mapId, req.body.environment],
+        "DELETE FROM fq_player_archives WHERE map_id=$1",
+        [mapId],
       );
       const globalArchives = await client.query(
-        "DELETE FROM fq_global_archives WHERE map_id=$1 AND environment=$2",
-        [mapId, req.body.environment],
+        "DELETE FROM fq_global_archives WHERE map_id=$1",
+        [mapId],
       );
       const players = await client.query(
-        "DELETE FROM players WHERE map_id=$1 AND environment=$2",
-        [mapId, req.body.environment],
+        "DELETE FROM players WHERE map_id=$1",
+        [mapId],
       );
-      const logs = await client.query(
-        "DELETE FROM map_logs WHERE map_id=$1 AND environment=$2",
-        [mapId, req.body.environment],
-      );
+      const logs = await client.query("DELETE FROM map_logs WHERE map_id=$1", [
+        mapId,
+      ]);
       const metrics = await client.query(
-        "DELETE FROM map_metrics WHERE map_id=$1 AND environment=$2",
-        [mapId, req.body.environment],
+        "DELETE FROM map_metrics WHERE map_id=$1",
+        [mapId],
       );
       const automaticMetricSessions = await client.query(
-        "DELETE FROM fq_metric_sessions WHERE map_id=$1 AND environment=$2",
-        [mapId, req.body.environment],
+        "DELETE FROM fq_metric_sessions WHERE map_id=$1",
+        [mapId],
       );
       await client.query(
-        "UPDATE tracking_points SET trigger_count=0,updated_at=NOW() WHERE map_id=$1 AND environment=$2",
-        [mapId, req.body.environment],
+        "UPDATE tracking_points SET trigger_count=0,updated_at=NOW() WHERE map_id=$1",
+        [mapId],
       );
       return {
         messages: messages.rowCount,
@@ -1755,7 +1702,7 @@ router.post(
       resourceType: "map",
       resourceId: mapId,
       mapId,
-      details: { environment: req.body.environment, counts },
+      details: { counts },
     });
     res.json({ success: true, data: counts });
   },
@@ -1794,14 +1741,13 @@ router.get(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId),
       { page, limit, offset } = pagination(req.query);
-    const environment = envFrom(req);
     const result = await query(
-      "SELECT * FROM map_logs WHERE map_id=$1 AND environment=$2 ORDER BY updated_at DESC LIMIT $3 OFFSET $4",
-      [mapId, environment, limit, offset],
+      "SELECT * FROM map_logs WHERE map_id=$1 ORDER BY updated_at DESC LIMIT $2 OFFSET $3",
+      [mapId, limit, offset],
     );
     const total = await query(
-      "SELECT COUNT(*)::int AS count FROM map_logs WHERE map_id=$1 AND environment=$2",
-      [mapId, environment],
+      "SELECT COUNT(*)::int AS count FROM map_logs WHERE map_id=$1",
+      [mapId],
     );
     res.json({
       success: true,
@@ -1817,8 +1763,8 @@ router.delete(
     const mapId = idSchema.parse(req.params.mapId),
       logId = idSchema.parse(req.params.logId);
     const result = await query(
-      "DELETE FROM map_logs WHERE id=$1 AND map_id=$2 AND environment=$3 RETURNING id",
-      [logId, mapId, envFrom(req)],
+      "DELETE FROM map_logs WHERE id=$1 AND map_id=$2 RETURNING id",
+      [logId, mapId],
     );
     if (!result.rows[0]) throw notFound("日志不存在");
     await writeAudit(req, {
@@ -2040,7 +1986,7 @@ router.get(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const result = await query(
-      `SELECT id,name,environment,token_prefix,permissions,status,last_used_at,created_at,
+      `SELECT id,name,token_prefix,permissions,status,last_used_at,created_at,
               (token_ciphertext IS NOT NULL) AS token_available
          FROM api_keys WHERE map_id=$1 ORDER BY created_at DESC`,
       [mapId],
@@ -2055,7 +2001,7 @@ router.get(
     const mapId = idSchema.parse(req.params.mapId),
       keyId = idSchema.parse(req.params.keyId);
     const result = await query(
-      `SELECT id,name,environment,token_hash,token_prefix,token_ciphertext,
+      `SELECT id,name,token_hash,token_prefix,token_ciphertext,
               permissions,status,last_used_at,created_at
          FROM api_keys WHERE id=$1 AND map_id=$2`,
       [keyId, mapId],
@@ -2110,7 +2056,6 @@ router.post(
   validate(
     z.object({
       name: z.string().trim().min(1).max(100),
-      environment: z.enum(["release", "lobby", "test"]).default("release"),
       permissions: z
         .array(
           z.enum([
@@ -2141,12 +2086,11 @@ router.post(
     const mapId = idSchema.parse(req.params.mapId),
       token = createOpaqueToken("fqmap_");
     const result = await query(
-      `INSERT INTO api_keys(map_id,environment,name,token_hash,token_prefix,token_ciphertext,permissions,created_by)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-       RETURNING id,name,environment,token_prefix,permissions,status,created_at`,
+      `INSERT INTO api_keys(map_id,name,token_hash,token_prefix,token_ciphertext,permissions,created_by)
+       VALUES($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id,name,token_prefix,permissions,status,created_at`,
       [
         mapId,
-        req.body.environment,
         req.body.name,
         hashToken(token),
         token.slice(0, 12),
@@ -2203,10 +2147,9 @@ function addSimpleResourceRoutes({
     requireMapPermission(permission),
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
-      const environment = envFrom(req);
       const result = await query(
-        `SELECT * FROM ${table} WHERE map_id=$1 AND environment=$2 ORDER BY created_at DESC`,
-        [mapId, environment],
+        `SELECT * FROM ${table} WHERE map_id=$1 ORDER BY created_at DESC`,
+        [mapId],
       );
       res.json({ success: true, data: result.rows.map(rowMapper) });
     },
@@ -2217,7 +2160,6 @@ function addSimpleResourceRoutes({
     validate(schema),
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
-      const environment = envFrom(req);
       const entries = Object.entries(columns);
       const values = entries.map(([apiKey]) =>
         apiKey === "giftConfig"
@@ -2226,11 +2168,11 @@ function addSimpleResourceRoutes({
       );
       const shiftedPlaceholders = values.map(
         (_, index) =>
-          `$${index + 3}${entries[index][0] === "giftConfig" ? "::jsonb" : ""}`,
+          `$${index + 2}${entries[index][0] === "giftConfig" ? "::jsonb" : ""}`,
       );
       const result = await query(
-        `INSERT INTO ${table}(map_id,environment,${entries.map(([, db]) => db).join(",")}) VALUES($1,$2,${shiftedPlaceholders.join(",")}) RETURNING *`,
-        [mapId, environment, ...values],
+        `INSERT INTO ${table}(map_id,${entries.map(([, db]) => db).join(",")}) VALUES($1,${shiftedPlaceholders.join(",")}) RETURNING *`,
+        [mapId, ...values],
       );
       await writeAudit(req, {
         action: `${pathName}.create`,
@@ -2248,10 +2190,9 @@ function addSimpleResourceRoutes({
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId),
         resourceId = idSchema.parse(req.params.resourceId);
-      const environment = envFrom(req);
       const current = await query(
-        `SELECT * FROM ${table} WHERE id=$1 AND map_id=$2 AND environment=$3`,
-        [resourceId, mapId, environment],
+        `SELECT * FROM ${table} WHERE id=$1 AND map_id=$2`,
+        [resourceId, mapId],
       );
       if (!current.rows[0]) throw notFound("记录不存在");
       const entries = Object.entries(columns);
@@ -2265,8 +2206,8 @@ function addSimpleResourceRoutes({
           `${dbKey}=$${index + 1}${dbKey === "gift_config" ? "::jsonb" : ""}`,
       );
       const result = await query(
-        `UPDATE ${table} SET ${assignments.join(",")},updated_at=NOW() WHERE id=$${values.length + 1} AND map_id=$${values.length + 2} AND environment=$${values.length + 3} RETURNING *`,
-        [...values, resourceId, mapId, environment],
+        `UPDATE ${table} SET ${assignments.join(",")},updated_at=NOW() WHERE id=$${values.length + 1} AND map_id=$${values.length + 2} RETURNING *`,
+        [...values, resourceId, mapId],
       );
       await writeAudit(req, {
         action: `${pathName}.update`,
@@ -2285,8 +2226,8 @@ function addSimpleResourceRoutes({
       const mapId = idSchema.parse(req.params.mapId),
         resourceId = idSchema.parse(req.params.resourceId);
       const result = await query(
-        `DELETE FROM ${table} WHERE id=$1 AND map_id=$2 AND environment=$3 RETURNING id`,
-        [resourceId, mapId, envFrom(req)],
+        `DELETE FROM ${table} WHERE id=$1 AND map_id=$2 RETURNING id`,
+        [resourceId, mapId],
       );
       if (!result.rows[0]) throw notFound("记录不存在");
       await writeAudit(req, {
@@ -2305,19 +2246,12 @@ function pagination(input) {
     limit = Math.min(100, Math.max(1, Number(input.limit) || 20));
   return { page, limit, offset: (page - 1) * limit };
 }
-function envFrom(req) {
-  const value = String(
-    req.query.environment || req.body?.environment || "release",
-  );
-  return ["release", "lobby", "test"].includes(value) ? value : "release";
-}
 function mapRow(row) {
   return {
     id: Number(row.id),
     name: row.name,
     description: row.description || "",
     status: row.status,
-    runtimeEnv: row.runtime_env,
     coverPath: row.cover_path,
     ownerName: row.owner_name || null,
     permissions: row.permissions || [],
@@ -2454,7 +2388,6 @@ function lotteryAdminRow(row) {
     title: row.title,
     description: row.description,
     status: row.status,
-    environment: row.environment,
     drawAt: row.draw_at,
     drawnAt: row.drawn_at,
     winnerCount: Number(row.winner_count),

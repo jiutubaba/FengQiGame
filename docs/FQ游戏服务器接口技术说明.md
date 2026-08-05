@@ -2,7 +2,7 @@
 
 文档版本：1.0
 
-协议更新时间：2026-07-20
+协议更新时间：2026-08-05
 
 适用对象：War3 地图服务器框架、游戏服务端适配层和其它受信任的游戏运行环境
 
@@ -17,7 +17,7 @@ FQ 接口是游戏项目读写风起游戏后台数据的唯一正式通道：
 游戏项目不得直连 PostgreSQL，不需要也不应持有数据库用户名、数据库密码、表名或 SQL。游戏侧只需要：
 
 - 一个可用的 `FQ_BASE_URL`；
-- 一把绑定地图、环境和最小权限的 `FQ-Map-Key`；
+- 一把绑定地图和最小权限的 `FQ-Map-Key`；
 - 玩家 UID；
 - JSON 请求与响应处理；
 - 存档 revision 和 requestId 状态。
@@ -30,7 +30,7 @@ https://fengqigame.com
 
 ICP 网站备案、公网 DNS 与 HTTPS 验收均已通过，正式接入统一使用上述域名。不要把 ECS 公网 IP 硬编码为正式地址，因为 HTTPS 证书和 Host 都绑定正式域名。
 
-正式后台已创建地图“沧澜”以及绑定 `release`、`lobby`、`test` 的三套最小权限 Key。2026-07-20 正式域名冒烟已验证三环境鉴权、玩家写入、玩家存档 revision、幂等、冲突保护、权限边界和同 UID 隔离；测试数据与临时凭据已全部清理。实际游戏项目仍须先在 `test` 环境完成字段映射、全局存档、封禁、消息和礼包链路验收，再逐步启用 `lobby` 与 `release`。
+FQ 每张地图只有一个运行空间。旧 `release`、`lobby`、`test` Key 与协议字段在单空间重建后全部失效；游戏项目必须使用重建后为目标地图生成的新 Key 完成字段映射、全局存档、封禁、消息和礼包链路验收。
 
 ## 2. 协议总则
 
@@ -47,22 +47,13 @@ Accept: application/json
 `FQ-Map-Key` 绑定：
 
 - 一张地图；
-- 一个环境；
 - 一组 `game.*` 权限。
 
-环境只允许：
-
-| 环境值    | 用途       |
-| --------- | ---------- |
-| `release` | 正式服     |
-| `lobby`   | 测试大厅服 |
-| `test`    | 测试服     |
-
-请求体不得自行提交 `mapId` 或 `environment`。服务端始终以 Key 的绑定范围为准，因此同一个 UID 在三个环境中互不覆盖。
+请求体不得自行提交 `mapId`。服务端始终以 Key 绑定地图为准，因此同一个 UID 在不同地图中互不覆盖，同一地图的多把 Key 共享运行数据。
 
 完整 Token 只在后台创建 Key 时返回一次，服务端只保存 Token 哈希。游戏日志、报错截图和埋点中不得记录完整 Token。
 
-War3 地图包可能被反编译或提取字符串，因此必须把 Key 的破坏半径限制在单张地图、单个环境和实际所需权限内。发现泄漏后应立即在后台停用旧 Key 并创建新 Key。
+War3 地图包可能被反编译或提取字符串，因此必须把 Key 的破坏半径限制在单张地图和实际所需权限内。发现泄漏后应立即在后台停用旧 Key 并创建新 Key。
 
 ### 2.2 成功响应
 
@@ -170,7 +161,6 @@ game.archives.read
   "success": true,
   "data": {
     "mapId": 1,
-    "environment": "release",
     "players": [
       {
         "uid": "player-001",
@@ -429,13 +419,13 @@ game.archives.write
 推荐格式：
 
 ```text
-FQ-<environment>-<server/session>-<uid/global>-<counter>
+FQ-<server/session>-<uid/global>-<counter>
 ```
 
 例如：
 
 ```text
-FQ-release-room-889-player-001-17
+FQ-room-889-player-001-17
 ```
 
 并发或重试错误：
@@ -502,7 +492,7 @@ game.players.write
 - `gameLevel`：最多 32，默认空字符串；
 - `profile`：JSON 对象，默认空对象。
 
-该接口在一个事务中按地图、环境、UID 批量 upsert，并刷新最后活跃时间。
+该接口在一个事务中按地图、UID 批量 upsert，并刷新最后活跃时间。
 
 响应：
 
@@ -550,7 +540,7 @@ game.logs.write
 - `context` 长度 1–100,000；
 - `playerCount` 为 0 以上整数，默认 1。
 
-同一地图、环境和完全相同的 `context` 会聚合为一条记录：
+同一地图和完全相同的 `context` 会聚合为一条记录：
 
 - `player_count` 保留历史最大值；
 - `upload_count` 每次请求加一。
@@ -608,7 +598,7 @@ game.metrics.write
 
 - `sessionId` 为 1–512 个字符；同一局的开始、心跳和结束必须始终复用同一个完整值；
 - `uids` 最多 24 个，服务端自动去重；心跳只提交当时仍在线且 UID 有效的玩家，允许空数组；
-- 地图和环境只取 `FQ-Map-Key` 绑定值，请求体不能覆盖；统计日期与时间只取服务端 `Asia/Shanghai` 时间；
+- 地图只取 `FQ-Map-Key` 绑定值，请求体不能覆盖；统计日期与时间只取服务端 `Asia/Shanghai` 时间；
 - 同一 `sessionId` 的开始事件重放不会重复增加总局数；同一心跳或结束重放也不会重复生成活跃事实；
 - 心跳和结束要求会话已经由开始事件创建；否则返回 `404 FQ_METRIC_SESSION_NOT_FOUND`；
 - 结束事件立即让整局退出在线统计；异常关闭未上报结束时，玩家最后心跳超过 120 秒后自动退出在线统计。
@@ -682,8 +672,8 @@ game.metrics.write
 - `date` 格式为 `YYYY-MM-DD`，省略时使用服务端当天日期；
 - 人数和局数均为 0 以上整数，省略时为 0；
 - 比率范围为 0–100，省略时为 0；
-- 同一地图、环境和日期再次提交会整体更新当天指标；
-- 该接口只为尚未接入自动会话事件的旧地图保留，同一地图环境存在自动会话后，查询不会混入这些快照。
+- 同一地图和日期再次提交会整体更新当天指标；
+- 该接口只为尚未接入自动会话事件的旧地图保留，同一地图存在自动会话后，查询不会混入这些快照。
 
 响应：
 
@@ -705,7 +695,7 @@ POST /api/fq/points/:pointKey/increment
 game.points.write
 ```
 
-后台必须先在当前地图环境创建并启用对应 `pointKey`。
+后台必须先在当前地图创建并启用对应 `pointKey`。
 
 请求：
 
@@ -787,7 +777,7 @@ POST /api/fq/leaderboards/:leaderboardKey/entries
 game.leaderboards.write
 ```
 
-后台必须先在当前地图环境创建并启用榜单。`leaderboardKey` 长度 1–128，只允许字母、数字、点、下划线和连字符。
+后台必须先在当前地图创建并启用榜单。`leaderboardKey` 长度 1–128，只允许字母、数字、点、下划线和连字符。
 
 请求：
 
@@ -853,7 +843,7 @@ POST /api/fq/risk/events
 game.risk.write
 ```
 
-后台必须先在当前地图环境创建并启用 `ruleKey`。
+后台必须先在当前地图创建并启用 `ruleKey`。
 
 请求：
 
@@ -873,7 +863,7 @@ game.risk.write
 
 约束：
 
-- `eventId`：1–128，是地图、环境内的幂等键；
+- `eventId`：1–128，是地图内的幂等键；
 - `ruleKey`：1–128；
 - `uid`：1–128；
 - `playerName`：1–160；
@@ -933,7 +923,7 @@ POST /api/fq/deliveries/query
 }
 ```
 
-每个 UID 最多返回最早的 100 条消息；礼包资格使用该 UID 最近一次玩家资料上报的完整昵称，在同一地图和环境内精确匹配。响应仍按请求 UID 归位，存档封禁只让消息为空，不影响礼包资格：
+每个 UID 最多返回最早的 100 条消息；礼包资格使用该 UID 最近一次玩家资料上报的完整昵称，在同一地图内精确匹配。响应仍按请求 UID 归位，存档封禁只让消息为空，不影响礼包资格：
 
 ```json
 {
@@ -994,7 +984,7 @@ POST /api/fq/messages/:messageId/ack
 }
 ```
 
-消息不存在、UID 不匹配、环境不匹配或已经 ACK 时：
+消息不存在、UID 不匹配、地图不匹配或已经 ACK 时：
 
 ```text
 404 MESSAGE_NOT_FOUND
@@ -1028,7 +1018,7 @@ POST /api/fq/messages/:messageId/ack
 - 400：修正 JSON 或字段；
 - 401：检查 Key 是否缺失、错误或已停用；
 - 403：检查权限或玩家存档封禁；
-- 404：检查后台资源、ID、Key 和环境；
+- 404：检查后台资源、ID 和 Key；
 - 409：按存档冲突规则重新读取；
 - 500：记录 `requestId`，使用安全的端点级重试策略。
 
@@ -1091,7 +1081,7 @@ curl -sS \
 
 《沧澜》已在 `scripts/maps/server/FQHttpClient.lua`、`FQServer.lua` 与 `init.lua` 中完成独立 FQ 适配：固定正式基址、统一添加 `FQ-Map-Key`、判断 `result.success == true`，并维护 bootstrap、玩家/全局 revision、重试与启动离线门闩。下面的代码保留为协议调用示例，不是待创建的新适配层。
 
-Key 必须由被 Git 忽略的 `FQPrivateConfig.lua` 私有配置提供；每次构建只携带当前 environment 对应的一把 Key：
+Key 必须由被 Git 忽略的 `FQPrivateConfig.lua` 私有配置提供；每张地图构建只携带自己的 `mapKey`：
 
 ```lua
 local YasioHttpClient = require 'maps.server.YasioHttpClient'
@@ -1212,7 +1202,7 @@ end)
 
 ## 16. 游戏侧最低验收清单
 
-- [ ] `release`、`lobby`、`test` 使用不同 Key；
+- [ ] 当前地图使用一把具有实际所需最小权限的新 Key；
 - [ ] 请求只使用 `/api/fq` 和 `FQ-Map-Key`；
 - [ ] 开局可以一次读取全局和本局玩家存档；
 - [ ] 未建档玩家按 revision 0、空对象处理；
@@ -1229,4 +1219,4 @@ end)
 - [ ] 消息 ID、风险 eventId 在游戏侧幂等；礼包重复查询不累计；
 - [ ] 日志和埋点不盲目重试；
 - [ ] 日志中不出现完整 Key、数据库密码或完整玩家存档；
-- [ ] 测试环境验证通过后，再为正式环境创建并配置 Key。
+- [ ] 专用测试 UID 完成联调并清理后，再发布正式地图包。

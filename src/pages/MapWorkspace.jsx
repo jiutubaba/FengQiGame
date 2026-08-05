@@ -36,7 +36,7 @@ import {
   Upload,
   Users,
 } from "lucide-react";
-import { api, download, withEnvironment } from "../api/client";
+import { api, download } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import {
   Badge,
@@ -48,20 +48,15 @@ import {
   Switch,
   useToast,
 } from "../components/ui";
-import {
-  environmentLabel,
-  formatBytes,
-  formatDate,
-  formatNumber,
-} from "../utils/format";
+import { formatBytes, formatDate, formatNumber } from "../utils/format";
 
 const sectionTitles = {
   metrics: [
     "地图数据",
-    "查看当前环境由游戏客户端上报的真实指标。",
+    "查看游戏客户端上报的真实指标。",
     "metrics.view",
   ],
-  config: ["地图配置", "维护地图基础信息、共享配置与运行环境。", "map.view"],
+  config: ["地图配置", "维护地图基础信息与共享配置。", "map.view"],
   players: [
     "玩家管理",
     "查询玩家、调整封禁状态并发送游戏内消息。",
@@ -84,7 +79,7 @@ const sectionTitles = {
   ],
   anchors: [
     "主播管理",
-    "维护当前环境的主播名单和专属礼包配置。",
+    "维护地图的主播名单和专属礼包配置。",
     "anchors.manage",
   ],
   points: [
@@ -100,27 +95,19 @@ const sectionTitles = {
   ],
   "api-keys": [
     "客户端接入",
-    "创建按地图、环境和接口权限隔离的游戏 API Key。",
+    "创建按地图和接口权限隔离的游戏 API Key。",
     "api_keys.manage",
   ],
 };
-
-const environments = ["release", "lobby", "test"];
 
 export default function MapWorkspace() {
   const { mapId, section } = useParams();
   const navigate = useNavigate();
   const { selectedMap, refreshMaps } = useOutletContext();
   const { isAdmin } = useAuth();
-  const [environment, setEnvironment] = useState(
-    selectedMap?.runtimeEnv || "release",
-  );
   const [map, setMap] = useState(selectedMap || null);
   const toast = useToast();
 
-  useEffect(() => {
-    if (selectedMap?.runtimeEnv) setEnvironment(selectedMap.runtimeEnv);
-  }, [selectedMap?.runtimeEnv]);
   useEffect(() => {
     api(`/api/maps/${mapId}`)
       .then(setMap)
@@ -157,7 +144,6 @@ export default function MapWorkspace() {
   const panelProps = {
     map,
     mapId: Number(mapId),
-    environment,
     isAdmin,
     can: (permission) => isAdmin || map.permissions?.includes(permission),
     refreshMap: async () => {
@@ -189,44 +175,31 @@ export default function MapWorkspace() {
           title={title[0]}
           description={title[1]}
         />
-        <div className="environment-switch">
-          {environments.map((value) => (
-            <button
-              key={value}
-              className={environment === value ? "active" : ""}
-              onClick={() => setEnvironment(value)}
-            >
-              {environmentLabel(value)}
-            </button>
-          ))}
-        </div>
       </div>
       {panels[section]}
     </div>
   );
 }
 
-function MetricsPanel({ mapId, environment }) {
+function MetricsPanel({ mapId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const toast = useToast();
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setData(
-        await api(withEnvironment(`/api/maps/${mapId}/metrics`, environment)),
-      );
+      setData(await api(`/api/maps/${mapId}/metrics`));
     } catch (error) {
       toast(error.message, "danger");
     } finally {
       setLoading(false);
     }
-  }, [mapId, environment, toast]);
+  }, [mapId, toast]);
   useEffect(() => {
     load();
   }, [load]);
   if (loading && !data)
-    return <div className="loading-state">正在统计当前环境数据…</div>;
+    return <div className="loading-state">正在统计地图数据…</div>;
   const summary = data?.summary || {};
   const cards = [
     ["累计用户", summary.cumulativeUsers],
@@ -246,8 +219,7 @@ function MetricsPanel({ mapId, environment }) {
       <div className="metrics-toolbar">
         <div>
           <span className="pulse-dot" />
-          当前为{environmentLabel(environment)}数据 ·
-          {data?.source === "automatic" ? "自动聚合" : "快照兼容"}
+          当前地图数据 · {data?.source === "automatic" ? "自动聚合" : "快照兼容"}
         </div>
         <Button icon={RefreshCw} onClick={load} disabled={loading}>
           {loading ? "统计中…" : "刷新统计"}
@@ -276,7 +248,7 @@ function MetricsPanel({ mapId, environment }) {
         <CircleHelp size={16} />
         <span>
           {data?.source === "automatic"
-            ? "指标由对局开始、60 秒心跳与结束事件实时聚合；不同环境完全隔离。"
+            ? "指标由对局开始、60 秒心跳与结束事件实时聚合。"
             : "当前尚无自动会话数据，正在兼容显示客户端上报的历史快照。"}
         </span>
       </div>
@@ -376,7 +348,6 @@ const configSections = [
 function ConfigPanel({
   map,
   mapId,
-  environment,
   isAdmin,
   can,
   refreshMap,
@@ -387,7 +358,6 @@ function ConfigPanel({
   const [mapForm, setMapForm] = useState({
     name: map.name,
     description: map.description || "",
-    runtimeEnv: map.runtimeEnv,
     coverPath: map.coverPath || "",
   });
   const [editor, setEditor] = useState("");
@@ -461,7 +431,7 @@ function ConfigPanel({
     try {
       const counts = await api(`/api/maps/${mapId}/runtime/clear`, {
         method: "POST",
-        body: { environment, confirmName },
+        body: { confirmName },
       });
       setClearOpen(false);
       setConfirmName("");
@@ -532,7 +502,7 @@ function ConfigPanel({
               <div>
                 <span className="eyebrow">MAP SETTINGS</span>
                 <h3>地图基础信息</h3>
-                <p>地图名称全局唯一，默认环境决定地图中心的统计口径。</p>
+                <p>地图名称全局唯一，运行数据仅归属于当前地图。</p>
               </div>
               {editable && (
                 <Button variant="primary" icon={Save} onClick={saveMap}>
@@ -550,22 +520,6 @@ function ConfigPanel({
                   }
                   readOnly={!editable}
                 />
-              </Field>
-              <Field label="默认运行环境">
-                <select
-                  className="input"
-                  value={mapForm.runtimeEnv}
-                  onChange={(event) =>
-                    setMapForm({ ...mapForm, runtimeEnv: event.target.value })
-                  }
-                  disabled={!editable}
-                >
-                  {environments.map((value) => (
-                    <option value={value} key={value}>
-                      {environmentLabel(value)}
-                    </option>
-                  ))}
-                </select>
               </Field>
               <Field label="封面路径">
                 <input
@@ -601,7 +555,7 @@ function ConfigPanel({
                     icon={ShieldAlert}
                     onClick={() => setClearOpen(true)}
                   >
-                    清理{environmentLabel(environment)}运行数据
+                    清理运行数据
                   </Button>
                   <Button variant="danger" icon={Trash2} onClick={archiveMap}>
                     归档地图
@@ -616,8 +570,8 @@ function ConfigPanel({
                   <span>
                     <strong>永久删除地图</strong>
                     <small>
-                      清除全部环境的玩家、存档、配置、榜单、礼包、日志、API Key
-                      和上传文件，不可撤销。
+                      清除玩家、存档、配置、榜单、礼包、日志、API Key 和上传文件，
+                      不可撤销。
                     </small>
                   </span>
                 </div>
@@ -663,7 +617,7 @@ function ConfigPanel({
         open={clearOpen}
         onClose={() => setClearOpen(false)}
         danger
-        title={`清理${environmentLabel(environment)}运行数据`}
+        title="清理运行数据"
         eyebrow="DANGEROUS OPERATION"
         footer={
           <>
@@ -679,7 +633,7 @@ function ConfigPanel({
         }
       >
         <p className="warning-note">
-          将删除当前环境的玩家、礼包资格、消息、日志、指标、排行榜实时数据与快照、风控事件，并把埋点次数归零。排行榜定义、风控规则、地图配置和文件不会删除，操作会写入审计日志。
+          将删除当前地图的玩家、礼包资格、消息、日志、指标、排行榜实时数据与快照、风控事件，并把埋点次数归零。排行榜定义、风控规则、地图配置和文件不会删除，操作会写入审计日志。
         </p>
         <Field label={`输入地图名称“${map.name}”确认`}>
           <input
@@ -709,10 +663,10 @@ function ConfigPanel({
         }
       >
         <p className="warning-note danger-warning">
-          此操作不是归档，也不是清理单个环境。继续后将进入最终确认。
+          此操作不是归档，也不是清理运行数据。继续后将进入最终确认。
         </p>
         <ul className="danger-consequence-list">
-          <li>删除正式服、大厅服和测试服的全部玩家与存档数据。</li>
+          <li>删除当前地图的全部玩家与存档数据。</li>
           <li>删除地图配置、礼包、榜单及快照、风控、日志和 API Key。</li>
           <li>删除服务器上传卷中该地图的全部文件。</li>
           <li>后台不提供撤销或恢复按钮。</li>
@@ -753,7 +707,7 @@ function ConfigPanel({
   );
 }
 
-function PlayersPanel({ mapId, environment, can }) {
+function PlayersPanel({ mapId, can }) {
   const [players, setPlayers] = useState([]),
     [messages, setMessages] = useState([]),
     [query, setQuery] = useState(""),
@@ -768,15 +722,8 @@ function PlayersPanel({ mapId, environment, can }) {
     setLoading(true);
     try {
       const [playerRows, messageRows] = await Promise.all([
-        api(
-          withEnvironment(
-            `/api/maps/${mapId}/players?q=${encodeURIComponent(query)}&limit=100`,
-            environment,
-          ),
-        ),
-        api(
-          withEnvironment(`/api/maps/${mapId}/messages?limit=20`, environment),
-        ),
+        api(`/api/maps/${mapId}/players?q=${encodeURIComponent(query)}&limit=100`),
+        api(`/api/maps/${mapId}/messages?limit=20`),
       ]);
       setPlayers(playerRows);
       setMessages(messageRows);
@@ -785,7 +732,7 @@ function PlayersPanel({ mapId, environment, can }) {
     } finally {
       setLoading(false);
     }
-  }, [mapId, environment, query, toast]);
+  }, [mapId, query, toast]);
   useEffect(() => {
     const timer = setTimeout(load, 200);
     return () => clearTimeout(timer);
@@ -795,7 +742,7 @@ function PlayersPanel({ mapId, environment, can }) {
       const path = editing.id
         ? `/api/maps/${mapId}/players/${editing.id}`
         : `/api/maps/${mapId}/players`;
-      await api(withEnvironment(path, environment), {
+      await api(path, {
         method: editing.id ? "PATCH" : "POST",
         body: editing,
       });
@@ -809,10 +756,9 @@ function PlayersPanel({ mapId, environment, can }) {
   const remove = async (player) => {
     if (!window.confirm(`确认删除玩家“${player.name}”？`)) return;
     try {
-      await api(
-        withEnvironment(`/api/maps/${mapId}/players/${player.id}`, environment),
-        { method: "DELETE" },
-      );
+      await api(`/api/maps/${mapId}/players/${player.id}`, {
+        method: "DELETE",
+      });
       setSelected((current) => current.filter((id) => id !== player.id));
       toast("玩家已删除");
       load();
@@ -822,7 +768,7 @@ function PlayersPanel({ mapId, environment, can }) {
   };
   const sendMail = async () => {
     try {
-      await api(withEnvironment(`/api/maps/${mapId}/messages`, environment), {
+      await api(`/api/maps/${mapId}/messages`, {
         method: "POST",
         body: { playerIds: selected, ...mail },
       });
@@ -974,7 +920,7 @@ function PlayersPanel({ mapId, environment, can }) {
       ) : (
         <EmptyState
           icon={Users}
-          title="当前环境没有玩家"
+          title="当前地图没有玩家"
           description="可由游戏客户端 API 自动写入，也可以手动添加。"
         />
       )}
@@ -1159,7 +1105,7 @@ function PlayersPanel({ mapId, environment, can }) {
   );
 }
 
-function LeaderboardsPanel({ mapId, environment, can }) {
+function LeaderboardsPanel({ mapId, can }) {
   const manageable = can("leaderboards.manage");
   const [leaderboards, setLeaderboards] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -1167,10 +1113,6 @@ function LeaderboardsPanel({ mapId, environment, can }) {
   const [query, setQuery] = useState("");
   const [snapshotId, setSnapshotId] = useState("");
   const [editing, setEditing] = useState(null);
-  const [leaderboardCandidates, setLeaderboardCandidates] = useState([]);
-  const [selectedCandidate, setSelectedCandidate] = useState("");
-  const [candidatesLoading, setCandidatesLoading] = useState(false);
-  const [candidateLoadError, setCandidateLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
   const leaderboardRequestId = useRef(0);
   const entriesRequestId = useRef(0);
@@ -1179,16 +1121,14 @@ function LeaderboardsPanel({ mapId, environment, can }) {
   const loadLeaderboards = useCallback(async () => {
     const requestId = ++leaderboardRequestId.current;
     try {
-      const rows = await api(
-        withEnvironment(`/api/maps/${mapId}/leaderboards`, environment),
-      );
+      const rows = await api(`/api/maps/${mapId}/leaderboards`);
       if (requestId !== leaderboardRequestId.current) return;
       setLeaderboards(rows);
     } catch (error) {
       if (requestId === leaderboardRequestId.current)
         toast(error.message, "danger");
     }
-  }, [mapId, environment, toast]);
+  }, [mapId, toast]);
 
   useEffect(() => {
     leaderboardRequestId.current += 1;
@@ -1217,7 +1157,7 @@ function LeaderboardsPanel({ mapId, environment, can }) {
     const requestId = ++entriesRequestId.current;
     setLoading(true);
     try {
-      const params = new URLSearchParams({ environment, limit: "100" });
+      const params = new URLSearchParams({ limit: "100" });
       if (query.trim()) params.set("q", query.trim());
       if (snapshotId) params.set("snapshotId", snapshotId);
       const nextDetail = await api(
@@ -1231,7 +1171,7 @@ function LeaderboardsPanel({ mapId, environment, can }) {
     } finally {
       if (requestId === entriesRequestId.current) setLoading(false);
     }
-  }, [mapId, environment, selectedId, snapshotId, query, toast]);
+  }, [mapId, selectedId, snapshotId, query, toast]);
 
   useEffect(() => {
     const timer = setTimeout(loadEntries, 180);
@@ -1247,7 +1187,7 @@ function LeaderboardsPanel({ mapId, environment, can }) {
     setDetail(null);
   };
 
-  const openCreateLeaderboard = async () => {
+  const openCreateLeaderboard = () => {
     setEditing({
       leaderboardKey: "",
       name: "",
@@ -1256,78 +1196,13 @@ function LeaderboardsPanel({ mapId, environment, can }) {
       scoreUpdateMode: "latest",
       enabled: true,
     });
-    setLeaderboardCandidates([]);
-    setSelectedCandidate("");
-    setCandidateLoadError(false);
-    setCandidatesLoading(true);
-
-    try {
-      const leaderboardGroups = await Promise.all(
-        environments.map(async (sourceEnvironment) => {
-          const rows = await api(
-            withEnvironment(
-              `/api/maps/${mapId}/leaderboards`,
-              sourceEnvironment,
-            ),
-          );
-          return { sourceEnvironment, rows };
-        }),
-      );
-      const existingKeys = new Set(
-        leaderboardGroups
-          .find((group) => group.sourceEnvironment === environment)
-          .rows.map((item) => item.leaderboardKey),
-      );
-      setLeaderboardCandidates(
-        leaderboardGroups
-          .filter((group) => group.sourceEnvironment !== environment)
-          .flatMap((group) =>
-            group.rows.map((item) => ({
-              ...item,
-              sourceEnvironment: group.sourceEnvironment,
-            })),
-          )
-          .filter((item) => !existingKeys.has(item.leaderboardKey))
-          .sort(
-            (left, right) =>
-              left.name.localeCompare(right.name, "zh-CN") ||
-              environments.indexOf(left.sourceEnvironment) -
-                environments.indexOf(right.sourceEnvironment),
-          ),
-      );
-    } catch (error) {
-      setCandidateLoadError(true);
-      toast(`榜单候选加载失败：${error.message}`, "danger");
-    } finally {
-      setCandidatesLoading(false);
-    }
-  };
-
-  const selectCandidate = (value) => {
-    setSelectedCandidate(value);
-    const candidate = leaderboardCandidates.find(
-      (item) => `${item.sourceEnvironment}:${item.id}` === value,
-    );
-    if (!candidate) return;
-    setEditing((currentEditing) => ({
-      ...currentEditing,
-      leaderboardKey: candidate.leaderboardKey,
-      name: candidate.name,
-      valueLabel: candidate.valueLabel,
-      sortDirection: candidate.sortDirection,
-      scoreUpdateMode: candidate.scoreUpdateMode,
-      enabled: candidate.enabled,
-    }));
   };
 
   const save = async () => {
     try {
       const id = editing.id;
       const saved = await api(
-        withEnvironment(
-          `/api/maps/${mapId}/leaderboards${id ? `/${id}` : ""}`,
-          environment,
-        ),
+        `/api/maps/${mapId}/leaderboards${id ? `/${id}` : ""}`,
         {
           method: id ? "PATCH" : "POST",
           body: {
@@ -1356,10 +1231,7 @@ function LeaderboardsPanel({ mapId, environment, can }) {
       return;
     try {
       const snapshot = await api(
-        withEnvironment(
-          `/api/maps/${mapId}/leaderboards/${selectedId}/publish`,
-          environment,
-        ),
+        `/api/maps/${mapId}/leaderboards/${selectedId}/publish`,
         { method: "POST", body: { limit: 100 } },
       );
       setSnapshotId(String(snapshot.id));
@@ -1378,13 +1250,9 @@ function LeaderboardsPanel({ mapId, environment, can }) {
     )
       return;
     try {
-      await api(
-        withEnvironment(
-          `/api/maps/${mapId}/leaderboards/${current.id}`,
-          environment,
-        ),
-        { method: "DELETE" },
-      );
+      await api(`/api/maps/${mapId}/leaderboards/${current.id}`, {
+        method: "DELETE",
+      });
       setSelectedId(null);
       setDetail(null);
       toast("排行榜已删除");
@@ -1398,10 +1266,7 @@ function LeaderboardsPanel({ mapId, environment, can }) {
     if (!window.confirm(`确认从实时榜移除“${entry.name}”？`)) return;
     try {
       await api(
-        withEnvironment(
-          `/api/maps/${mapId}/leaderboards/${selectedId}/entries/${entry.id}`,
-          environment,
-        ),
+        `/api/maps/${mapId}/leaderboards/${selectedId}/entries/${entry.id}`,
         { method: "DELETE" },
       );
       toast("实时榜记录已移除");
@@ -1520,7 +1385,7 @@ function LeaderboardsPanel({ mapId, environment, can }) {
               </div>
 
               <div className="view-switch-row">
-                <div className="environment-switch compact-switch">
+                <div className="segmented-switch compact-switch">
                   <button
                     className={!snapshotId ? "active" : ""}
                     onClick={() => setSnapshotId("")}
@@ -1628,7 +1493,7 @@ function LeaderboardsPanel({ mapId, environment, can }) {
             <EmptyState
               icon={Trophy}
               title="尚未配置排行榜"
-              description="排行榜按地图和环境隔离，先创建榜单再接入游戏客户端。"
+              description="排行榜按地图隔离，先创建榜单再接入游戏客户端。"
               action={
                 manageable ? (
                   <Button
@@ -1674,42 +1539,6 @@ function LeaderboardsPanel({ mapId, environment, can }) {
       >
         {editing && (
           <>
-            {!editing.id && (
-              <Field
-                label="从其他环境复制"
-                hint="仅复制榜单配置，不复制实时成绩和发布快照"
-              >
-                <select
-                  className="input"
-                  value={selectedCandidate}
-                  disabled={
-                    candidatesLoading ||
-                    candidateLoadError ||
-                    !leaderboardCandidates.length
-                  }
-                  onChange={(event) => selectCandidate(event.target.value)}
-                >
-                  <option value="">
-                    {candidatesLoading
-                      ? "正在加载榜单候选…"
-                      : candidateLoadError
-                        ? "候选加载失败，可手动填写"
-                        : leaderboardCandidates.length
-                          ? "请选择榜单候选（可选）"
-                          : "其他环境暂无可复制榜单"}
-                  </option>
-                  {leaderboardCandidates.map((candidate) => (
-                    <option
-                      key={`${candidate.sourceEnvironment}:${candidate.id}`}
-                      value={`${candidate.sourceEnvironment}:${candidate.id}`}
-                    >
-                      {candidate.name} · {candidate.leaderboardKey} ·{" "}
-                      {environmentLabel(candidate.sourceEnvironment)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            )}
             <Field label="榜单名称">
               <input
                 className="input"
@@ -1813,7 +1642,7 @@ const riskStatusTone = (status) =>
         ? "warning"
         : "neutral";
 
-function RiskPanel({ mapId, environment, can }) {
+function RiskPanel({ mapId, can }) {
   const manageable = can("risk.manage");
   const [rules, setRules] = useState([]);
   const [events, setEvents] = useState([]);
@@ -1832,20 +1661,16 @@ function RiskPanel({ mapId, environment, can }) {
 
   const loadRules = useCallback(async () => {
     try {
-      setRules(
-        await api(
-          withEnvironment(`/api/maps/${mapId}/risk/rules`, environment),
-        ),
-      );
+      setRules(await api(`/api/maps/${mapId}/risk/rules`));
     } catch (error) {
       toast(error.message, "danger");
     }
-  }, [mapId, environment, toast]);
+  }, [mapId, toast]);
 
   const loadEvents = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ environment, limit: "100" });
+      const params = new URLSearchParams({ limit: "100" });
       if (query.trim()) params.set("q", query.trim());
       if (status) params.set("status", status);
       const result = await api(`/api/maps/${mapId}/risk/events?${params}`);
@@ -1856,7 +1681,7 @@ function RiskPanel({ mapId, environment, can }) {
     } finally {
       setLoading(false);
     }
-  }, [mapId, environment, query, status, toast]);
+  }, [mapId, query, status, toast]);
 
   useEffect(() => {
     loadRules();
@@ -1870,10 +1695,7 @@ function RiskPanel({ mapId, environment, can }) {
     try {
       const id = editingRule.id;
       await api(
-        withEnvironment(
-          `/api/maps/${mapId}/risk/rules${id ? `/${id}` : ""}`,
-          environment,
-        ),
+        `/api/maps/${mapId}/risk/rules${id ? `/${id}` : ""}`,
         {
           method: id ? "PATCH" : "POST",
           body: {
@@ -1896,13 +1718,9 @@ function RiskPanel({ mapId, environment, can }) {
     if (!window.confirm(`确认删除规则“${rule.name}”？历史事件会保留规则快照。`))
       return;
     try {
-      await api(
-        withEnvironment(
-          `/api/maps/${mapId}/risk/rules/${rule.id}`,
-          environment,
-        ),
-        { method: "DELETE" },
-      );
+      await api(`/api/maps/${mapId}/risk/rules/${rule.id}`, {
+        method: "DELETE",
+      });
       toast("风控规则已删除");
       loadRules();
     } catch (error) {
@@ -1922,22 +1740,16 @@ function RiskPanel({ mapId, environment, can }) {
 
   const resolve = async () => {
     try {
-      await api(
-        withEnvironment(
-          `/api/maps/${mapId}/risk/events/${resolving.id}`,
-          environment,
-        ),
-        {
-          method: "PATCH",
-          body: {
-            status: resolving.nextStatus,
-            itemBan: resolving.nextItemBan,
-            dataBan: resolving.nextDataBan,
-            rankBan: resolving.nextRankBan,
-            note: resolving.note,
-          },
+      await api(`/api/maps/${mapId}/risk/events/${resolving.id}`, {
+        method: "PATCH",
+        body: {
+          status: resolving.nextStatus,
+          itemBan: resolving.nextItemBan,
+          dataBan: resolving.nextDataBan,
+          rankBan: resolving.nextRankBan,
+          note: resolving.note,
         },
-      );
+      });
       setResolving(null);
       toast("风险事件已完成处置");
       loadEvents();
@@ -2281,7 +2093,7 @@ function RiskPanel({ mapId, environment, can }) {
   );
 }
 
-function GiftsPanel({ mapId, environment }) {
+function GiftsPanel({ mapId }) {
   const [gifts, setGifts] = useState([]),
     [players, setPlayers] = useState([]),
     [entitlements, setEntitlements] = useState([]),
@@ -2311,19 +2123,9 @@ function GiftsPanel({ mapId, environment }) {
       const [giftRows, playerRows, entitlementRows, lotteryRows] =
         await Promise.all([
           api(`/api/maps/${mapId}/gifts`),
-          api(
-            withEnvironment(
-              `/api/maps/${mapId}/players?limit=100`,
-              environment,
-            ),
-          ),
-          api(
-            withEnvironment(
-              `/api/maps/${mapId}/gifts/entitlements`,
-              environment,
-            ),
-          ),
-          api(withEnvironment(`/api/maps/${mapId}/lotteries`, environment)),
+          api(`/api/maps/${mapId}/players?limit=100`),
+          api(`/api/maps/${mapId}/gifts/entitlements`),
+          api(`/api/maps/${mapId}/lotteries`),
         ]);
       setGifts(giftRows);
       setPlayers(playerRows);
@@ -2332,7 +2134,7 @@ function GiftsPanel({ mapId, environment }) {
     } catch (error) {
       toast(error.message, "danger");
     }
-  }, [mapId, environment, toast]);
+  }, [mapId, toast]);
   useEffect(() => {
     load();
   }, [load]);
@@ -2341,7 +2143,7 @@ function GiftsPanel({ mapId, environment }) {
     setSelectedGifts([]);
     setGiftValues({});
     setPlayerSearch("");
-  }, [mapId, environment]);
+  }, [mapId]);
   const emptyGift = {
     giftKey: "",
     name: "",
@@ -2412,21 +2214,18 @@ function GiftsPanel({ mapId, environment }) {
   };
   const applyEntitlements = async () => {
     try {
-      await api(
-        withEnvironment(`/api/maps/${mapId}/gifts/entitlements`, environment),
-        {
-          method: "PUT",
-          body: {
-            playerIds: selectedPlayers,
-            gifts: selectedGifts.map((giftId) => ({
-              giftId,
-              value: giftValues[giftId] ?? 0,
-            })),
-          },
+      await api(`/api/maps/${mapId}/gifts/entitlements`, {
+        method: "PUT",
+        body: {
+          playerIds: selectedPlayers,
+          gifts: selectedGifts.map((giftId) => ({
+            giftId,
+            value: giftValues[giftId] ?? 0,
+          })),
         },
-      );
+      });
       const entitlementRows = await api(
-        withEnvironment(`/api/maps/${mapId}/gifts/entitlements`, environment),
+        `/api/maps/${mapId}/gifts/entitlements`,
       );
       setEntitlements(entitlementRows);
       toast("礼包资格已应用，下局将读取最新数值");
@@ -2436,19 +2235,16 @@ function GiftsPanel({ mapId, environment }) {
   };
   const createLottery = async () => {
     try {
-      const created = await api(
-        withEnvironment(`/api/maps/${mapId}/lotteries`, environment),
-        {
-          method: "POST",
-          body: {
-            ...lottery,
-            drawAt: lottery.drawAt
-              ? new Date(lottery.drawAt).toISOString()
-              : null,
-            rewardConfig: [],
-          },
+      const created = await api(`/api/maps/${mapId}/lotteries`, {
+        method: "POST",
+        body: {
+          ...lottery,
+          drawAt: lottery.drawAt
+            ? new Date(lottery.drawAt).toISOString()
+            : null,
+          rewardConfig: [],
         },
-      );
+      });
       setLotteryOpen(false);
       setLottery({ title: "", description: "", drawAt: "", winnerCount: 1 });
       await navigator.clipboard?.writeText(
@@ -2695,7 +2491,7 @@ function GiftsPanel({ mapId, environment }) {
           <div>
             <span className="eyebrow">GROUP LOTTERY</span>
             <h3>群抽活动</h3>
-            <p>公开链接无需后台账号，参与者信息与开奖结果保存在当前环境。</p>
+            <p>公开链接无需后台账号，参与者信息与开奖结果保存在当前地图。</p>
           </div>
           <Button icon={Sparkles} onClick={() => setLotteryOpen(true)}>
             创建群抽
@@ -2909,7 +2705,7 @@ function GiftsPanel({ mapId, environment }) {
   );
 }
 
-function ResourcePanel({ mapId, environment, resource }) {
+function ResourcePanel({ mapId, resource }) {
   const isAnchor = resource === "anchors",
     label = isAnchor ? "主播" : "埋点";
   const [items, setItems] = useState([]),
@@ -2917,15 +2713,11 @@ function ResourcePanel({ mapId, environment, resource }) {
   const toast = useToast();
   const load = useCallback(async () => {
     try {
-      setItems(
-        await api(
-          withEnvironment(`/api/maps/${mapId}/${resource}`, environment),
-        ),
-      );
+      setItems(await api(`/api/maps/${mapId}/${resource}`));
     } catch (error) {
       toast(error.message, "danger");
     }
-  }, [mapId, environment, resource, toast]);
+  }, [mapId, resource, toast]);
   useEffect(() => {
     load();
   }, [load]);
@@ -2950,7 +2742,7 @@ function ResourcePanel({ mapId, environment, resource }) {
               name: editing.name,
               enabled: editing.enabled,
             };
-      await api(withEnvironment(path, environment), {
+      await api(path, {
         method: id ? "PATCH" : "POST",
         body,
       });
@@ -2969,13 +2761,9 @@ function ResourcePanel({ mapId, environment, resource }) {
   const remove = async (item) => {
     if (!window.confirm(`确认删除“${item.name}”？`)) return;
     try {
-      await api(
-        withEnvironment(
-          `/api/maps/${mapId}/${resource}/${item.id}`,
-          environment,
-        ),
-        { method: "DELETE" },
-      );
+      await api(`/api/maps/${mapId}/${resource}/${item.id}`, {
+        method: "DELETE",
+      });
       toast(`${label}已删除`);
       load();
     } catch (error) {
@@ -2989,7 +2777,7 @@ function ResourcePanel({ mapId, environment, resource }) {
       url = URL.createObjectURL(blob),
       anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `map-${mapId}-${resource}-${environment}.json`;
+    anchor.download = `map-${mapId}-${resource}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -3080,7 +2868,7 @@ function ResourcePanel({ mapId, environment, resource }) {
       ) : (
         <EmptyState
           icon={isAnchor ? RadioTower : Activity}
-          title={`当前环境暂无${label}`}
+          title={`当前地图暂无${label}`}
           description={`点击“添加${label}”创建第一条配置。`}
         />
       )}
@@ -3153,28 +2941,24 @@ function ResourcePanel({ mapId, environment, resource }) {
   );
 }
 
-function LogsPanel({ mapId, environment, can }) {
+function LogsPanel({ mapId, can }) {
   const [logs, setLogs] = useState([]),
     [detail, setDetail] = useState(null);
   const toast = useToast(),
     canDelete = can("map.edit");
   const load = useCallback(async () => {
     try {
-      setLogs(
-        await api(
-          withEnvironment(`/api/maps/${mapId}/logs?limit=100`, environment),
-        ),
-      );
+      setLogs(await api(`/api/maps/${mapId}/logs?limit=100`));
     } catch (error) {
       toast(error.message, "danger");
     }
-  }, [mapId, environment, toast]);
+  }, [mapId, toast]);
   useEffect(() => {
     load();
   }, [load]);
   const remove = async (id) => {
     try {
-      await api(withEnvironment(`/api/maps/${mapId}/logs/${id}`, environment), {
+      await api(`/api/maps/${mapId}/logs/${id}`, {
         method: "DELETE",
       });
       toast("日志已删除");
@@ -3482,13 +3266,13 @@ const apiPermissionLabels = {
   "game.gifts.read": "领取礼包",
 };
 
-function ApiKeysPanel({ mapId, environment }) {
+function ApiKeysPanel({ mapId }) {
   const [keys, setKeys] = useState([]),
     [open, setOpen] = useState(false),
     [detail, setDetail] = useState(null),
     [loadingKeyId, setLoadingKeyId] = useState(null),
     [copyingKeyId, setCopyingKeyId] = useState(null);
-  const [form, setForm] = useState({ name: "", environment, permissions: [] }),
+  const [form, setForm] = useState({ name: "", permissions: [] }),
     toast = useToast();
   const load = useCallback(async () => {
     try {
@@ -3500,9 +3284,6 @@ function ApiKeysPanel({ mapId, environment }) {
   useEffect(() => {
     load();
   }, [load]);
-  useEffect(() => {
-    setForm((current) => ({ ...current, environment }));
-  }, [environment]);
   const create = async () => {
     try {
       const key = await api(`/api/maps/${mapId}/api-keys`, {
@@ -3511,7 +3292,7 @@ function ApiKeysPanel({ mapId, environment }) {
       });
       setDetail(key);
       setOpen(false);
-      setForm({ name: "", environment, permissions: [] });
+      setForm({ name: "", permissions: [] });
       load();
     } catch (error) {
       toast(error.message, "danger");
@@ -3576,7 +3357,6 @@ function ApiKeysPanel({ mapId, environment }) {
             <thead>
               <tr>
                 <th>名称</th>
-                <th>环境</th>
                 <th>Token</th>
                 <th>接口权限</th>
                 <th>最后使用</th>
@@ -3590,7 +3370,6 @@ function ApiKeysPanel({ mapId, environment }) {
                   <td>
                     <strong>{key.name}</strong>
                   </td>
-                  <td>{environmentLabel(key.environment)}</td>
                   <td>
                     <div className="token-cell">
                       <code>{key.token_prefix}…</code>
@@ -3654,7 +3433,7 @@ function ApiKeysPanel({ mapId, environment }) {
         <EmptyState
           icon={FileKey2}
           title="还没有游戏客户端 API Key"
-          description="按最小权限原则为每个环境创建独立 Key。"
+          description="按最小权限原则为地图创建独立 Key。"
         />
       )}
       <Modal
@@ -3680,23 +3459,8 @@ function ApiKeysPanel({ mapId, environment }) {
             className="input"
             value={form.name}
             onChange={(event) => setForm({ ...form, name: event.target.value })}
-            placeholder="例如 正式服游戏服务器"
+            placeholder="例如 地图游戏服务器"
           />
-        </Field>
-        <Field label="环境">
-          <select
-            className="input"
-            value={form.environment}
-            onChange={(event) =>
-              setForm({ ...form, environment: event.target.value })
-            }
-          >
-            {environments.map((value) => (
-              <option value={value} key={value}>
-                {environmentLabel(value)}
-              </option>
-            ))}
-          </select>
         </Field>
         <div className="permission-grid">
           {Object.entries(apiPermissionLabels).map(([value, label]) => (
@@ -3746,10 +3510,6 @@ function ApiKeysPanel({ mapId, environment }) {
           <div>
             <span>名称</span>
             <strong>{detail?.name}</strong>
-          </div>
-          <div>
-            <span>环境</span>
-            <strong>{environmentLabel(detail?.environment)}</strong>
           </div>
           <div>
             <span>状态</span>
