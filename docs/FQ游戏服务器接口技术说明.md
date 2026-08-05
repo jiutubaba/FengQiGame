@@ -106,7 +106,7 @@ War3 地图包可能被反编译或提取字符串，因此必须把 Key 的破�
 | ---------------------------------------- | ---- | ---------------------------------------------- | -------------------------------- |
 | `game.archives.read`                     | POST | `/api/fq/bootstrap`                            | 批量读取玩家与全局存档           |
 | `game.archives.read`                     | GET  | `/api/fq/archives/players/:uid`                | 读取单个玩家存档                 |
-| `game.archives.read`                     | GET  | `/api/fq/archives/global`                      | 读取当前地图环境的全局存档       |
+| `game.archives.read`                     | GET  | `/api/fq/archives/global`                      | 读取当前地图的全局存档           |
 | `game.archives.write`                    | POST | `/api/fq/archives/players/:uid/save`           | 保存完整玩家存档                 |
 | `game.archives.write`                    | POST | `/api/fq/archives/global/save`                 | 保存完整全局存档                 |
 | `game.players.write`                     | POST | `/api/fq/players/upsert`                       | 批量新增或更新玩家               |
@@ -122,7 +122,7 @@ War3 地图包可能被反编译或提取字符串，因此必须把 Key 的破�
 | `game.messages.read` + `game.gifts.read` | POST | `/api/fq/deliveries/query`                     | 批量拉取待送达消息与当前礼包资格 |
 | `game.messages.read`                     | POST | `/api/fq/messages/:messageId/ack`              | 确认消息已写入游戏               |
 
-至少为 `release`、`lobby`、`test` 分别创建不同 Key。每把 Key 只授予实际使用的权限；不应为了方便默认勾选全部权限。
+每张地图至少创建一把只授予实际调用端点的 Key；同地图可以为权限拆分或轮换创建多把 Key，但它们共享同一地图运行数据，不代表不同环境。地图发布配置只保存当前使用的一把 Key，不应为了方便默认勾选全部权限。
 
 ## 4. 存档接口
 
@@ -292,7 +292,7 @@ game.archives.write
 
 ```json
 {
-  "requestId": "FQ-release-player-001-20260716-000001",
+  "requestId": "FQ-map1-player-001-20260716-000001",
   "expectedRevision": 3,
   "values": {
     "gold": 120,
@@ -310,7 +310,7 @@ game.archives.write
 {
   "success": true,
   "data": {
-    "requestId": "FQ-release-player-001-20260716-000001",
+    "requestId": "FQ-map1-player-001-20260716-000001",
     "replayed": false,
     "archive": {
       "uid": "player-001",
@@ -335,7 +335,7 @@ game.archives.write
 {
   "success": true,
   "data": {
-    "requestId": "FQ-release-player-001-20260716-000001",
+    "requestId": "FQ-map1-player-001-20260716-000001",
     "replayed": true,
     "archive": {
       "uid": "player-001",
@@ -366,7 +366,7 @@ game.archives.write
 
 ```json
 {
-  "requestId": "FQ-release-global-20260716-000001",
+  "requestId": "FQ-map1-global-20260716-000001",
   "expectedRevision": 2,
   "values": {
     "season": 2,
@@ -381,7 +381,7 @@ game.archives.write
 {
   "success": true,
   "data": {
-    "requestId": "FQ-release-global-20260716-000001",
+    "requestId": "FQ-map1-global-20260716-000001",
     "replayed": false,
     "archive": {
       "revision": 3,
@@ -1177,7 +1177,7 @@ end)
 
 ```lua
 fq_request('post', '/api/fq/archives/players/player-001/save', {
-    requestId = 'FQ-release-room-889-player-001-17',
+    requestId = 'FQ-map1-room-889-player-001-17',
     expectedRevision = 3,
     values = {
         gold = 120,

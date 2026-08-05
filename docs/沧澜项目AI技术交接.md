@@ -65,7 +65,7 @@ npm run ai:context -- docs/沧澜项目AI技术交接.md
 
 ## 3. 正式环境最后已验证状态
 
-以下状态最后在 2026-07-20 至 2026-07-21 的上线与交接阶段核对；后续维护前应低风险复验，不要把本节当作永久不变的实时监控结果。
+以下状态最后在 2026-08-05 单运行空间生产重建与交接阶段核对；后续维护前应低风险复验，不要把本节当作永久不变的实时监控结果。
 
 - 正式站点：`https://fengqigame.com`
 - 健康检查：`https://fengqigame.com/api/system/health`
@@ -74,13 +74,14 @@ npm run ai:context -- docs/沧澜项目AI技术交接.md
 - SSH 用户：`ecs-user`；本机身份文件位置为 `C:\Users\Administrator\Desktop\风起游戏后台.pem`
 - 正式部署目录：`/opt/fengqigame`
 - Compose 服务：`app`、`db`、`caddy`
+- 在线数据卷：`fengqi-admin_postgres_single_data`、`fengqi-admin_uploads_single_data`；旧 `postgres_data/uploads_data` 离线保留且不挂载
 - 公网入口：只开放 HTTP/HTTPS；HTTP 自动 308 到 HTTPS；SSH 仅管理员固定 `/32`；PostgreSQL 与应用内部端口不对公网开放
 - TLS：Caddy 自动申请与续期；最后核对的证书有效期至 2026-10-13
 - 正式备份：每天北京时间 03:30，由 systemd timer 生成数据库与上传卷副本，上传武汉私有 OSS，保留 14 天；失败邮件发送到既定 QQ 邮箱
 - 备份恢复：已从 OSS 下载最新两类副本并在隔离 Compose 环境完成恢复与健康检查
 - 远程仓库：公有 GitHub `https://github.com/jiutubaba/FengQiGame`
 - `main` 分支：required checks、严格同步、禁止强推和删除，管理员不能绕过
-- 最近归档：PR #9 已合并；合并提交 `ed542807efac5062ae81342fa25021d9c4ed7b87` 的 `main` CI 运行 `29778462265` 成功
+- 当前发布：`codex/fq-single-runtime-space@2a91da9` 已部署，PR #27 两项 CI 通过但仍为草稿；`main` 尚待合并后才能与正式源对齐
 
 常用只读检查：
 
@@ -92,22 +93,21 @@ systemctl list-timers fengqigame-backup.timer
 curl -fsS https://fengqigame.com/api/system/health
 ```
 
-不要在没有新备份和回滚路径时更新生产；不要执行 `docker compose down -v`。
+后续常规更新仍须先准备新备份和回滚路径；2026-08-05 无新备份、无旧数据迁移的空库重建仅是用户明确授权的一次性例外。不要执行 `docker compose down -v`。
 
 ## 4. FQ 后台与《沧澜》接入现状
 
 ### 4.1 后台已完成
 
 - 单运行空间重建后按固定顺序创建“沧澜”，地图 ID 为 `1`，不再配置默认环境。
-- `release`、`lobby`、`test` 三套 Key 均已创建并启用，完整 Token 不在仓库中保存。
-- 三套既有 Key 的实际权限必须以后台当前配置为准；完整 Token 不进入文档。
-- 旧三环境鉴权结果已随协议废弃；重建后须使用新 Key 重新验证玩家 upsert、存档 revision、幂等、最小权限拒绝和跨地图隔离。
+- 当前只使用一把绑定地图 ID 1 的最小权限新 Key；完整 Token 只写入《沧澜》被 Git 忽略的本地私有构建配置，不进入本仓文档或源码。
+- 旧三环境 Key 和鉴权结果已随空库重建失效；新 Key 的空档 bootstrap、玩家/存档、`landing_power` 读写和地图级清理已通过生产烟测。
 - 冒烟数据已精确清理，正式库测试残留为 0；服务器临时 Key 文件和冒烟脚本已删除。
 - 玩家与全局存档使用完整 JSON 快照、独立 revision 和 `FQ-` requestId；数据库维护始终留在后台侧。
 
 ### 4.2 《沧澜》代码已完成
 
-《沧澜》已不再是旧 `/war3/` 接口状态。2026-07-21 的当前源码已经具备：
+《沧澜》已不再是旧 `/war3/` 接口状态。2026-08-05 的当前源码已经具备：
 
 - 固定 `https://fengqigame.com` 与 `/api/fq/**`
 - 自动添加 `FQ-Map-Key`
@@ -120,21 +120,21 @@ curl -fsS https://fengqigame.com/api/system/health
 - 英雄落地后按统一公式计算战力，只批量提交北京时间当天尚未采集的玩家
 - 排行榜使用“地图榜 / 战力榜”两页签，展示前三、前 100、快照内本人名次和人工发布时间
 - 旧 `Server*` Lua 调用面的兼容包装
-- `tools/test_fq_server.lua` 16 项 FQ 纯 Lua 自检和 `tools/test_landing_power.lua` 16 项公式自检
+- `tools/test_fq_server.lua` 18 项 FQ 纯 Lua 自检和 `tools/test_landing_power.lua` 落地战力回归
 
-2026-07-22 后台礼包实时资格版本已部署，`006_leaderboard_publication_and_daily_collection.sql` 与 `007_gift_entitlements.sql` 已应用，正式域名健康检查通过；地图改动尚未完成游戏内验收。
+2026-08-05 后台已从新空卷执行 `001_single_map_baseline.sql`，恢复《沧澜》35 个礼包和未发布的 `landing_power` 定义；生产烟测及清理通过，地图改动尚未完成游戏内验收。
 
 ### 4.3 当前联调阻塞项
 
-1. 后台部署、`test` 发布快照与礼包实时资格迁移已完成；下一步用当前测试玩家和 `测试10级` 验证资格 0→1→重开→0，再继续验证 1～4 人四请求开局、每日边界、消息和发布前后显示。
+1. 后台单运行空间部署、新 Key、35 个礼包和 `landing_power` 定义已完成；下一步用重新构建的地图验证资格 0→1→重开→0、1～4 人四请求开局、每日边界、消息和发布前后显示。
 2. `FQPrivateConfig.lua` 只保存当前地图的一把 `mapKey` 并被 Git 忽略，不再保存或选择 FQ 环境。
-3. 在 `test` 环境完成真实游戏验收后，再决定是否分别配置并验证 `lobby` 与 `release`。不得拿正式玩家 UID 做测试。
-4. 旧 Key 将随正式数据库重建失效；正式地图对外分发前只把重建后的新 Key 写入私有构建配置。
+3. FQ 不再区分测试大厅、测试服和正式服；测试房与正式发布使用同一地图 Key，房间是否属于正式玩法仍由地图自身门禁判断。
+4. 旧 Key 已失效，新 Key 已写入私有构建配置；正式地图对外分发前必须重新构建 `.w3x`，不得继续发布旧地图包。
 
 ## 5. 游戏侧实际验收顺序
 
-1. 运行《沧澜》的 16 项 FQ 自检、16 项落地战力公式自检和 Lua 语法检查。
-2. 待重建：后台为“沧澜”创建并启用 `landing_power`（降序、`best`、数值名称“落地战力”），不创建历史成绩或空发布快照；创建具备消息/礼包读取和排行榜读写权限的新 Key 并写入本地私有配置。
+1. 运行《沧澜》的 18 项 FQ 自检、落地战力回归和 Lua 语法检查。
+2. 已完成前置：后台“沧澜”ID 为 `1`，`landing_power` 为降序、`best`、数值名称“落地战力”且尚未发布；新 Key 已写入本地私有配置。
 3. 单人新档：确认 bootstrap 返回 revision `0` 和空对象，玩家资料 upsert 成功。
 4. 保存与重进：写入玩家和全局完整快照，确认 revision 更新，重新开局后读取一致。
 5. 幂等与冲突：同一请求重发不重复写；同 ID 改内容和旧 revision 都被 409 拒绝并触发权威重读。

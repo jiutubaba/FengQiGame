@@ -40,7 +40,7 @@ if ($mode -eq 'docker') {
     if (-not $appId) { throw '未找到应用容器，请先启动 Docker 服务。' }
     $image = (docker inspect --format '{{.Config.Image}}' $appId).Trim()
     $volume = (docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/uploads"}}{{.Name}}{{end}}{{end}}' $appId).Trim()
-    if (-not $image -or -not $volume) { throw '无法识别应用镜像或 uploads_data 卷。' }
+    if (-not $image -or -not $volume) { throw '无法识别应用镜像或 uploads_single_data 挂载卷。' }
     $wasRunning = (docker inspect --format '{{.State.Running}}' $appId) -eq 'true'
     if ($wasRunning) {
       docker compose stop app
