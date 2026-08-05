@@ -6,7 +6,13 @@
 
 - 凭据存储：API Key 保留 SHA-256 认证哈希，并新增由独立 `API_KEY_ENCRYPTION_KEY` 保护的 AES-256-GCM 密文；列表只返回前缀和可查看状态，具备当前地图 `api_keys.manage` 权限的详情接口才解密完整 Token，并写入不含明文的 `api_key.view` 审计。
 - 界面与兼容：客户端接入表格增加 Token 详情和紧凑复制控件，新建成功后的详情不再是一次性展示；功能上线前只存哈希的旧 Key 仍可查看元数据，但无法恢复完整 Token，必须新建 Key、切换客户端后再停用旧 Key，不会被静默轮换。
-- 配置与验证：新增 `009_api_key_token_encryption.sql`，首次配置会独立生成 32 字节 Base64URL 加密密钥；`npm run check` 的 13 项单元测试、AI 文档检查和生产构建通过。实时生产依赖审计发现的新公告已通过兼容锁定 `ip-address 10.4.0`、`postcss 8.5.25` 清零；隔离 PostgreSQL 全链路交由 required CI 执行。
+- 配置与验证：新增 `009_api_key_token_encryption.sql`，首次配置会独立生成 32 字节 Base64URL 加密密钥；13 项单元测试、生产前端构建和隔离 PostgreSQL 16 项集成测试通过。未迁移生产数据库，也未做登录态桌面与窄屏浏览器验收。
+
+## 2026-08-05 [Codex] FQ 地图数据自动接入
+
+- 数据与协议：新增 `fq_metric_sessions` 和 `fq_metric_session_activity`，地图用 `sessions/start`、`sessions/heartbeat`、`sessions/end` 上报完整会话与当前 UID；服务端只使用 Key 绑定地图/环境和北京时间，同一会话事件可安全重放。
+- 聚合与兼容：从首条自动会话建立新统计纪元，实时生成最近 30 天累计、在线、局数、新增、活跃、流失、回流、三项留存和复玩率；在线按 120 秒玩家心跳，结束立即清零。自动数据存在时查询和地图中心使用自动结果，否则兼容旧 `map_metrics` 快照。
+- 验证边界：隔离 PostgreSQL 16 项全链路通过，覆盖权限、环境隔离、开始重试、跨房 UID 去重、心跳超时、正常结束、D1/D7/30 日与 11 项公式；生产备份、迁移、三环境 Key 轮换、旧快照清理和地图实机联调尚未执行。
 
 ## 2026-07-28 [Codex] 排行榜环境切换误报修复
 
@@ -26,9 +32,3 @@
 - DNS 与入口：阿里云权威 DNS 新增 `www.fengqigame.com CNAME fengqigame.com`；Compose 新增 `SITE_ALIAS_ADDRESS`，Caddy 为别名自动管理证书，并以 301 保留原路径和查询参数永久跳转到 `https://fengqigame.com`。
 - 部署边界：只替换 `Caddyfile`、`docker-compose.yml` 和正式 `.env` 的别名地址，只重建 caddy；app、db、应用镜像、数据库、上传卷与业务数据均未改变。两次部署前置验收误判均触发自动回滚，修正为 Caddy 官方 `permanent=301` 语义后成功。
 - 验证：AI 文档治理、12 项单测、生产构建、0 项生产依赖漏洞和 Compose 配置检查通过；公网侧 `www` 证书 SAN 为 `DNS:www.fengqigame.com`、有效期至 2026-10-21，带路径和查询参数的 HTTPS 请求返回 301 至裸域名，裸域名健康接口返回 200，app/db/caddy 均正常运行。
-
-## 2026-07-22 [Codex] 福利礼包按完整昵称识别
-
-- 资格语义：`POST /api/fq/deliveries/query` 仍以 UID 接收和归位本局玩家，但礼包资格改为按玩家最新上报的完整昵称精确匹配；同名多 UID 的同一礼包取最大正数值，改名后不继承旧昵称资格。
-- 保持边界：消息、存档、排行榜和 ACK 继续按 UID；后台三栏工作台、`gift_entitlements` 表结构、地图客户端请求和礼包技能激活链均未修改。
-- 验证与发布：AI 文档治理、12 项单测、生产构建、0 项生产依赖漏洞、隔离 PostgreSQL 15 项全链路及沧澜 FQ 18 项纯 Lua 自检通过。PR #18 已合并为 `7f7bba5`，`main` CI 运行 `29910204402` 成功；正式 app 镜像为 `sha256:b1c835f73179223978b97e4c498c30b39a8f72f9ed669913b31d0eee6b216420`，两类备份完成 OSS 校验。正式域名以新 UID 和 `酒徒#8023` 命中 `测试10级=1`，临时玩家已清理；地图未构建或运行，已修改，未测试。

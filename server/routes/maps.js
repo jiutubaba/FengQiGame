@@ -22,6 +22,7 @@ import {
   restoreMapUploadDirectory,
   stageMapUploadDirectory,
 } from "../services/map-deletion.js";
+import { getAutomaticMetrics } from "../services/metrics.js";
 import {
   ALL_MAP_PERMISSIONS,
   PERMISSIONS,
@@ -90,11 +91,55 @@ router.get("/", requireAuth, async (req, res) => {
     `SELECT m.id,m.name,m.description,m.status,m.runtime_env,m.cover_path,m.created_at,m.updated_at,
             u.display_name AS owner_name,${accessSelect},
             (SELECT COUNT(*)::int FROM players p WHERE p.map_id=m.id AND p.environment=m.runtime_env) AS player_count,
-            COALESCE((SELECT cumulative_users FROM map_metrics mm WHERE mm.map_id=m.id AND mm.environment=m.runtime_env ORDER BY metric_date DESC LIMIT 1),0) AS cumulative_users,
-            COALESCE((SELECT total_game_count FROM map_metrics mm WHERE mm.map_id=m.id AND mm.environment=m.runtime_env ORDER BY metric_date DESC LIMIT 1),0) AS total_game_count,
-            COALESCE((SELECT online_users FROM map_metrics mm WHERE mm.map_id=m.id AND mm.environment=m.runtime_env ORDER BY metric_date DESC LIMIT 1),0) AS online_users
+            COALESCE(
+              CASE WHEN automatic_sessions.epoch IS NOT NULL
+                THEN automatic_activity.cumulative_users
+                ELSE snapshot.cumulative_users
+              END,
+              0
+            ) AS cumulative_users,
+            COALESCE(
+              CASE WHEN automatic_sessions.epoch IS NOT NULL
+                THEN automatic_sessions.total_game_count
+                ELSE snapshot.total_game_count
+              END,
+              0
+            ) AS total_game_count,
+            COALESCE(
+              CASE WHEN automatic_sessions.epoch IS NOT NULL
+                THEN automatic_activity.online_users
+                ELSE snapshot.online_users
+              END,
+              0
+            ) AS online_users
        FROM maps m ${accessJoin}
        LEFT JOIN users u ON u.id=m.owner_user_id
+       LEFT JOIN LATERAL (
+         SELECT MIN(started_at) AS epoch,COUNT(*)::bigint AS total_game_count
+           FROM fq_metric_sessions s
+          WHERE s.map_id=m.id AND s.environment=m.runtime_env
+       ) automatic_sessions ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT COUNT(DISTINCT a.player_uid)::bigint AS cumulative_users,
+                COUNT(DISTINCT a.player_uid) FILTER (
+                  WHERE s.ended_at IS NULL
+                    AND a.active_date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date
+                    AND a.last_seen_at>CURRENT_TIMESTAMP-INTERVAL '120 seconds'
+                )::bigint AS online_users
+           FROM fq_metric_session_activity a
+           JOIN fq_metric_sessions s
+             ON s.map_id=a.map_id
+            AND s.environment=a.environment
+            AND s.session_id=a.session_id
+          WHERE a.map_id=m.id AND a.environment=m.runtime_env
+       ) automatic_activity ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT cumulative_users,total_game_count,online_users
+           FROM map_metrics mm
+          WHERE mm.map_id=m.id AND mm.environment=m.runtime_env
+          ORDER BY metric_date DESC
+          LIMIT 1
+       ) snapshot ON TRUE
       WHERE ${where} ORDER BY m.updated_at DESC`,
     params,
   );
@@ -377,16 +422,20 @@ router.get(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const environment = envFrom(req);
-    const trend = await query(
-      "SELECT * FROM map_metrics WHERE map_id=$1 AND environment=$2 ORDER BY metric_date DESC LIMIT 30",
-      [mapId, environment],
-    );
-    const rows = trend.rows.reverse();
+    const automatic = await getAutomaticMetrics(mapId, environment);
+    const trend = automatic
+      ? null
+      : await query(
+          "SELECT * FROM map_metrics WHERE map_id=$1 AND environment=$2 ORDER BY metric_date DESC LIMIT 30",
+          [mapId, environment],
+        );
+    const rows = automatic ? automatic.rows : trend.rows.reverse();
     const latest = rows.at(-1) || emptyMetrics(mapId);
     res.json({
       success: true,
       data: {
         environment,
+        source: automatic?.source || "snapshot",
         summary: metricRow(latest),
         trends: rows.map(metricRow),
         calculatedAt: latest.updated_at || null,
@@ -1679,6 +1728,10 @@ router.post(
         "DELETE FROM map_metrics WHERE map_id=$1 AND environment=$2",
         [mapId, req.body.environment],
       );
+      const automaticMetricSessions = await client.query(
+        "DELETE FROM fq_metric_sessions WHERE map_id=$1 AND environment=$2",
+        [mapId, req.body.environment],
+      );
       await client.query(
         "UPDATE tracking_points SET trigger_count=0,updated_at=NOW() WHERE map_id=$1 AND environment=$2",
         [mapId, req.body.environment],
@@ -1694,6 +1747,7 @@ router.post(
         players: players.rowCount,
         logs: logs.rowCount,
         metrics: metrics.rowCount,
+        automaticMetricSessions: automaticMetricSessions.rowCount,
       };
     });
     await writeAudit(req, {
@@ -2474,7 +2528,9 @@ function metricRow(row) {
 function emptyMetrics(mapId) {
   return {
     map_id: mapId,
-    metric_date: new Date().toISOString().slice(0, 10),
+    metric_date: new Date().toLocaleDateString("sv-SE", {
+      timeZone: "Asia/Shanghai",
+    }),
     cumulative_users: 0,
     online_users: 0,
     total_game_count: 0,

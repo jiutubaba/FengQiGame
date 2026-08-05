@@ -246,7 +246,8 @@ function MetricsPanel({ mapId, environment }) {
       <div className="metrics-toolbar">
         <div>
           <span className="pulse-dot" />
-          当前为{environmentLabel(environment)}数据
+          当前为{environmentLabel(environment)}数据 ·
+          {data?.source === "automatic" ? "自动聚合" : "快照兼容"}
         </div>
         <Button icon={RefreshCw} onClick={load} disabled={loading}>
           {loading ? "统计中…" : "刷新统计"}
@@ -274,8 +275,9 @@ function MetricsPanel({ mapId, environment }) {
       <div className="data-footnote">
         <CircleHelp size={16} />
         <span>
-          指标由持有 game.metrics.write 权限的游戏客户端 API Key
-          上报；不同环境完全隔离。
+          {data?.source === "automatic"
+            ? "指标由对局开始、60 秒心跳与结束事件实时聚合；不同环境完全隔离。"
+            : "当前尚无自动会话数据，正在兼容显示客户端上报的历史快照。"}
         </span>
       </div>
     </>

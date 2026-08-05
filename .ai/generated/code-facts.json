@@ -250,6 +250,33 @@
     },
     {
       "method": "POST",
+      "path": "/api/fq/metrics/sessions/end",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.metrics.write",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/fq/metrics/sessions/heartbeat",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.metrics.write",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/fq/metrics/sessions/start",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.metrics.write",
+        "loadApiKey"
+      ]
+    },
+    {
+      "method": "POST",
       "path": "/api/fq/players/upsert",
       "source": "server/routes/game.js",
       "guards": [
@@ -1004,6 +1031,15 @@
       ]
     },
     {
+      "file": "server/db/migrations/008_automatic_metrics.sql",
+      "sha256": "8e6bb9370f20522febb8be5a3e14aede21fb3b67fcc9d82aee1e91d5e46a2ebf",
+      "tables": [
+        "fq_metric_session_activity",
+        "fq_metric_sessions"
+      ],
+      "alteredTables": []
+    },
+    {
       "file": "server/db/migrations/009_api_key_token_encryption.sql",
       "sha256": "c497c897ea3bbb1c7851502a1b9b2be45b6790df759216164fa6156ba25a5096",
       "tables": [],
@@ -1062,6 +1098,7 @@
         "游戏客户端写入玩家，后台批量设置当前礼包资格，消息仍需确认领取",
         "FQ 存档支持首次读取、版本写入、幂等重放、冲突保护和存档封禁",
         "客户端上报日志和指标并进入后台查询链路",
+        "自动指标会话幂等、隔离、在线状态及 11 项公式均按北京时间聚合",
         "地图局部编辑、地图配置和系统设置均能持久化",
         "主播和埋点支持增改查，游戏客户端可上报埋点",
         "排行榜发布快照、风险事件幂等上报与玩家封禁形成闭环",
@@ -1153,6 +1190,10 @@
       "lines": 36
     },
     {
+      "file": "server/db/migrations/008_automatic_metrics.sql",
+      "lines": 39
+    },
+    {
       "file": "server/db/migrations/009_api_key_token_encryption.sql",
       "lines": 3
     },
@@ -1194,11 +1235,11 @@
     },
     {
       "file": "server/routes/game.js",
-      "lines": 889
+      "lines": 938
     },
     {
       "file": "server/routes/maps.js",
-      "lines": 2509
+      "lines": 2565
     },
     {
       "file": "server/routes/public.js",
@@ -1225,12 +1266,16 @@
       "lines": 146
     },
     {
+      "file": "server/services/metrics.js",
+      "lines": 260
+    },
+    {
       "file": "server/services/users.js",
       "lines": 41
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 1497
+      "lines": 1687
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1298,7 +1343,7 @@
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 3800
+      "lines": 3802
     },
     {
       "file": "src/pages/ProfilePage.jsx",

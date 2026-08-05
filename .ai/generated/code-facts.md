@@ -4,10 +4,10 @@
 
 - 项目：`fengqi-game-admin`
 - 版本：`1.0.0`
-- API 路由：92
+- API 路由：95
 - 地图权限：15
 - 客户端权限：11
-- 数据库迁移：8
+- 数据库迁移：9
 
 ## 地图权限
 
@@ -73,6 +73,9 @@
 | POST | `/api/fq/logs` | api:game.logs.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/messages/:messageId/ack` | api:game.messages.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/metrics` | api:game.metrics.write, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/metrics/sessions/end` | api:game.metrics.write, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/metrics/sessions/heartbeat` | api:game.metrics.write, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/metrics/sessions/start` | api:game.metrics.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/players/upsert` | api:game.players.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/points/:pointKey/increment` | api:game.points.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/risk/events` | api:game.risk.write, loadApiKey | `server/routes/game.js` |
@@ -165,6 +168,7 @@
 | `server/db/migrations/005_leaderboard_score_update_mode.sql` | — | leaderboards | `530af8c3068b` |
 | `server/db/migrations/006_leaderboard_publication_and_daily_collection.sql` | — | leaderboard_entries, leaderboard_snapshot_entries | `38b8f27fbe7b` |
 | `server/db/migrations/007_gift_entitlements.sql` | gift_entitlements | gifts | `5045b6320910` |
+| `server/db/migrations/008_automatic_metrics.sql` | fq_metric_session_activity, fq_metric_sessions | — | `8e6bb9370f20` |
 | `server/db/migrations/009_api_key_token_encryption.sql` | — | api_keys | `c497c897ea3b` |
 
 ## 环境变量
@@ -182,6 +186,7 @@
 - 游戏客户端写入玩家，后台批量设置当前礼包资格，消息仍需确认领取
 - FQ 存档支持首次读取、版本写入、幂等重放、冲突保护和存档封禁
 - 客户端上报日志和指标并进入后台查询链路
+- 自动指标会话幂等、隔离、在线状态及 11 项公式均按北京时间聚合
 - 地图局部编辑、地图配置和系统设置均能持久化
 - 主播和埋点支持增改查，游戏客户端可上报埋点
 - 排行榜发布快照、风险事件幂等上报与玩家封禁形成闭环

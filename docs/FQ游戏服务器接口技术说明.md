@@ -111,22 +111,25 @@ War3 地图包可能被反编译或提取字符串，因此必须把 Key 的破�
 
 ## 3. 权限与接口清单
 
-| 权限                      | 方法 | 路径                                                | 说明                         |
-| ------------------------- | ---- | --------------------------------------------------- | ---------------------------- |
-| `game.archives.read`      | POST | `/api/fq/bootstrap`                                 | 批量读取玩家与全局存档       |
-| `game.archives.read`      | GET  | `/api/fq/archives/players/:uid`                     | 读取单个玩家存档             |
-| `game.archives.read`      | GET  | `/api/fq/archives/global`                           | 读取当前地图环境的全局存档   |
-| `game.archives.write`     | POST | `/api/fq/archives/players/:uid/save`                | 保存完整玩家存档             |
-| `game.archives.write`     | POST | `/api/fq/archives/global/save`                      | 保存完整全局存档             |
-| `game.players.write`      | POST | `/api/fq/players/upsert`                            | 批量新增或更新玩家           |
-| `game.logs.write`         | POST | `/api/fq/logs`                                      | 上报并聚合运行日志           |
-| `game.metrics.write`      | POST | `/api/fq/metrics`                                   | 按日期更新地图指标           |
-| `game.points.write`       | POST | `/api/fq/points/:pointKey/increment`                | 增加已启用埋点的次数         |
-| `game.leaderboards.read`  | POST | `/api/fq/leaderboards/:leaderboardKey/query`        | 读取最新发布快照与采集状态   |
-| `game.leaderboards.write` | POST | `/api/fq/leaderboards/:leaderboardKey/entries`      | 批量提交每日首次样本         |
-| `game.risk.write`         | POST | `/api/fq/risk/events`                               | 幂等上报风险事件             |
-| `game.messages.read` + `game.gifts.read` | POST | `/api/fq/deliveries/query`             | 批量拉取待送达消息与当前礼包资格 |
-| `game.messages.read`      | POST | `/api/fq/messages/:messageId/ack`                   | 确认消息已写入游戏           |
+| 权限                                     | 方法 | 路径                                           | 说明                             |
+| ---------------------------------------- | ---- | ---------------------------------------------- | -------------------------------- |
+| `game.archives.read`                     | POST | `/api/fq/bootstrap`                            | 批量读取玩家与全局存档           |
+| `game.archives.read`                     | GET  | `/api/fq/archives/players/:uid`                | 读取单个玩家存档                 |
+| `game.archives.read`                     | GET  | `/api/fq/archives/global`                      | 读取当前地图环境的全局存档       |
+| `game.archives.write`                    | POST | `/api/fq/archives/players/:uid/save`           | 保存完整玩家存档                 |
+| `game.archives.write`                    | POST | `/api/fq/archives/global/save`                 | 保存完整全局存档                 |
+| `game.players.write`                     | POST | `/api/fq/players/upsert`                       | 批量新增或更新玩家               |
+| `game.logs.write`                        | POST | `/api/fq/logs`                                 | 上报并聚合运行日志               |
+| `game.metrics.write`                     | POST | `/api/fq/metrics/sessions/start`               | 幂等上报对局开始                 |
+| `game.metrics.write`                     | POST | `/api/fq/metrics/sessions/heartbeat`           | 刷新本局玩家心跳                 |
+| `game.metrics.write`                     | POST | `/api/fq/metrics/sessions/end`                 | 幂等结束对局                     |
+| `game.metrics.write`                     | POST | `/api/fq/metrics`                              | 旧版按日快照兼容入口             |
+| `game.points.write`                      | POST | `/api/fq/points/:pointKey/increment`           | 增加已启用埋点的次数             |
+| `game.leaderboards.read`                 | POST | `/api/fq/leaderboards/:leaderboardKey/query`   | 读取最新发布快照与采集状态       |
+| `game.leaderboards.write`                | POST | `/api/fq/leaderboards/:leaderboardKey/entries` | 批量提交每日首次样本             |
+| `game.risk.write`                        | POST | `/api/fq/risk/events`                          | 幂等上报风险事件                 |
+| `game.messages.read` + `game.gifts.read` | POST | `/api/fq/deliveries/query`                     | 批量拉取待送达消息与当前礼包资格 |
+| `game.messages.read`                     | POST | `/api/fq/messages/:messageId/ack`              | 确认消息已写入游戏               |
 
 至少为 `release`、`lobby`、`test` 分别创建不同 Key。每把 Key 只授予实际使用的权限；不应为了方便默认勾选全部权限。
 
@@ -566,7 +569,84 @@ game.logs.write
 }
 ```
 
-### 6.2 指标上报
+### 6.2 自动指标会话事件
+
+正式游戏确认开始时调用：
+
+```http
+POST /api/fq/metrics/sessions/start
+```
+
+游戏过程中建议每 60 秒调用：
+
+```http
+POST /api/fq/metrics/sessions/heartbeat
+```
+
+游戏结束时停止心跳并调用：
+
+```http
+POST /api/fq/metrics/sessions/end
+```
+
+三个接口都要求：
+
+```text
+game.metrics.write
+```
+
+请求结构完全相同：
+
+```json
+{
+  "sessionId": "完整且稳定的本局会话标识",
+  "uids": ["player-001", "player-002"]
+}
+```
+
+规则：
+
+- `sessionId` 为 1–512 个字符；同一局的开始、心跳和结束必须始终复用同一个完整值；
+- `uids` 最多 24 个，服务端自动去重；心跳只提交当时仍在线且 UID 有效的玩家，允许空数组；
+- 地图和环境只取 `FQ-Map-Key` 绑定值，请求体不能覆盖；统计日期与时间只取服务端 `Asia/Shanghai` 时间；
+- 同一 `sessionId` 的开始事件重放不会重复增加总局数；同一心跳或结束重放也不会重复生成活跃事实；
+- 心跳和结束要求会话已经由开始事件创建；否则返回 `404 FQ_METRIC_SESSION_NOT_FOUND`；
+- 结束事件立即让整局退出在线统计；异常关闭未上报结束时，玩家最后心跳超过 120 秒后自动退出在线统计。
+
+成功响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "sessionId": "完整且稳定的本局会话标识",
+    "event": "heartbeat",
+    "startedAt": "2026-08-05T02:00:00.000Z",
+    "lastHeartbeatAt": "2026-08-05T02:01:00.000Z",
+    "endedAt": null
+  }
+}
+```
+
+后台以第一条自动会话所在的北京时间日期作为全新统计纪元，不读取或回填此前玩家、局数和留存。存在自动会话后，地图数据查询返回 `source: "automatic"` 并实时生成最近 30 天趋势；否则返回 `source: "snapshot"` 并兼容旧快照。
+
+自动聚合口径：
+
+- 累计用户：统计纪元后进入过正式游戏的去重 UID；
+- 在线用户：未结束会话中 120 秒内收到心跳的去重 UID；
+- 总局数：开始事件产生的去重会话数；
+- 日新增用户：当天首次出现在新统计纪元中的 UID；
+- 日活跃用户：当天至少进入一局的去重 UID；
+- 流失用户：当天刚达到连续 30 天未进入的用户，同一段流失只计一次；
+- 回流用户：达到流失条件后当天再次进入的去重 UID；
+- 活跃用户留存率：D 日仍活跃的 D-1 活跃用户除以 D-1 活跃用户；
+- 新增用户留存率：D 日仍活跃的 D-1 新增用户除以 D-1 新增用户；
+- 七日留存率：D 日仍活跃的 D-7 新增用户除以 D-7 新增用户；
+- 复玩率：当天进入至少 4 局的用户除以当日活跃用户。
+
+比率保留两位小数，无有效分母时为 0；统计纪元开始前不返回趋势行。
+
+### 6.3 旧版指标快照兼容
 
 ```http
 POST /api/fq/metrics
@@ -602,7 +682,8 @@ game.metrics.write
 - `date` 格式为 `YYYY-MM-DD`，省略时使用服务端当天日期；
 - 人数和局数均为 0 以上整数，省略时为 0；
 - 比率范围为 0–100，省略时为 0；
-- 同一地图、环境和日期再次提交会整体更新当天指标。
+- 同一地图、环境和日期再次提交会整体更新当天指标；
+- 该接口只为尚未接入自动会话事件的旧地图保留，同一地图环境存在自动会话后，查询不会混入这些快照。
 
 响应：
 
@@ -927,19 +1008,20 @@ POST /api/fq/messages/:messageId/ack
 
 ## 12. 重试策略
 
-| 接口类型                 | 是否可直接重试 | 要求                                                         |
-| ------------------------ | -------------- | ------------------------------------------------------------ |
-| GET 读取                 | 是             | 可使用退避重试                                               |
-| `bootstrap`              | 是             | 请求体保持不变                                               |
-| 玩家/全局存档保存        | 是             | 必须复用同一 requestId、expectedRevision 和 values           |
-| 玩家 upsert              | 是             | 相同 UID 和内容可重复提交                                    |
-| 指标 upsert              | 是             | 相同日期会覆盖为最新请求值                                   |
-| 排行榜批量 upsert        | 是             | 重试时 entries 保持一致                                      |
-| 风险事件                 | 是             | 必须复用同一 eventId，且该 ID 只能代表同一事件               |
-| 日志上报                 | 否             | 重试会增加 `upload_count`                                    |
-| 埋点累加                 | 否             | 重试会重复增加计数                                           |
-| 消息 ACK                 | 条件允许       | 本地先按 ID 幂等；不确定时重新拉取 pending，不循环重试 404   |
-| 礼包资格读取             | 是             | 每局按完整昵称读取当前快照，不在客户端累计                   |
+| 接口类型               | 是否可直接重试 | 要求                                                       |
+| ---------------------- | -------------- | ---------------------------------------------------------- |
+| GET 读取               | 是             | 可使用退避重试                                             |
+| `bootstrap`            | 是             | 请求体保持不变                                             |
+| 玩家/全局存档保存      | 是             | 必须复用同一 requestId、expectedRevision 和 values         |
+| 玩家 upsert            | 是             | 相同 UID 和内容可重复提交                                  |
+| 指标会话开始/心跳/结束 | 是             | 同一局复用完整 sessionId，UID 取当前事件快照               |
+| 旧版指标快照 upsert    | 是             | 相同日期会覆盖为最新请求值                                 |
+| 排行榜批量 upsert      | 是             | 重试时 entries 保持一致                                    |
+| 风险事件               | 是             | 必须复用同一 eventId，且该 ID 只能代表同一事件             |
+| 日志上报               | 否             | 重试会增加 `upload_count`                                  |
+| 埋点累加               | 否             | 重试会重复增加计数                                         |
+| 消息 ACK               | 条件允许       | 本地先按 ID 幂等；不确定时重新拉取 pending，不循环重试 404 |
+| 礼包资格读取           | 是             | 每局按完整昵称读取当前快照，不在客户端累计                 |
 
 建议对网络错误和 HTTP 5xx 使用指数退避；对 4xx 不应盲目重试：
 
@@ -952,23 +1034,23 @@ POST /api/fq/messages/:messageId/ack
 
 ## 13. 常见错误码
 
-| HTTP | 错误码                           | 含义                                 |
-| ---- | -------------------------------- | ------------------------------------ |
-| 400  | `INVALID_JSON`                   | 请求体不是有效 JSON                  |
-| 400  | `VALIDATION_ERROR`               | 字段类型、范围或格式不符合要求       |
-| 401  | `FQ_MISSING_API_KEY`             | 没有携带 `FQ-Map-Key`                |
-| 401  | `FQ_INVALID_API_KEY`             | Key 错误、已停用或不存在             |
-| 403  | `FORBIDDEN`                      | Key 缺少接口所需权限                 |
-| 403  | `FQ_ARCHIVE_BANNED`              | 玩家存档被后台封禁                   |
-| 404  | `POINT_NOT_FOUND`                | 埋点不存在或已停用                   |
-| 404  | `LEADERBOARD_NOT_FOUND`          | 榜单不存在或已停用                   |
-| 404  | `RISK_RULE_NOT_FOUND`            | 风控规则不存在或已停用               |
-| 404  | `MESSAGE_NOT_FOUND`              | 消息不存在、范围不匹配或已经确认     |
-| 404  | `GIFT_NOT_FOUND`                 | 礼包不存在、范围不匹配或已经确认     |
-| 404  | `API_NOT_FOUND`                  | 路径或 HTTP 方法错误                 |
-| 409  | `FQ_ARCHIVE_REVISION_CONFLICT`   | 存档版本冲突                         |
-| 409  | `FQ_REQUEST_REUSED`              | 同一存档 requestId 被用于不同内容    |
-| 500  | `INTERNAL_ERROR`                 | 服务端内部错误                       |
+| HTTP | 错误码                         | 含义                              |
+| ---- | ------------------------------ | --------------------------------- |
+| 400  | `INVALID_JSON`                 | 请求体不是有效 JSON               |
+| 400  | `VALIDATION_ERROR`             | 字段类型、范围或格式不符合要求    |
+| 401  | `FQ_MISSING_API_KEY`           | 没有携带 `FQ-Map-Key`             |
+| 401  | `FQ_INVALID_API_KEY`           | Key 错误、已停用或不存在          |
+| 403  | `FORBIDDEN`                    | Key 缺少接口所需权限              |
+| 403  | `FQ_ARCHIVE_BANNED`            | 玩家存档被后台封禁                |
+| 404  | `POINT_NOT_FOUND`              | 埋点不存在或已停用                |
+| 404  | `LEADERBOARD_NOT_FOUND`        | 榜单不存在或已停用                |
+| 404  | `RISK_RULE_NOT_FOUND`          | 风控规则不存在或已停用            |
+| 404  | `MESSAGE_NOT_FOUND`            | 消息不存在、范围不匹配或已经确认  |
+| 404  | `GIFT_NOT_FOUND`               | 礼包不存在、范围不匹配或已经确认  |
+| 404  | `API_NOT_FOUND`                | 路径或 HTTP 方法错误              |
+| 409  | `FQ_ARCHIVE_REVISION_CONFLICT` | 存档版本冲突                      |
+| 409  | `FQ_REQUEST_REUSED`            | 同一存档 requestId 被用于不同内容 |
+| 500  | `INTERNAL_ERROR`               | 服务端内部错误                    |
 
 ## 14. curl 联调示例
 
