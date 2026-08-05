@@ -158,6 +158,37 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     gameToken = keyResponse.body.data.token;
     gameKeyId = keyResponse.body.data.id;
 
+    const keyList = await admin.get(`/api/maps/${mapId}/api-keys`).expect(200);
+    expect(keyList.body.data[0]).toMatchObject({
+      id: gameKeyId,
+      token_prefix: gameToken.slice(0, 12),
+      token_available: true,
+    });
+    expect(keyList.body.data[0]).not.toHaveProperty("token");
+    await normalUser
+      .get(`/api/maps/${mapId}/api-keys/${gameKeyId}`)
+      .expect(403);
+    const keyDetail = await admin
+      .get(`/api/maps/${mapId}/api-keys/${gameKeyId}`)
+      .expect(200);
+    expect(keyDetail.body.data).toMatchObject({
+      id: gameKeyId,
+      token: gameToken,
+      token_available: true,
+    });
+    const storedKey = await query(
+      "SELECT token_hash,token_ciphertext FROM api_keys WHERE id=$1",
+      [gameKeyId],
+    );
+    expect(storedKey.rows[0].token_hash).not.toBe(gameToken);
+    expect(storedKey.rows[0].token_ciphertext).not.toContain(gameToken);
+    const viewAudit = await query(
+      "SELECT details::text AS details FROM audit_logs WHERE action='api_key.view' AND resource_id=$1 ORDER BY id DESC LIMIT 1",
+      [String(gameKeyId)],
+    );
+    expect(viewAudit.rows[0].details).toContain('"tokenAvailable": true');
+    expect(viewAudit.rows[0].details).not.toContain(gameToken);
+
     await request(app)
       .post("/api/fq/players/upsert")
       .set("fq-map-key", gameToken)
@@ -321,7 +352,9 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .delete(`/api/maps/${mapId}/players/${sameNamePlayerId}?environment=test`)
       .expect(200);
     await admin
-      .delete(`/api/maps/${mapId}/players/${unmatchedPlayerId}?environment=test`)
+      .delete(
+        `/api/maps/${mapId}/players/${unmatchedPlayerId}?environment=test`,
+      )
       .expect(200);
   });
 

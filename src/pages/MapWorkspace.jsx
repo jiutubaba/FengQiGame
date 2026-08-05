@@ -3483,7 +3483,9 @@ const apiPermissionLabels = {
 function ApiKeysPanel({ mapId, environment }) {
   const [keys, setKeys] = useState([]),
     [open, setOpen] = useState(false),
-    [createdToken, setCreatedToken] = useState("");
+    [detail, setDetail] = useState(null),
+    [loadingKeyId, setLoadingKeyId] = useState(null),
+    [copyingKeyId, setCopyingKeyId] = useState(null);
   const [form, setForm] = useState({ name: "", environment, permissions: [] }),
     toast = useToast();
   const load = useCallback(async () => {
@@ -3505,12 +3507,43 @@ function ApiKeysPanel({ mapId, environment }) {
         method: "POST",
         body: form,
       });
-      setCreatedToken(key.token);
+      setDetail(key);
       setOpen(false);
       setForm({ name: "", environment, permissions: [] });
       load();
     } catch (error) {
       toast(error.message, "danger");
+    }
+  };
+  const view = async (key) => {
+    setLoadingKeyId(key.id);
+    try {
+      setDetail(await api(`/api/maps/${mapId}/api-keys/${key.id}`));
+    } catch (error) {
+      toast(error.message, "danger");
+    } finally {
+      setLoadingKeyId(null);
+    }
+  };
+  const copy = async (key) => {
+    if (!key.token_available) {
+      toast("此 Key 创建于可查看功能上线前，无法复制完整 Token", "danger");
+      return;
+    }
+    setCopyingKeyId(key.id);
+    try {
+      const current =
+        detail?.id === key.id
+          ? detail
+          : await api(`/api/maps/${mapId}/api-keys/${key.id}`);
+      if (!current.token) throw new Error("此 API Key 没有可复制的完整 Token");
+      if (!navigator.clipboard) throw new Error("当前浏览器不支持剪切板复制");
+      await navigator.clipboard.writeText(current.token);
+      toast("API Key 已复制");
+    } catch (error) {
+      toast(error.message, "danger");
+    } finally {
+      setCopyingKeyId(null);
     }
   };
   const disable = async (key) => {
@@ -3529,7 +3562,7 @@ function ApiKeysPanel({ mapId, environment }) {
         <div className="api-inline">
           <span>HEADER</span>
           <code>FQ-Map-Key: fqmap_...</code>
-          <small>Token 只在创建成功时显示一次</small>
+          <small>可随时查看详情或复制完整 Token</small>
         </div>
         <Button variant="primary" icon={KeyRound} onClick={() => setOpen(true)}>
           创建 API Key
@@ -3542,7 +3575,7 @@ function ApiKeysPanel({ mapId, environment }) {
               <tr>
                 <th>名称</th>
                 <th>环境</th>
-                <th>Token 前缀</th>
+                <th>Token</th>
                 <th>接口权限</th>
                 <th>最后使用</th>
                 <th>状态</th>
@@ -3557,7 +3590,25 @@ function ApiKeysPanel({ mapId, environment }) {
                   </td>
                   <td>{environmentLabel(key.environment)}</td>
                   <td>
-                    <code>{key.token_prefix}…</code>
+                    <div className="token-cell">
+                      <code>{key.token_prefix}…</code>
+                      <button
+                        className="icon-button token-copy-button"
+                        type="button"
+                        onClick={() => copy(key)}
+                        disabled={
+                          !key.token_available || copyingKeyId === key.id
+                        }
+                        title={
+                          key.token_available
+                            ? "复制完整 Token"
+                            : "旧 Key 未保存可恢复密文"
+                        }
+                        aria-label={`复制 ${key.name} 的完整 Token`}
+                      >
+                        <Clipboard size={13} />
+                      </button>
+                    </div>
                   </td>
                   <td>
                     {key.permissions
@@ -3573,6 +3624,15 @@ function ApiKeysPanel({ mapId, environment }) {
                     </Badge>
                   </td>
                   <td className="align-right">
+                    <button
+                      className="table-action"
+                      type="button"
+                      onClick={() => view(key)}
+                      disabled={loadingKeyId === key.id}
+                    >
+                      <Eye size={14} />
+                      {loadingKeyId === key.id ? "加载中" : "查看详情"}
+                    </button>
                     {key.status === "active" && (
                       <button
                         className="table-action danger"
@@ -3661,28 +3721,78 @@ function ApiKeysPanel({ mapId, environment }) {
         </div>
       </Modal>
       <Modal
-        open={Boolean(createdToken)}
-        onClose={() => setCreatedToken("")}
-        title="保存 API Key"
-        eyebrow="ONE-TIME SECRET"
-        danger
+        open={Boolean(detail)}
+        onClose={() => setDetail(null)}
+        title="API Key 详情"
+        eyebrow="CLIENT TOKEN"
         footer={
-          <Button
-            variant="primary"
-            onClick={() => {
-              navigator.clipboard?.writeText(createdToken);
-              toast("API Key 已复制");
-            }}
-          >
-            复制并保存
-          </Button>
+          detail?.token_available ? (
+            <Button
+              variant="primary"
+              icon={Clipboard}
+              onClick={() => copy(detail)}
+              disabled={copyingKeyId === detail?.id}
+            >
+              {copyingKeyId === detail?.id ? "复制中…" : "复制 Token"}
+            </Button>
+          ) : (
+            <Button onClick={() => setDetail(null)}>关闭</Button>
+          )
         }
       >
-        <p className="warning-note">
-          此 Token
-          只显示一次。关闭后系统仅保存哈希，无法找回；遗失时请停用并重新创建。
-        </p>
-        <code className="secret-token">{createdToken}</code>
+        <div className="token-detail-grid">
+          <div>
+            <span>名称</span>
+            <strong>{detail?.name}</strong>
+          </div>
+          <div>
+            <span>环境</span>
+            <strong>{environmentLabel(detail?.environment)}</strong>
+          </div>
+          <div>
+            <span>状态</span>
+            <strong>{detail?.status === "active" ? "有效" : "已停用"}</strong>
+          </div>
+          <div>
+            <span>最后使用</span>
+            <strong>{formatDate(detail?.last_used_at)}</strong>
+          </div>
+        </div>
+        <div className="token-detail-permissions">
+          <span>接口权限</span>
+          <p>
+            {detail?.permissions
+              ?.map(
+                (permission) => apiPermissionLabels[permission] || permission,
+              )
+              .join("、")}
+          </p>
+        </div>
+        {detail?.token_available ? (
+          <>
+            <p className="modal-intro">
+              完整 Token 由服务端加密保存，仅在具备 API Key 管理权限时解密查看。
+            </p>
+            <div className="secret-token-row">
+              <code className="secret-token">{detail?.token}</code>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => copy(detail)}
+                disabled={copyingKeyId === detail?.id}
+                title="复制完整 Token"
+                aria-label="复制完整 Token"
+              >
+                <Clipboard size={16} />
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="warning-note">
+            此 Key 创建于可查看功能上线前，当时数据库只保存哈希，无法恢复完整
+            Token。请创建新 Key 并在客户端切换后停用旧 Key。
+          </p>
+        )}
       </Modal>
     </>
   );

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   createOpaqueToken,
+  decryptToken,
+  encryptToken,
   hashPassword,
   hashToken,
   normalizeRelativePath,
@@ -21,6 +23,17 @@ describe("安全工具", () => {
     const second = createOpaqueToken("fqmap_");
     expect(first).not.toBe(second);
     expect(hashToken(first)).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("API Key 密文可用正确密钥恢复且拒绝错误密钥", () => {
+    const token = createOpaqueToken("fqmap_");
+    const key = Buffer.alloc(32, 1).toString("base64url");
+    const wrongKey = Buffer.alloc(32, 2).toString("base64url");
+    const ciphertext = encryptToken(token, key);
+
+    expect(ciphertext).not.toContain(token);
+    expect(decryptToken(ciphertext, key)).toBe(token);
+    expect(() => decryptToken(ciphertext, wrongKey)).toThrow();
   });
 
   it("文件名和相对目录不能保留路径穿越字符", () => {

@@ -45,10 +45,15 @@ do {
   if (-not $validPassword) { Write-Host '密码不符合要求，请重新输入。' -ForegroundColor Red }
 } until ($validPassword)
 
-$bytes = New-Object byte[] 32
+$databaseBytes = New-Object byte[] 32
+$apiKeyBytes = New-Object byte[] 32
 $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
-try { $generator.GetBytes($bytes) } finally { $generator.Dispose() }
-$databasePassword = [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+try {
+  $generator.GetBytes($databaseBytes)
+  $generator.GetBytes($apiKeyBytes)
+} finally { $generator.Dispose() }
+$databasePassword = [Convert]::ToBase64String($databaseBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+$apiKeyEncryptionKey = [Convert]::ToBase64String($apiKeyBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 $databaseHost = if ($Mode -eq 'native') { '127.0.0.1' } else { 'db' }
 $databasePort = if ($Mode -eq 'native') { $PostgresPort } else { 5432 }
 $trustProxy = if ($Mode -eq 'native') { 0 } else { 1 }
@@ -87,6 +92,7 @@ $lines = @(
   "DATABASE_URL=postgres://fengqi:${databasePassword}@${databaseHost}:${databasePort}/fengqi"
   'SESSION_COOKIE_NAME=fq_session'
   'SESSION_TTL_HOURS=12'
+  "API_KEY_ENCRYPTION_KEY=$apiKeyEncryptionKey"
   "ADMIN_USERNAME=$adminUsername"
   "ADMIN_DISPLAY_NAME=$adminDisplayName"
   'PUBLIC_REGISTRATION=false'

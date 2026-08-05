@@ -11,6 +11,8 @@ import { writeAudit } from "../lib/audit.js";
 import { conflict, HttpError, notFound } from "../lib/errors.js";
 import {
   createOpaqueToken,
+  decryptToken,
+  encryptToken,
   hashToken,
   normalizeRelativePath,
   sanitizeFileName,
@@ -1984,10 +1986,68 @@ router.get(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const result = await query(
-      "SELECT id,name,environment,token_prefix,permissions,status,last_used_at,created_at FROM api_keys WHERE map_id=$1 ORDER BY created_at DESC",
+      `SELECT id,name,environment,token_prefix,permissions,status,last_used_at,created_at,
+              (token_ciphertext IS NOT NULL) AS token_available
+         FROM api_keys WHERE map_id=$1 ORDER BY created_at DESC`,
       [mapId],
     );
     res.json({ success: true, data: result.rows });
+  },
+);
+router.get(
+  "/:mapId/api-keys/:keyId",
+  requireMapPermission(PERMISSIONS.API_KEYS_MANAGE),
+  async (req, res) => {
+    const mapId = idSchema.parse(req.params.mapId),
+      keyId = idSchema.parse(req.params.keyId);
+    const result = await query(
+      `SELECT id,name,environment,token_hash,token_prefix,token_ciphertext,
+              permissions,status,last_used_at,created_at
+         FROM api_keys WHERE id=$1 AND map_id=$2`,
+      [keyId, mapId],
+    );
+    const key = result.rows[0];
+    if (!key) throw notFound("API Key 不存在");
+
+    let token = null;
+    if (key.token_ciphertext) {
+      if (!config.apiKeyEncryptionKey) {
+        throw new HttpError(
+          503,
+          "服务端尚未配置 API Key 加密密钥",
+          "API_KEY_ENCRYPTION_NOT_CONFIGURED",
+        );
+      }
+      try {
+        token = decryptToken(key.token_ciphertext, config.apiKeyEncryptionKey);
+      } catch {
+        throw new HttpError(
+          500,
+          "API Key 解密失败，请联系系统管理员",
+          "API_KEY_DECRYPTION_FAILED",
+        );
+      }
+      if (hashToken(token) !== key.token_hash) {
+        throw new HttpError(
+          500,
+          "API Key 完整性校验失败，请联系系统管理员",
+          "API_KEY_INTEGRITY_FAILED",
+        );
+      }
+    }
+
+    await writeAudit(req, {
+      action: "api_key.view",
+      resourceType: "api_key",
+      resourceId: keyId,
+      mapId,
+      details: { tokenAvailable: Boolean(token) },
+    });
+    const { token_hash, token_ciphertext, ...metadata } = key;
+    res.json({
+      success: true,
+      data: { ...metadata, token, token_available: Boolean(token) },
+    });
   },
 );
 router.post(
@@ -2017,16 +2077,26 @@ router.post(
     }),
   ),
   async (req, res) => {
+    if (!config.apiKeyEncryptionKey) {
+      throw new HttpError(
+        503,
+        "服务端尚未配置 API Key 加密密钥",
+        "API_KEY_ENCRYPTION_NOT_CONFIGURED",
+      );
+    }
     const mapId = idSchema.parse(req.params.mapId),
       token = createOpaqueToken("fqmap_");
     const result = await query(
-      "INSERT INTO api_keys(map_id,environment,name,token_hash,token_prefix,permissions,created_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,name,environment,token_prefix,permissions,status,created_at",
+      `INSERT INTO api_keys(map_id,environment,name,token_hash,token_prefix,token_ciphertext,permissions,created_by)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id,name,environment,token_prefix,permissions,status,created_at`,
       [
         mapId,
         req.body.environment,
         req.body.name,
         hashToken(token),
         token.slice(0, 12),
+        encryptToken(token, config.apiKeyEncryptionKey),
         req.body.permissions,
         req.user.id,
       ],
@@ -2038,7 +2108,10 @@ router.post(
       mapId,
       details: { name: req.body.name, permissions: req.body.permissions },
     });
-    res.status(201).json({ success: true, data: { ...result.rows[0], token } });
+    res.status(201).json({
+      success: true,
+      data: { ...result.rows[0], token, token_available: true },
+    });
   },
 );
 router.delete(
