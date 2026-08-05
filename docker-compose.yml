@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?请配置 POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请配置 POSTGRES_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_single_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -29,7 +29,7 @@ services:
     expose:
       - "3000"
     volumes:
-      - uploads_data:/app/uploads
+      - uploads_single_data:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -62,7 +62,7 @@ services:
       - no-new-privileges:true
 
 volumes:
-  postgres_data:
-  uploads_data:
+  postgres_single_data:
+  uploads_single_data:
   caddy_data:
   caddy_config:
