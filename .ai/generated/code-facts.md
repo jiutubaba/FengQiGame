@@ -4,10 +4,10 @@
 
 - 项目：`fengqi-game-admin`
 - 版本：`1.0.0`
-- API 路由：91
+- API 路由：92
 - 地图权限：15
 - 客户端权限：11
-- 数据库迁移：7
+- 数据库迁移：8
 
 ## 地图权限
 
@@ -88,6 +88,7 @@
 | GET | `/api/maps/:mapId/api-keys` | map:API_KEYS_MANAGE | `server/routes/maps.js` |
 | POST | `/api/maps/:mapId/api-keys` | map:API_KEYS_MANAGE | `server/routes/maps.js` |
 | DELETE | `/api/maps/:mapId/api-keys/:keyId` | map:API_KEYS_MANAGE | `server/routes/maps.js` |
+| GET | `/api/maps/:mapId/api-keys/:keyId` | map:API_KEYS_MANAGE | `server/routes/maps.js` |
 | GET | `/api/maps/:mapId/config` | map:MAP_VIEW | `server/routes/maps.js` |
 | PUT | `/api/maps/:mapId/config` | map:MAP_EDIT | `server/routes/maps.js` |
 | GET | `/api/maps/:mapId/files` | map:FILES_MANAGE | `server/routes/maps.js` |
@@ -164,11 +165,12 @@
 | `server/db/migrations/005_leaderboard_score_update_mode.sql` | — | leaderboards | `530af8c3068b` |
 | `server/db/migrations/006_leaderboard_publication_and_daily_collection.sql` | — | leaderboard_entries, leaderboard_snapshot_entries | `38b8f27fbe7b` |
 | `server/db/migrations/007_gift_entitlements.sql` | gift_entitlements | gifts | `5045b6320910` |
+| `server/db/migrations/009_api_key_token_encryption.sql` | — | api_keys | `c497c897ea3b` |
 
 ## 环境变量
 
-- 运行时校验：`ADMIN_DISPLAY_NAME`、`ADMIN_PASSWORD`、`ADMIN_USERNAME`、`COOKIE_SECURE`、`DATABASE_URL`、`LOG_LEVEL`、`NODE_ENV`、`PORT`、`PUBLIC_REGISTRATION`、`SESSION_COOKIE_NAME`、`SESSION_TTL_HOURS`、`TRUST_PROXY`、`UPLOAD_MAX_MB`
-- 部署模板：`ADMIN_DISPLAY_NAME`、`ADMIN_PASSWORD`、`ADMIN_USERNAME`、`COOKIE_SECURE`、`DATABASE_URL`、`DEPLOYMENT_MODE`、`LOG_LEVEL`、`NODE_ENV`、`PORT`、`POSTGRES_DB`、`POSTGRES_PASSWORD`、`POSTGRES_USER`、`PUBLIC_REGISTRATION`、`SESSION_COOKIE_NAME`、`SESSION_TTL_HOURS`、`SITE_ADDRESS`、`SITE_ALIAS_ADDRESS`、`TRUST_PROXY`、`UPLOAD_MAX_MB`
+- 运行时校验：`ADMIN_DISPLAY_NAME`、`ADMIN_PASSWORD`、`ADMIN_USERNAME`、`API_KEY_ENCRYPTION_KEY`、`COOKIE_SECURE`、`DATABASE_URL`、`LOG_LEVEL`、`NODE_ENV`、`PORT`、`PUBLIC_REGISTRATION`、`SESSION_COOKIE_NAME`、`SESSION_TTL_HOURS`、`TRUST_PROXY`、`UPLOAD_MAX_MB`
+- 部署模板：`ADMIN_DISPLAY_NAME`、`ADMIN_PASSWORD`、`ADMIN_USERNAME`、`API_KEY_ENCRYPTION_KEY`、`COOKIE_SECURE`、`DATABASE_URL`、`DEPLOYMENT_MODE`、`LOG_LEVEL`、`NODE_ENV`、`PORT`、`POSTGRES_DB`、`POSTGRES_PASSWORD`、`POSTGRES_USER`、`PUBLIC_REGISTRATION`、`SESSION_COOKIE_NAME`、`SESSION_TTL_HOURS`、`SITE_ADDRESS`、`SITE_ALIAS_ADDRESS`、`TRUST_PROXY`、`UPLOAD_MAX_MB`
 
 ## 测试入口
 
@@ -204,6 +206,7 @@
 
 - 密码哈希可以验证正确密码并拒绝错误密码
 - Token 使用随机值并只保存固定长度哈希
+- API Key 密文可用正确密钥恢复且拒绝错误密钥
 - 文件名和相对目录不能保留路径穿越字符
 
 ### `server/tests/unit/validation.test.js`
@@ -221,6 +224,7 @@
 - `anchors.update`
 - `api_key.create`
 - `api_key.disable`
+- `api_key.view`
 - `auth.login`
 - `auth.logout`
 - `auth.password_changed`

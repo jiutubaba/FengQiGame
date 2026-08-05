@@ -22,6 +22,10 @@ const envSchema = z.object({
     .regex(/^[A-Za-z0-9_-]+$/)
     .default("fq_session"),
   SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(12),
+  API_KEY_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{43}$/)
+    .optional(),
   COOKIE_SECURE: z.enum(["true", "false"]).optional(),
   ADMIN_USERNAME: z.string().min(2).max(64).optional(),
   ADMIN_PASSWORD: z.string().min(6).max(256).optional(),
@@ -54,5 +58,10 @@ export const config = Object.freeze({
     ? parsed.data.COOKIE_SECURE === "true"
     : parsed.data.NODE_ENV === "production",
   publicRegistration: parsed.data.PUBLIC_REGISTRATION === "true",
+  apiKeyEncryptionKey:
+    parsed.data.API_KEY_ENCRYPTION_KEY ||
+    (parsed.data.NODE_ENV === "test"
+      ? "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      : null),
   uploadMaxBytes: parsed.data.UPLOAD_MAX_MB * 1024 * 1024,
 });

@@ -375,6 +375,14 @@
     },
     {
       "method": "GET",
+      "path": "/api/maps/:mapId/api-keys/:keyId",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:API_KEYS_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/api/maps/:mapId/config",
       "source": "server/routes/maps.js",
       "guards": [
@@ -866,6 +874,7 @@
     "anchors.update",
     "api_key.create",
     "api_key.disable",
+    "api_key.view",
     "auth.login",
     "auth.logout",
     "auth.password_changed",
@@ -993,6 +1002,14 @@
       "alteredTables": [
         "gifts"
       ]
+    },
+    {
+      "file": "server/db/migrations/009_api_key_token_encryption.sql",
+      "sha256": "c497c897ea3bbb1c7851502a1b9b2be45b6790df759216164fa6156ba25a5096",
+      "tables": [],
+      "alteredTables": [
+        "api_keys"
+      ]
     }
   ],
   "environmentVariables": {
@@ -1000,6 +1017,7 @@
       "ADMIN_DISPLAY_NAME",
       "ADMIN_PASSWORD",
       "ADMIN_USERNAME",
+      "API_KEY_ENCRYPTION_KEY",
       "COOKIE_SECURE",
       "DATABASE_URL",
       "LOG_LEVEL",
@@ -1015,6 +1033,7 @@
       "ADMIN_DISPLAY_NAME",
       "ADMIN_PASSWORD",
       "ADMIN_USERNAME",
+      "API_KEY_ENCRYPTION_KEY",
       "COOKIE_SECURE",
       "DATABASE_URL",
       "DEPLOYMENT_MODE",
@@ -1073,6 +1092,7 @@
       "tests": [
         "密码哈希可以验证正确密码并拒绝错误密码",
         "Token 使用随机值并只保存固定长度哈希",
+        "API Key 密文可用正确密钥恢复且拒绝错误密钥",
         "文件名和相对目录不能保留路径穿越字符"
       ]
     },
@@ -1094,7 +1114,7 @@
     },
     {
       "file": "server/config.js",
-      "lines": 59
+      "lines": 68
     },
     {
       "file": "server/db/index.js",
@@ -1133,6 +1153,10 @@
       "lines": 36
     },
     {
+      "file": "server/db/migrations/009_api_key_token_encryption.sql",
+      "lines": 3
+    },
+    {
       "file": "server/index.js",
       "lines": 52
     },
@@ -1146,7 +1170,7 @@
     },
     {
       "file": "server/lib/security.js",
-      "lines": 77
+      "lines": 119
     },
     {
       "file": "server/middleware/auth.js",
@@ -1174,7 +1198,7 @@
     },
     {
       "file": "server/routes/maps.js",
-      "lines": 2436
+      "lines": 2509
     },
     {
       "file": "server/routes/public.js",
@@ -1206,7 +1230,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 1464
+      "lines": 1497
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1218,7 +1242,7 @@
     },
     {
       "file": "server/tests/unit/security.test.js",
-      "lines": 33
+      "lines": 46
     },
     {
       "file": "server/tests/unit/validation.test.js",
@@ -1274,7 +1298,7 @@
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 3690
+      "lines": 3800
     },
     {
       "file": "src/pages/ProfilePage.jsx",
@@ -1286,7 +1310,7 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 4298
+      "lines": 4369
     },
     {
       "file": "src/utils/format.js",
