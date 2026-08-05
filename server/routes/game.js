@@ -5,11 +5,19 @@ import { HttpError } from "../lib/errors.js";
 import { hashToken } from "../lib/security.js";
 import { loadApiKey, requireApiPermission } from "../middleware/auth.js";
 import { validate } from "../middleware/validation.js";
+import { recordMetricSessionEvent } from "../services/metrics.js";
 
 const router = Router();
 router.use(loadApiKey);
 
 const playerUidSchema = z.string().trim().min(1).max(128);
+const metricSessionSchema = z.object({
+  sessionId: z.string().trim().min(1).max(512),
+  uids: z
+    .array(playerUidSchema)
+    .max(24)
+    .transform((uids) => [...new Set(uids)]),
+});
 const fqRequestIdSchema = z
   .string()
   .trim()
@@ -468,6 +476,47 @@ router.post(
     );
     res.json({ success: true });
   },
+);
+
+function metricSessionHandler(event) {
+  return async (req, res) => {
+    const session = await recordMetricSessionEvent({
+      mapId: req.apiKey.map_id,
+      environment: req.apiKey.environment,
+      sessionId: req.body.sessionId,
+      uids: req.body.uids,
+      event,
+    });
+    res.json({
+      success: true,
+      data: {
+        sessionId: session.session_id,
+        event,
+        startedAt: session.started_at,
+        lastHeartbeatAt: session.last_heartbeat_at,
+        endedAt: session.ended_at,
+      },
+    });
+  };
+}
+
+router.post(
+  "/metrics/sessions/start",
+  requireApiPermission("game.metrics.write"),
+  validate(metricSessionSchema),
+  metricSessionHandler("start"),
+);
+router.post(
+  "/metrics/sessions/heartbeat",
+  requireApiPermission("game.metrics.write"),
+  validate(metricSessionSchema),
+  metricSessionHandler("heartbeat"),
+);
+router.post(
+  "/metrics/sessions/end",
+  requireApiPermission("game.metrics.write"),
+  validate(metricSessionSchema),
+  metricSessionHandler("end"),
 );
 
 router.post(

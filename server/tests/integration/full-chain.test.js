@@ -6,6 +6,10 @@ import { app } from "../../app.js";
 import { config } from "../../config.js";
 import { closeDatabase, query } from "../../db/index.js";
 import { migrate } from "../../db/migrate.js";
+import {
+  getAutomaticMetrics,
+  recordMetricSessionEvent,
+} from "../../services/metrics.js";
 import { createUser } from "../../services/users.js";
 
 const adminPassword = "Admin-password-2026!";
@@ -554,6 +558,189 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(200);
     expect(metrics.body.data.summary.cumulativeUsers).toBe(1);
     expect(logs.body.data[0].context).toBe("[integration] chain ok");
+  });
+
+  it("自动指标会话幂等、隔离、在线状态及 11 项公式均按北京时间聚合", async () => {
+    const deniedKey = await admin
+      .post(`/api/maps/${mapId}/api-keys`)
+      .send({
+        name: "无指标权限客户端",
+        environment: "release",
+        permissions: ["game.players.write"],
+      })
+      .expect(201);
+    await request(app)
+      .post("/api/fq/metrics/sessions/start")
+      .set("fq-map-key", deniedKey.body.data.token)
+      .send({ sessionId: "denied-session", uids: ["metric-user"] })
+      .expect(403);
+
+    const releaseKey = await admin
+      .post(`/api/maps/${mapId}/api-keys`)
+      .send({
+        name: "自动指标正式环境客户端",
+        environment: "release",
+        permissions: ["game.metrics.write"],
+      })
+      .expect(201);
+    const releaseMetricToken = releaseKey.body.data.token;
+    const releaseStart = {
+      sessionId: "release-room-1",
+      uids: ["same-uid", "same-uid"],
+    };
+    await request(app)
+      .post("/api/fq/metrics/sessions/start")
+      .set("fq-map-key", releaseMetricToken)
+      .send(releaseStart)
+      .expect(200);
+    await request(app)
+      .post("/api/fq/metrics/sessions/start")
+      .set("fq-map-key", releaseMetricToken)
+      .send(releaseStart)
+      .expect(200);
+    await request(app)
+      .post("/api/fq/metrics/sessions/heartbeat")
+      .set("fq-map-key", releaseMetricToken)
+      .send({ sessionId: "missing-session", uids: [] })
+      .expect(404);
+    await request(app)
+      .post("/api/fq/metrics/sessions/start")
+      .set("fq-map-key", releaseMetricToken)
+      .send({
+        sessionId: "too-many-uids",
+        uids: Array.from({ length: 25 }, (_, index) => `uid-${index}`),
+      })
+      .expect(400);
+
+    let releaseMetrics = await getAutomaticMetrics(mapId, "release");
+    expect(releaseMetrics.rows.at(-1)).toMatchObject({
+      cumulative_users: "1",
+      online_users: "1",
+      total_game_count: "1",
+    });
+    await request(app)
+      .post("/api/fq/metrics/sessions/start")
+      .set("fq-map-key", releaseMetricToken)
+      .send({ sessionId: "release-room-2", uids: ["same-uid"] })
+      .expect(200);
+    releaseMetrics = await getAutomaticMetrics(mapId, "release");
+    expect(releaseMetrics.rows.at(-1).online_users).toBe("1");
+    await request(app)
+      .post("/api/fq/metrics/sessions/end")
+      .set("fq-map-key", releaseMetricToken)
+      .send({ sessionId: "release-room-1", uids: ["same-uid"] })
+      .expect(200);
+    releaseMetrics = await getAutomaticMetrics(mapId, "release");
+    expect(releaseMetrics.rows.at(-1).online_users).toBe("1");
+    await request(app)
+      .post("/api/fq/metrics/sessions/end")
+      .set("fq-map-key", releaseMetricToken)
+      .send({ sessionId: "release-room-2", uids: ["same-uid"] })
+      .expect(200);
+    releaseMetrics = await getAutomaticMetrics(mapId, "release");
+    expect(releaseMetrics.rows.at(-1).online_users).toBe("0");
+
+    const timeoutNow = new Date();
+    await recordMetricSessionEvent({
+      mapId,
+      environment: "release",
+      sessionId: "release-timeout-room",
+      uids: ["same-uid"],
+      event: "start",
+      now: new Date(timeoutNow.getTime() - 121_000),
+    });
+    releaseMetrics = await getAutomaticMetrics(mapId, "release", timeoutNow);
+    expect(releaseMetrics.rows.at(-1).online_users).toBe("0");
+    await request(app)
+      .post("/api/fq/metrics/sessions/heartbeat")
+      .set("fq-map-key", releaseMetricToken)
+      .send({ sessionId: "release-timeout-room", uids: ["same-uid"] })
+      .expect(200);
+    releaseMetrics = await getAutomaticMetrics(mapId, "release");
+    expect(releaseMetrics.rows.at(-1).online_users).toBe("1");
+    await request(app)
+      .post("/api/fq/metrics/sessions/end")
+      .set("fq-map-key", releaseMetricToken)
+      .send({ sessionId: "release-timeout-room", uids: ["same-uid"] })
+      .expect(200);
+
+    const snapshotStillIsolated = await admin
+      .get(`/api/maps/${mapId}/metrics?environment=test`)
+      .expect(200);
+    expect(snapshotStillIsolated.body.data.source).toBe("snapshot");
+
+    const metricEvent = (sessionId, uids, now) =>
+      recordMetricSessionEvent({
+        mapId,
+        environment: "test",
+        sessionId,
+        uids,
+        event: "start",
+        now,
+      });
+    await metricEvent(
+      "formula-d0",
+      ["u1", "u2", "u3", "u4"],
+      "2026-01-01T04:00:00Z",
+    );
+    await metricEvent("formula-d1", ["u1", "u5"], "2026-01-02T04:00:00Z");
+    await metricEvent("formula-d7-1", ["u2", "u4"], "2026-01-08T04:00:00Z");
+    await metricEvent("formula-d7-2", ["u4"], "2026-01-08T05:00:00Z");
+    await metricEvent("formula-d7-3", ["u4"], "2026-01-08T06:00:00Z");
+    await metricEvent("formula-d7-4", ["u4"], "2026-01-08T07:00:00Z");
+    await metricEvent("formula-return", ["u3"], "2026-02-01T04:00:00Z");
+
+    const d1 = await getAutomaticMetrics(mapId, "test", "2026-01-02T12:00:00Z");
+    expect(d1.rows.at(-1)).toMatchObject({
+      cumulative_users: "5",
+      total_game_count: "2",
+      daily_new_users: "1",
+      daily_active_users: "2",
+      active_user_retention_rate: "25.00",
+      new_user_retention_rate: "25.00",
+    });
+    expect(Number(d1.rows.at(-1).seven_day_retention_rate)).toBe(0);
+    expect(Number(d1.rows.at(-1).replay_rate)).toBe(0);
+    const d7 = await getAutomaticMetrics(mapId, "test", "2026-01-08T12:00:00Z");
+    expect(d7.rows.at(-1)).toMatchObject({
+      daily_active_users: "2",
+      seven_day_retention_rate: "50.00",
+      replay_rate: "50.00",
+    });
+    const d30 = await getAutomaticMetrics(
+      mapId,
+      "test",
+      "2026-01-31T12:00:00Z",
+    );
+    expect(d30.rows.at(-1).lost_user_count).toBe("1");
+    const returned = await getAutomaticMetrics(
+      mapId,
+      "test",
+      "2026-02-01T12:00:00Z",
+    );
+    expect(returned.rows.at(-1)).toMatchObject({
+      cumulative_users: "5",
+      online_users: "0",
+      total_game_count: "7",
+      daily_new_users: "0",
+      daily_active_users: "1",
+      lost_user_count: "2",
+      return_user_count: "1",
+    });
+    expect(Number(returned.rows.at(-1).active_user_retention_rate)).toBe(0);
+    expect(Number(returned.rows.at(-1).new_user_retention_rate)).toBe(0);
+    expect(Number(returned.rows.at(-1).seven_day_retention_rate)).toBe(0);
+    expect(Number(returned.rows.at(-1).replay_rate)).toBe(0);
+    const automatic = await admin
+      .get(`/api/maps/${mapId}/metrics?environment=test`)
+      .expect(200);
+    expect(automatic.body.data.source).toBe("automatic");
+    expect(automatic.body.data.summary.cumulativeUsers).toBe(5);
+    const mapCenter = await admin.get("/api/maps").expect(200);
+    expect(mapCenter.body.data[0]).toMatchObject({
+      cumulativeUsers: 5,
+      totalGameCount: 7,
+    });
   });
 
   it("地图局部编辑、地图配置和系统设置均能持久化", async () => {
@@ -1161,6 +1348,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(cleared.body.data.players).toBe(1);
     expect(cleared.body.data.logs).toBe(1);
     expect(cleared.body.data.metrics).toBe(1);
+    expect(cleared.body.data.automaticMetricSessions).toBe(7);
     expect(cleared.body.data.leaderboardEntries).toBe(2);
     expect(cleared.body.data.leaderboardSnapshots).toBe(2);
     expect(cleared.body.data.riskEvents).toBe(1);
@@ -1414,6 +1602,8 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       "map_logs",
       "map_files",
       "map_metrics",
+      "fq_metric_session_activity",
+      "fq_metric_sessions",
       "api_keys",
       "player_messages",
       "lottery_campaigns",
