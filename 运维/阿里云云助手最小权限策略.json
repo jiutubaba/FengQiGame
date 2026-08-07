@@ -1,0 +1,27 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:RunCommand",
+        "ecs:SendFile",
+        "ecs:DescribeCloudAssistantStatus",
+        "ecs:DescribeSendFileResults"
+      ],
+      "Resource": [
+        "acs:ecs:cn-guangzhou:*:instance/i-7xvdufe80gxzqw3oowvo"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeInvocationResults"
+      ],
+      "Resource": [
+        "acs:ecs:cn-guangzhou:*:instance/i-7xvdufe80gxzqw3oowvo",
+        "acs:ecs:cn-guangzhou:*:command/*"
+      ]
+    }
+  ]
+}

@@ -65,7 +65,7 @@ npm run ai:context -- docs/沧澜项目AI技术交接.md
 
 ## 3. 正式环境最后已验证状态
 
-以下状态最后在 2026-08-05 单运行空间生产重建与交接阶段核对；后续维护前应低风险复验，不要把本节当作永久不变的实时监控结果。
+以下状态最后在 2026-08-08 云助手生产发布与验收阶段核对；后续维护前应低风险复验，不要把本节当作永久不变的实时监控结果。
 
 - 正式站点：`https://fengqigame.com`
 - 健康检查：`https://fengqigame.com/api/system/health`
@@ -75,13 +75,13 @@ npm run ai:context -- docs/沧澜项目AI技术交接.md
 - 正式部署目录：`/opt/fengqigame`
 - Compose 服务：`app`、`db`、`caddy`
 - 在线数据卷：`fengqi-admin_postgres_single_data`、`fengqi-admin_uploads_single_data`；旧 `postgres_data/uploads_data` 离线保留且不挂载
-- 公网入口：只开放 HTTP/HTTPS；HTTP 自动 308 到 HTTPS；SSH 仅管理员固定 `/32`；PostgreSQL 与应用内部端口不对公网开放
+- 公网入口：只开放 HTTP/HTTPS；HTTP 自动 308 到 HTTPS；日常发布使用单实例最小权限云助手，SSH 仅保留管理员固定 `/32` 应急入口；PostgreSQL 与应用内部端口不对公网开放
 - TLS：Caddy 自动申请与续期；最后核对的证书有效期至 2026-10-13
 - 正式备份：每天北京时间 03:30，由 systemd timer 生成数据库与上传卷副本，上传武汉私有 OSS，保留 14 天；失败邮件发送到既定 QQ 邮箱
 - 备份恢复：已从 OSS 下载最新两类副本并在隔离 Compose 环境完成恢复与健康检查
 - 远程仓库：公有 GitHub `https://github.com/jiutubaba/FengQiGame`
 - `main` 分支：required checks、严格同步、禁止强推和删除，管理员不能绕过
-- 当前发布：`codex/fq-single-runtime-space@2a91da9` 已部署，PR #27 两项 CI 通过但仍为草稿；`main` 尚待合并后才能与正式源对齐
+- 当前发布：PR #27 已合并，`main@bc344155` 已部署且 required checks 通过，正式 `.release-commit` 与主分支一致；地图内真实客户端联调仍是独立待办
 
 常用只读检查：
 
