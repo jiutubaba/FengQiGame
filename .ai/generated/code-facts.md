@@ -4,10 +4,10 @@
 
 - 项目：`fengqi-game-admin`
 - 版本：`1.0.0`
-- API 路由：95
+- API 路由：97
 - 地图权限：15
 - 客户端权限：11
-- 数据库迁移：1
+- 数据库迁移：2
 
 ## 地图权限
 
@@ -105,6 +105,7 @@
 | PATCH | `/api/maps/:mapId/gifts/:giftId` | map:GIFTS_MANAGE | `server/routes/maps.js` |
 | GET | `/api/maps/:mapId/gifts/entitlements` | map:GIFTS_MANAGE | `server/routes/maps.js` |
 | PUT | `/api/maps/:mapId/gifts/entitlements` | map:GIFTS_MANAGE | `server/routes/maps.js` |
+| GET | `/api/maps/:mapId/gifts/entitlements/players` | map:GIFTS_MANAGE | `server/routes/maps.js` |
 | GET | `/api/maps/:mapId/leaderboards` | map:LEADERBOARDS_VIEW | `server/routes/maps.js` |
 | POST | `/api/maps/:mapId/leaderboards` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
 | DELETE | `/api/maps/:mapId/leaderboards/:leaderboardId` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
@@ -118,6 +119,7 @@
 | POST | `/api/maps/:mapId/lotteries` | map:GIFTS_MANAGE | `server/routes/maps.js` |
 | DELETE | `/api/maps/:mapId/lotteries/:campaignId` | map:GIFTS_MANAGE | `server/routes/maps.js` |
 | POST | `/api/maps/:mapId/lotteries/:campaignId/draw` | map:GIFTS_MANAGE | `server/routes/maps.js` |
+| DELETE | `/api/maps/:mapId/lotteries/:campaignId/permanent` | map:GIFTS_MANAGE | `server/routes/maps.js` |
 | GET | `/api/maps/:mapId/messages` | map:PLAYERS_VIEW | `server/routes/maps.js` |
 | POST | `/api/maps/:mapId/messages` | map:PLAYERS_MANAGE | `server/routes/maps.js` |
 | GET | `/api/maps/:mapId/metrics` | map:METRICS_VIEW | `server/routes/maps.js` |
@@ -162,6 +164,7 @@
 | 文件 | 新建表 | 修改表 | SHA-256 |
 | --- | --- | --- | --- |
 | `server/db/migrations/001_single_map_baseline.sql` | anchors, api_keys, audit_logs, fq_global_archives, fq_metric_session_activity, fq_metric_sessions, fq_player_archives, gift_entitlements, gifts, leaderboard_entries, leaderboard_snapshot_entries, leaderboard_snapshots, leaderboards, lottery_campaigns, lottery_entries, map_configs, map_files, map_logs, map_metrics, map_permissions, maps, player_messages, players, risk_events, risk_rules, sessions, system_settings, tracking_points, users | — | `8abaed2687a2` |
+| `server/db/migrations/002_leaderboard_daily_collections.sql` | leaderboard_daily_collections | — | `a2171fb49693` |
 
 ## 环境变量
 
@@ -185,7 +188,7 @@
 - 排行榜发布快照、风险事件幂等上报与玩家封禁形成闭环
 - 同地图多 Key 共享数据，同 UID 在不同地图仍隔离
 - 文件夹、文件上传、列表、下载和级联删除形成闭环
-- 公开抽奖支持报名、防重复、开奖与中奖结果公开
+- 公开抽奖支持报名、防重复、开奖、状态受控永久删除与级联清理
 - 个人资料、密码更新、退出登录和重新登录均有效
 - 管理员运维、审计、清理、凭据停用和地图归档完整生效
 - 永久删除地图经过双重服务端校验并清除数据库与上传目录
@@ -241,6 +244,7 @@
 - `log.delete`
 - `lottery.cancel`
 - `lottery.create`
+- `lottery.delete`
 - `lottery.draw`
 - `map.archive`
 - `map.config.update`

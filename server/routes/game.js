@@ -18,6 +18,12 @@ const metricSessionSchema = z.object({
     .max(24)
     .transform((uids) => [...new Set(uids)]),
 });
+const chinaDateFormatter = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Asia/Shanghai",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 const fqRequestIdSchema = z
   .string()
   .trim()
@@ -428,7 +434,7 @@ router.post(
       date: z.iso
         .date()
         .optional()
-        .default(() => new Date().toISOString().slice(0, 10)),
+        .default(() => chinaDateFormatter.format(new Date())),
       cumulativeUsers: z.coerce.number().int().min(0).default(0),
       onlineUsers: z.coerce.number().int().min(0).default(0),
       totalGameCount: z.coerce.number().int().min(0).default(0),
@@ -615,9 +621,9 @@ router.post(
       });
 
     const submittedToday = await query(
-      `SELECT player_uid FROM leaderboard_entries
+      `SELECT player_uid FROM leaderboard_daily_collections
         WHERE leaderboard_id=$1 AND player_uid=ANY($2::text[])
-          AND last_submitted_on=$3::date`,
+          AND collection_date=$3::date`,
       [leaderboard.id, req.body.uids, leaderboard.collection_date],
     );
     let entries = [];
@@ -633,7 +639,7 @@ router.post(
         query(
           `SELECT rank,player_uid,player_name,game_level,score,game_count,metadata,achieved_at AS updated_at
              FROM leaderboard_snapshot_entries
-            WHERE snapshot_id=$1 AND player_uid=ANY($2::text[]) ORDER BY rank`,
+            WHERE snapshot_id=$1 AND rank<=100 AND player_uid=ANY($2::text[]) ORDER BY rank`,
           [leaderboard.snapshot_id, req.body.uids],
         ),
       ]);
@@ -708,6 +714,15 @@ router.post(
     const acceptedUids = await transaction(async (client) => {
       const accepted = [];
       for (const entry of req.body.entries) {
+        const collection = await client.query(
+          `INSERT INTO leaderboard_daily_collections(
+             leaderboard_id,player_uid,collection_date
+           ) VALUES($1,$2,$3::date)
+           ON CONFLICT DO NOTHING
+           RETURNING player_uid`,
+          [leaderboard.id, entry.uid, leaderboard.collection_date],
+        );
+        if (!collection.rows[0]) continue;
         const result = await client.query(
           `INSERT INTO leaderboard_entries(leaderboard_id,player_uid,player_name,game_level,score,game_count,metadata,last_submitted_on)
            VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$10::date)
@@ -729,7 +744,6 @@ router.post(
                 WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
                 THEN NOW() ELSE leaderboard_entries.updated_at END,
               last_submitted_on=EXCLUDED.last_submitted_on
-           WHERE leaderboard_entries.last_submitted_on IS DISTINCT FROM EXCLUDED.last_submitted_on
            RETURNING player_uid`,
           [
             leaderboard.id,
@@ -744,7 +758,7 @@ router.post(
             leaderboard.collection_date,
           ],
         );
-        if (result.rows[0]) accepted.push(result.rows[0].player_uid);
+        accepted.push(result.rows[0].player_uid);
       }
       return accepted;
     });

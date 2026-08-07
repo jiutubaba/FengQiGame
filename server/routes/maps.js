@@ -111,7 +111,11 @@ router.get("/", requireAuth, async (req, res) => {
        FROM maps m ${accessJoin}
        LEFT JOIN users u ON u.id=m.owner_user_id
        LEFT JOIN LATERAL (
-         SELECT MIN(started_at) AS epoch,COUNT(*)::bigint AS total_game_count
+         SELECT MIN(started_at) AS epoch,
+                COUNT(*) FILTER (
+                  WHERE COALESCE(ended_at,last_heartbeat_at)
+                    >started_at+INTERVAL '10 minutes'
+                )::bigint AS total_game_count
            FROM fq_metric_sessions s
           WHERE s.map_id=m.id
        ) automatic_sessions ON TRUE
@@ -420,6 +424,7 @@ router.get(
       success: true,
       data: {
         source: automatic?.source || "snapshot",
+        epochDate: formatChinaDate(automatic?.epochDate),
         summary: metricRow(latest),
         trends: rows.map(metricRow),
         calculatedAt: latest.updated_at || null,
@@ -502,20 +507,35 @@ router.get(
     const mapId = idSchema.parse(req.params.mapId);
     const { page, limit, offset } = pagination(req.query);
     const q = String(req.query.q || "").trim();
+    const sortBy = z
+      .enum(["level", "lastActiveAt"])
+      .default("lastActiveAt")
+      .parse(req.query.sortBy);
+    const sortDirection = z
+      .enum(["asc", "desc"])
+      .default("desc")
+      .parse(req.query.sortDirection);
+    const sortColumn = sortBy === "level" ? "level" : "last_active_at";
+    const sortSql = sortDirection === "asc" ? "ASC" : "DESC";
     const params = [mapId];
-    let where = "map_id=$1";
+    let where = "p.map_id=$1";
     if (q) {
       params.push(`%${q}%`);
-      where += ` AND (uid ILIKE $${params.length} OR name ILIKE $${params.length})`;
+      where += ` AND (p.uid ILIKE $${params.length} OR p.name ILIKE $${params.length})`;
     }
     const count = await query(
-      `SELECT COUNT(*)::int AS count FROM players WHERE ${where}`,
+      `SELECT COUNT(*)::int AS count FROM players p WHERE ${where}`,
       params,
     );
     params.push(limit, offset);
     const result = await query(
-      `SELECT id,uid,name,level,game_level,item_ban,data_ban,rank_ban,profile,last_active_at,created_at,updated_at
-       FROM players WHERE ${where} ORDER BY last_active_at DESC NULLS LAST,id DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      `SELECT p.id,p.uid,p.name,p.level,p.game_level,p.item_ban,p.data_ban,p.rank_ban,
+              p.profile,p.last_active_at,p.created_at,p.updated_at,
+              ${playerUidLockSql("p")} AS uid_locked
+         FROM players p
+        WHERE ${where}
+        ORDER BY p.${sortColumn} ${sortSql} NULLS LAST,p.id DESC
+        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );
     res.json({
@@ -576,38 +596,53 @@ router.patch(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const playerId = idSchema.parse(req.params.playerId);
-    const current = await query(
-      "SELECT * FROM players WHERE id=$1 AND map_id=$2",
-      [playerId, mapId],
-    );
-    if (!current.rows[0]) throw notFound("玩家不存在");
-    const row = current.rows[0];
-    const nextUid = req.body.uid ?? row.uid;
     const result = await transaction(async (client) => {
-      const updated = await client.query(
-        `UPDATE players SET uid=$1,name=$2,level=$3,game_level=$4,item_ban=$5,data_ban=$6,rank_ban=$7,profile=$8::jsonb,updated_at=NOW()
-        WHERE id=$9 AND map_id=$10 RETURNING *`,
-        [
-          nextUid,
-          req.body.name ?? row.name,
-          req.body.level ?? row.level,
-          req.body.gameLevel ?? row.game_level,
-          req.body.itemBan ?? row.item_ban,
-          req.body.dataBan ?? row.data_ban,
-          req.body.rankBan ?? row.rank_ban,
-          JSON.stringify(req.body.profile ?? row.profile),
-          playerId,
-          mapId,
-        ],
+      const current = await client.query(
+        `SELECT p.*,${playerUidLockSql("p")} AS uid_locked
+           FROM players p
+          WHERE p.id=$1 AND p.map_id=$2
+          FOR UPDATE`,
+        [playerId, mapId],
       );
-      if (nextUid !== row.uid) {
-        await client.query(
-          `UPDATE fq_player_archives SET player_uid=$1,updated_at=NOW()
-            WHERE map_id=$2 AND player_uid=$3`,
-          [nextUid, mapId, row.uid],
+      if (!current.rows[0]) throw notFound("玩家不存在");
+      const row = current.rows[0];
+      const nextUid = req.body.uid ?? row.uid;
+      if (nextUid !== row.uid && row.uid_locked) {
+        throw new HttpError(
+          409,
+          "该玩家已有游戏或运营数据，UID 已锁定；其他资料仍可单独修改",
+          "PLAYER_UID_LOCKED",
         );
       }
-      return updated;
+      try {
+        const updated = await client.query(
+          `UPDATE players SET uid=$1,name=$2,level=$3,game_level=$4,item_ban=$5,data_ban=$6,rank_ban=$7,profile=$8::jsonb,updated_at=NOW()
+          WHERE id=$9 AND map_id=$10 RETURNING *`,
+          [
+            nextUid,
+            req.body.name ?? row.name,
+            req.body.level ?? row.level,
+            req.body.gameLevel ?? row.game_level,
+            req.body.itemBan ?? row.item_ban,
+            req.body.dataBan ?? row.data_ban,
+            req.body.rankBan ?? row.rank_ban,
+            JSON.stringify(req.body.profile ?? row.profile),
+            playerId,
+            mapId,
+          ],
+        );
+        updated.rows[0].uid_locked = row.uid_locked;
+        return updated;
+      } catch (error) {
+        if (error.code === "23505") {
+          throw new HttpError(
+            409,
+            "当前地图已存在相同 UID 的玩家",
+            "PLAYER_UID_CONFLICT",
+          );
+        }
+        throw error;
+      }
     });
     await writeAudit(req, {
       action: "player.update",
@@ -682,7 +717,7 @@ router.get(
          LEFT JOIN players p ON p.map_id=l.map_id AND p.uid=e.player_uid
          LEFT JOIN LATERAL (
            SELECT id,entry_count,published_at FROM leaderboard_snapshots
-            WHERE leaderboard_id=l.id ORDER BY published_at DESC LIMIT 1
+            WHERE leaderboard_id=l.id ORDER BY published_at DESC,id DESC LIMIT 1
          ) latest ON TRUE
         WHERE l.map_id=$1
         GROUP BY l.id,latest.id,latest.entry_count,latest.published_at
@@ -739,11 +774,21 @@ router.patch(
     );
     if (!current.rows[0]) throw notFound("排行榜不存在");
     const row = current.rows[0];
+    if (
+      req.body.leaderboardKey !== undefined &&
+      req.body.leaderboardKey !== row.leaderboard_key
+    ) {
+      throw new HttpError(
+        400,
+        "榜单 Key 创建后不可修改",
+        "LEADERBOARD_KEY_IMMUTABLE",
+      );
+    }
     const result = await query(
       `UPDATE leaderboards SET leaderboard_key=$1,name=$2,value_label=$3,sort_direction=$4,score_update_mode=$5,enabled=$6,updated_at=NOW()
         WHERE id=$7 AND map_id=$8 RETURNING *`,
       [
-        req.body.leaderboardKey ?? row.leaderboard_key,
+        row.leaderboard_key,
         req.body.name ?? row.name,
         req.body.valueLabel ?? row.value_label,
         req.body.sortDirection ?? row.sort_direction,
@@ -802,7 +847,7 @@ router.get(
     if (!leaderboard) throw notFound("排行榜不存在");
     const snapshots = await query(
       `SELECT id,entry_count,published_at FROM leaderboard_snapshots
-        WHERE leaderboard_id=$1 ORDER BY published_at DESC LIMIT 30`,
+        WHERE leaderboard_id=$1 ORDER BY published_at DESC,id DESC LIMIT 30`,
       [leaderboardId],
     );
     const snapshotId = req.query.snapshotId
@@ -875,7 +920,7 @@ router.post(
   requireMapPermission(PERMISSIONS.LEADERBOARDS_MANAGE),
   validate(
     z.object({
-      limit: z.coerce.number().int().min(1).max(1000).default(100),
+      limit: z.coerce.number().int().min(1).max(100).default(100),
     }),
   ),
   async (req, res) => {
@@ -1196,7 +1241,13 @@ router.get(
   async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
     const result = await query(
-      "SELECT * FROM gifts WHERE map_id=$1 ORDER BY created_at DESC",
+      `SELECT g.*,COUNT(ge.id) FILTER (WHERE ge.value>0)::int AS entitlement_count
+         FROM gifts g
+         LEFT JOIN gift_entitlements ge
+           ON ge.gift_id=g.id AND ge.map_id=g.map_id
+        WHERE g.map_id=$1
+        GROUP BY g.id
+        ORDER BY g.created_at DESC`,
       [mapId],
     );
     res.json({ success: true, data: result.rows.map(giftRow) });
@@ -1289,6 +1340,101 @@ router.delete(
       mapId,
     });
     res.json({ success: true });
+  },
+);
+
+router.get(
+  "/:mapId/gifts/entitlements/players",
+  requireMapPermission(PERMISSIONS.GIFTS_MANAGE),
+  async (req, res) => {
+    const mapId = idSchema.parse(req.params.mapId);
+    const { page, limit, offset } = pagination(req.query);
+    const q = String(req.query.q || "").trim();
+    const parsedGiftFilterIds = z
+      .array(idSchema)
+      .max(100)
+      .safeParse(
+        String(req.query.giftIds || "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
+      );
+    if (!parsedGiftFilterIds.success) {
+      throw new HttpError(
+        400,
+        "礼包筛选参数不符合要求",
+        "VALIDATION_ERROR",
+        parsedGiftFilterIds.error.flatten(),
+      );
+    }
+    const giftFilterIds = parsedGiftFilterIds.data;
+    const params = [mapId];
+    let where = "p.map_id=$1";
+    if (q) {
+      params.push(`%${q}%`);
+      where += ` AND (p.uid ILIKE $${params.length} OR p.name ILIKE $${params.length})`;
+    }
+    if (giftFilterIds.length) {
+      params.push(giftFilterIds);
+      where += ` AND EXISTS (
+        SELECT 1
+          FROM gift_entitlements filter_ge
+          JOIN gifts filter_g
+            ON filter_g.id=filter_ge.gift_id AND filter_g.map_id=$1
+         WHERE filter_ge.map_id=$1
+           AND filter_ge.player_id=p.id
+           AND filter_ge.value>0
+           AND filter_ge.gift_id=ANY($${params.length}::bigint[])
+      )`;
+    }
+    const total = await query(
+      `SELECT COUNT(*)::int AS count FROM players p WHERE ${where}`,
+      params,
+    );
+    params.push(limit, offset);
+    const players = await query(
+      `SELECT p.id,p.uid,p.name,p.last_active_at
+         FROM players p
+        WHERE ${where}
+        ORDER BY p.last_active_at DESC NULLS LAST,p.id DESC
+        LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    );
+    const playerIds = players.rows.map((player) => player.id);
+    const entitlements = playerIds.length
+      ? await query(
+          `SELECT ge.player_id,ge.gift_id,ge.value,ge.updated_at
+             FROM gift_entitlements ge
+             JOIN gifts g ON g.id=ge.gift_id
+            WHERE ge.map_id=$1 AND g.map_id=$1
+              AND ge.player_id=ANY($2::bigint[])
+            ORDER BY ge.player_id,ge.gift_id`,
+          [mapId, playerIds],
+        )
+      : { rows: [] };
+    const entitlementsByPlayer = new Map();
+    for (const row of entitlements.rows) {
+      const playerId = Number(row.player_id);
+      if (!entitlementsByPlayer.has(playerId)) {
+        entitlementsByPlayer.set(playerId, []);
+      }
+      entitlementsByPlayer.get(playerId).push({
+        giftId: Number(row.gift_id),
+        value: Number(row.value),
+        updatedAt: row.updated_at,
+      });
+    }
+    res.json({
+      success: true,
+      data: players.rows.map((player) => ({
+        id: Number(player.id),
+        uid: player.uid,
+        name: player.name,
+        lastActiveAt: player.last_active_at,
+        entitlements: entitlementsByPlayer.get(Number(player.id)) || [],
+      })),
+      pagination: { page, limit, total: total.rows[0].count },
+    });
   },
 );
 
@@ -1618,6 +1764,63 @@ router.delete(
   },
 );
 
+router.delete(
+  "/:mapId/lotteries/:campaignId/permanent",
+  requireMapPermission(PERMISSIONS.GIFTS_MANAGE),
+  async (req, res) => {
+    const mapId = idSchema.parse(req.params.mapId);
+    const campaignId = idSchema.parse(req.params.campaignId);
+    const deleted = await transaction(async (client) => {
+      const campaignResult = await client.query(
+        `SELECT id,title,status,draw_at
+           FROM lottery_campaigns
+          WHERE id=$1 AND map_id=$2
+          FOR UPDATE`,
+        [campaignId, mapId],
+      );
+      const campaign = campaignResult.rows[0];
+      if (!campaign) throw notFound("抽奖活动不存在");
+      const canDelete =
+        campaign.status === "drawn" ||
+        campaign.status === "cancelled" ||
+        (campaign.status === "open" &&
+          campaign.draw_at &&
+          new Date(campaign.draw_at) <= new Date());
+      if (!canDelete) {
+        throw new HttpError(
+          409,
+          "抽奖活动仍在报名期内或未设置开奖时间，不能永久删除",
+          "LOTTERY_DELETE_NOT_ALLOWED",
+          { status: campaign.status, drawAt: campaign.draw_at },
+        );
+      }
+      const result = await client.query(
+        `DELETE FROM lottery_campaigns
+          WHERE id=$1 AND map_id=$2
+          RETURNING id,title,status,draw_at`,
+        [campaignId, mapId],
+      );
+      await writeAudit(
+        req,
+        {
+          action: "lottery.delete",
+          resourceType: "lottery_campaign",
+          resourceId: campaignId,
+          mapId,
+          details: {
+            title: campaign.title,
+            status: campaign.status,
+            drawAt: campaign.draw_at,
+          },
+        },
+        client,
+      );
+      return result.rows[0];
+    });
+    res.json({ success: true, data: { id: Number(deleted.id) } });
+  },
+);
+
 router.post(
   "/:mapId/runtime/clear",
   requireAuth,
@@ -1645,6 +1848,11 @@ router.post(
       const leaderboardSnapshots = await client.query(
         `DELETE FROM leaderboard_snapshots s USING leaderboards l
           WHERE s.leaderboard_id=l.id AND l.map_id=$1`,
+        [mapId],
+      );
+      const leaderboardDailyCollections = await client.query(
+        `DELETE FROM leaderboard_daily_collections c USING leaderboards l
+          WHERE c.leaderboard_id=l.id AND l.map_id=$1`,
         [mapId],
       );
       const leaderboardEntries = await client.query(
@@ -1687,6 +1895,7 @@ router.post(
         messages: messages.rowCount,
         entitlements: entitlements.rowCount,
         leaderboardSnapshots: leaderboardSnapshots.rowCount,
+        leaderboardDailyCollections: leaderboardDailyCollections.rowCount,
         leaderboardEntries: leaderboardEntries.rowCount,
         riskEvents: riskEvents.rowCount,
         playerArchives: playerArchives.rowCount,
@@ -2246,6 +2455,37 @@ function pagination(input) {
     limit = Math.min(100, Math.max(1, Number(input.limit) || 20));
   return { page, limit, offset: (page - 1) * limit };
 }
+function playerUidLockSql(alias) {
+  return `(
+    ${alias}.last_active_at IS NOT NULL
+    OR EXISTS (SELECT 1 FROM player_messages pm WHERE pm.map_id=${alias}.map_id AND pm.player_id=${alias}.id)
+    OR EXISTS (SELECT 1 FROM gift_entitlements ge WHERE ge.map_id=${alias}.map_id AND ge.player_id=${alias}.id)
+    OR EXISTS (SELECT 1 FROM fq_player_archives fa WHERE fa.map_id=${alias}.map_id AND fa.player_uid=${alias}.uid)
+    OR EXISTS (SELECT 1 FROM fq_metric_session_activity ma WHERE ma.map_id=${alias}.map_id AND ma.player_uid=${alias}.uid)
+    OR EXISTS (SELECT 1 FROM risk_events re WHERE re.map_id=${alias}.map_id AND re.player_uid=${alias}.uid)
+    OR EXISTS (
+      SELECT 1 FROM leaderboard_entries le
+      JOIN leaderboards l ON l.id=le.leaderboard_id
+      WHERE l.map_id=${alias}.map_id AND le.player_uid=${alias}.uid
+    )
+    OR EXISTS (
+      SELECT 1 FROM leaderboard_daily_collections ldc
+      JOIN leaderboards l ON l.id=ldc.leaderboard_id
+      WHERE l.map_id=${alias}.map_id AND ldc.player_uid=${alias}.uid
+    )
+    OR EXISTS (
+      SELECT 1 FROM leaderboard_snapshot_entries lse
+      JOIN leaderboard_snapshots ls ON ls.id=lse.snapshot_id
+      JOIN leaderboards l ON l.id=ls.leaderboard_id
+      WHERE l.map_id=${alias}.map_id AND lse.player_uid=${alias}.uid
+    )
+    OR EXISTS (
+      SELECT 1 FROM lottery_entries le
+      JOIN lottery_campaigns lc ON lc.id=le.campaign_id
+      WHERE lc.map_id=${alias}.map_id AND le.player_uid=${alias}.uid
+    )
+  )`;
+}
 function mapRow(row) {
   return {
     id: Number(row.id),
@@ -2274,6 +2514,7 @@ function playerRow(row) {
     dataBan: row.data_ban,
     rankBan: row.rank_ban,
     profile: row.profile || {},
+    uidLocked: Boolean(row.uid_locked || row.last_active_at),
     lastActiveAt: row.last_active_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -2364,6 +2605,7 @@ function giftRow(row) {
     description: row.description,
     defaultValue: Number(row.default_value),
     enabled: row.enabled,
+    entitlementCount: Number(row.entitlement_count || 0),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -2444,10 +2686,11 @@ function fileRow(row) {
 }
 function metricRow(row) {
   return {
-    date: row.metric_date,
+    date: formatChinaDate(row.metric_date),
     cumulativeUsers: Number(row.cumulative_users),
     onlineUsers: Number(row.online_users),
     totalGameCount: Number(row.total_game_count),
+    validGameCount: nullableNumber(row.valid_game_count),
     dailyNewUsers: Number(row.daily_new_users),
     dailyActiveUsers: Number(row.daily_active_users),
     lostUserCount: Number(row.lost_user_count),
@@ -2456,7 +2699,28 @@ function metricRow(row) {
     newUserRetentionRate: Number(row.new_user_retention_rate),
     sevenDayRetentionRate: Number(row.seven_day_retention_rate),
     replayRate: Number(row.replay_rate),
+    activeUserRetainedCount: nullableNumber(row.active_user_retained_count),
+    activeUserCohortCount: nullableNumber(row.active_user_cohort_count),
+    newUserRetainedCount: nullableNumber(row.new_user_retained_count),
+    newUserCohortCount: nullableNumber(row.new_user_cohort_count),
+    sevenDayRetainedCount: nullableNumber(row.seven_day_retained_count),
+    sevenDayCohortCount: nullableNumber(row.seven_day_cohort_count),
+    replayUserCount: nullableNumber(row.replay_user_count),
+    replayCohortCount: nullableNumber(row.replay_cohort_count),
   };
+}
+function nullableNumber(value) {
+  return value === undefined || value === null ? null : Number(value);
+}
+function formatChinaDate(value) {
+  if (!value) return null;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime())
+    ? String(value)
+    : date.toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
 }
 function emptyMetrics(mapId) {
   return {

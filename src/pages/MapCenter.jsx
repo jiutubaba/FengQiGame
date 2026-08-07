@@ -167,7 +167,7 @@ export default function MapCenter() {
                     <b>{formatNumber(map.cumulativeUsers)}</b>
                   </span>
                   <span className="map-meta-games">
-                    <small>总局数</small>
+                    <small>累计有效局</small>
                     <b>{formatNumber(map.totalGameCount)}</b>
                   </span>
                 </div>

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useOutletContext, useParams } from "react-router";
 import {
   Activity,
   ArrowLeft,
+  ArrowDown,
+  ArrowUp,
   ArrowUpRight,
   BarChart3,
   Check,
@@ -17,6 +19,7 @@ import {
   FileImage,
   FileJson,
   FileKey2,
+  Filter,
   Folder,
   FolderPlus,
   Gift,
@@ -36,7 +39,7 @@ import {
   Upload,
   Users,
 } from "lucide-react";
-import { api, download } from "../api/client";
+import { api, apiPage, download } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import {
   Badge,
@@ -51,11 +54,7 @@ import {
 import { formatBytes, formatDate, formatNumber } from "../utils/format";
 
 const sectionTitles = {
-  metrics: [
-    "地图数据",
-    "查看游戏客户端上报的真实指标。",
-    "metrics.view",
-  ],
+  metrics: ["地图数据", "查看游戏客户端上报的真实指标。", "metrics.view"],
   config: ["地图配置", "维护地图基础信息与共享配置。", "map.view"],
   players: [
     "玩家管理",
@@ -77,11 +76,7 @@ const sectionTitles = {
     "维护礼包、批量设置玩家资格并创建公开群抽活动。",
     "gifts.manage",
   ],
-  anchors: [
-    "主播管理",
-    "维护地图的主播名单和专属礼包配置。",
-    "anchors.manage",
-  ],
+  anchors: ["主播管理", "维护地图的主播名单和专属礼包配置。", "anchors.manage"],
   points: [
     "埋点管理",
     "维护行为埋点并查看客户端累计触发次数。",
@@ -181,9 +176,187 @@ export default function MapWorkspace() {
   );
 }
 
+const metricDefinitions = [
+  {
+    key: "cumulativeUsers",
+    label: "累计用户",
+    help: "从自动统计起始日开始，至少被正式对局事件上报过一次的去重玩家 UID 数；统计起始日前的数据不会回填。",
+  },
+  {
+    key: "onlineUsers",
+    label: "在线用户",
+    help: "当前未结束对局中，最近 120 秒内通过开局或心跳上报的去重玩家 UID 数；结束上报后立即离线。",
+    trendable: false,
+  },
+  {
+    key: "validGameCount",
+    label: "游戏有效局",
+    help: "北京时间当天开始，且服务端从首次开局到首次结束或最后心跳观测到的时长严格超过 10 分钟的去重对局数；同一 sessionId 只计一局。",
+    automaticOnly: true,
+  },
+  {
+    key: "dailyNewUsers",
+    label: "日新增用户",
+    help: "北京时间当天首次出现在本地图自动统计中的去重玩家 UID 数。",
+  },
+  {
+    key: "dailyActiveUsers",
+    label: "日活跃用户",
+    help: "北京时间当天被正式对局开始、心跳或结束事件上报过的去重玩家 UID 数。",
+  },
+  {
+    key: "lostUserCount",
+    label: "流失用户数",
+    help: "北京时间当天刚满连续 30 个自然日未活跃的去重玩家数；同一段沉默只在达标当天计算一次。",
+  },
+  {
+    key: "returnUserCount",
+    label: "回流用户数",
+    help: "上次活跃后连续 30 个自然日未活跃，并在北京时间当天再次活跃的去重玩家数。",
+  },
+  {
+    key: "activeUserRetentionRate",
+    label: "活跃用户次留率",
+    help: "昨日活跃且今日仍活跃的玩家数 ÷ 昨日活跃玩家数。没有昨日活跃样本时显示为暂无数据。",
+    percentage: true,
+    numeratorKey: "activeUserRetainedCount",
+    denominatorKey: "activeUserCohortCount",
+  },
+  {
+    key: "newUserRetentionRate",
+    label: "新增用户次留率",
+    help: "昨日新增且今日仍活跃的玩家数 ÷ 昨日新增玩家数。没有昨日新增样本时显示为暂无数据。",
+    percentage: true,
+    numeratorKey: "newUserRetainedCount",
+    denominatorKey: "newUserCohortCount",
+  },
+  {
+    key: "sevenDayRetentionRate",
+    label: "新增用户七日留存率",
+    help: "7 个自然日前新增且今日仍活跃的玩家数 ÷ 7 日前新增玩家数；按第 7 天当日活跃计算。",
+    percentage: true,
+    numeratorKey: "sevenDayRetainedCount",
+    denominatorKey: "sevenDayCohortCount",
+  },
+  {
+    key: "replayRate",
+    label: "复玩率",
+    help: "北京时间当天进入至少 4 个不同正式对局的玩家数 ÷ 当日日活跃玩家数。",
+    percentage: true,
+    numeratorKey: "replayUserCount",
+    denominatorKey: "replayCohortCount",
+  },
+];
+
+function metricCardValue(metric, summary, automatic) {
+  if (metric.automaticOnly && !automatic) return "—";
+  if (
+    metric.percentage &&
+    automatic &&
+    Number(summary[metric.denominatorKey] || 0) === 0
+  ) {
+    return "—";
+  }
+  const value = Number(summary[metric.key] || 0);
+  return metric.percentage ? `${value}%` : formatNumber(value);
+}
+
+function metricCardContext(metric, summary, previous, automatic) {
+  if (metric.key === "onlineUsers") return "实时 · 120 秒心跳窗口";
+  if (metric.automaticOnly && !automatic) return "需要接入自动会话统计";
+  if (metric.percentage && automatic) {
+    const denominator = Number(summary[metric.denominatorKey] || 0);
+    if (!denominator) return "暂无可计算样本";
+    return `${formatNumber(summary[metric.numeratorKey])} / ${formatNumber(denominator)} 人`;
+  }
+  if (!previous) return "暂无昨日数据";
+  const currentValue = Number(summary[metric.key] || 0);
+  const previousValue = Number(previous[metric.key] || 0);
+  const adjacentDates = areAdjacentMetricDates(summary.date, previous.date);
+  const comparisonLabel = adjacentDates
+    ? "较昨日全天"
+    : `较上次快照${previous.date ? `（${previous.date}）` : ""}`;
+  if (metric.key === "cumulativeUsers") {
+    const delta = currentValue - previousValue;
+    return adjacentDates
+      ? `今日净增 ${delta >= 0 ? "+" : ""}${formatNumber(delta)}`
+      : `${comparisonLabel} ${delta >= 0 ? "+" : ""}${formatNumber(delta)}`;
+  }
+  if (metric.percentage) {
+    const delta = currentValue - previousValue;
+    return `${comparisonLabel} ${delta >= 0 ? "+" : ""}${delta.toFixed(2)} 个百分点`;
+  }
+  if (!previousValue) {
+    return `${comparisonLabel} ${currentValue >= 0 ? "+" : ""}${formatNumber(currentValue)}`;
+  }
+  const change = ((currentValue - previousValue) / previousValue) * 100;
+  return `${comparisonLabel} ${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
+}
+
+function areAdjacentMetricDates(currentDate, previousDate) {
+  const current = Date.parse(`${currentDate}T00:00:00Z`);
+  const previous = Date.parse(`${previousDate}T00:00:00Z`);
+  return (
+    Number.isFinite(current) &&
+    Number.isFinite(previous) &&
+    current - previous === 86_400_000
+  );
+}
+
+function PaginationControls({ pagination, onPageChange, noun = "条记录" }) {
+  const page = Number(pagination?.page || 1);
+  const limit = Number(pagination?.limit || 20);
+  const total = Number(pagination?.total || 0);
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const visibleCount = Math.min(5, totalPages);
+  const firstPage = Math.min(
+    Math.max(1, page - Math.floor(visibleCount / 2)),
+    Math.max(1, totalPages - visibleCount + 1),
+  );
+  const pages = Array.from(
+    { length: visibleCount },
+    (_, index) => firstPage + index,
+  );
+  return (
+    <div className="table-footer">
+      <span>
+        共 {formatNumber(total)} {noun} · 第 {page} / {totalPages} 页
+      </span>
+      <nav className="pagination" aria-label="分页">
+        <button
+          type="button"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+        >
+          上一页
+        </button>
+        {pages.map((pageNumber) => (
+          <button
+            type="button"
+            key={pageNumber}
+            className={pageNumber === page ? "active" : ""}
+            aria-current={pageNumber === page ? "page" : undefined}
+            onClick={() => onPageChange(pageNumber)}
+          >
+            {pageNumber}
+          </button>
+        ))}
+        <button
+          type="button"
+          disabled={page >= totalPages}
+          onClick={() => onPageChange(page + 1)}
+        >
+          下一页
+        </button>
+      </nav>
+    </div>
+  );
+}
+
 function MetricsPanel({ mapId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [selectedMetricKey, setSelectedMetricKey] = useState("cumulativeUsers");
   const toast = useToast();
   const load = useCallback(async () => {
     setLoading(true);
@@ -201,49 +374,73 @@ function MetricsPanel({ mapId }) {
   if (loading && !data)
     return <div className="loading-state">正在统计地图数据…</div>;
   const summary = data?.summary || {};
-  const cards = [
-    ["累计用户", summary.cumulativeUsers],
-    ["在线用户", summary.onlineUsers],
-    ["总局数", summary.totalGameCount],
-    ["日新增用户", summary.dailyNewUsers],
-    ["日活跃用户", summary.dailyActiveUsers],
-    ["流失用户数", summary.lostUserCount],
-    ["回流用户数", summary.returnUserCount],
-    ["活跃用户留存率", `${summary.activeUserRetentionRate || 0}%`],
-    ["新增用户留存率", `${summary.newUserRetentionRate || 0}%`],
-    ["七日留存率", `${summary.sevenDayRetentionRate || 0}%`],
-    ["复玩率", `${summary.replayRate || 0}%`],
-  ];
+  const trends = data?.trends || [];
+  const previous = trends.length > 1 ? trends.at(-2) : null;
+  const automatic = data?.source === "automatic";
+  const selectedMetric =
+    metricDefinitions.find((metric) => metric.key === selectedMetricKey) ||
+    metricDefinitions[0];
   return (
     <>
       <div className="metrics-toolbar">
         <div>
           <span className="pulse-dot" />
-          当前地图数据 · {data?.source === "automatic" ? "自动聚合" : "快照兼容"}
+          {automatic ? "自动聚合" : "快照兼容"} · 北京时间
+          {data?.epochDate ? ` · 统计起始 ${data.epochDate}` : ""}
+          {data?.calculatedAt
+            ? ` · 统计至 ${formatDate(data.calculatedAt)}`
+            : ""}
         </div>
         <Button icon={RefreshCw} onClick={load} disabled={loading}>
           {loading ? "统计中…" : "刷新统计"}
         </Button>
       </div>
       <div className="metric-grid">
-        {cards.map(([label, value], index) => (
-          <article className="metric-cell" key={label}>
-            <div className="metric-cell-top">
-              <span>{label}</span>
-              <small>{String(index + 1).padStart(2, "0")}</small>
-            </div>
-            <strong>
-              {typeof value === "number" ? formatNumber(value) : value}
-            </strong>
-            <small>
-              {data?.calculatedAt
-                ? formatDate(data.calculatedAt)
-                : "等待客户端上报"}
-            </small>
-          </article>
-        ))}
+        {metricDefinitions.map((metric) => {
+          const trendable = metric.trendable !== false;
+          const selected = selectedMetricKey === metric.key;
+          return (
+            <article
+              className={`metric-cell ${selected ? "is-selected" : ""} ${trendable ? "is-trendable" : ""}`}
+              key={metric.key}
+            >
+              <div className="metric-cell-top">
+                <span>{metric.label}</span>
+                <button
+                  type="button"
+                  className="metric-help-button"
+                  aria-label={`${metric.label}口径：${metric.help}`}
+                  data-tooltip={metric.help}
+                >
+                  <CircleHelp size={15} />
+                </button>
+              </div>
+              {trendable ? (
+                <button
+                  type="button"
+                  className="metric-trend-button"
+                  aria-label={`查看${metric.label}趋势`}
+                  aria-pressed={selected}
+                  onClick={() => setSelectedMetricKey(metric.key)}
+                >
+                  <strong>{metricCardValue(metric, summary, automatic)}</strong>
+                  <small>
+                    {metricCardContext(metric, summary, previous, automatic)}
+                  </small>
+                </button>
+              ) : (
+                <div className="metric-static-content">
+                  <strong>{metricCardValue(metric, summary, automatic)}</strong>
+                  <small>
+                    {metricCardContext(metric, summary, previous, automatic)}
+                  </small>
+                </div>
+              )}
+            </article>
+          );
+        })}
       </div>
-      <TrendChart rows={data?.trends || []} />
+      <TrendChart rows={trends} metric={selectedMetric} automatic={automatic} />
       <div className="data-footnote">
         <CircleHelp size={16} />
         <span>
@@ -256,81 +453,209 @@ function MetricsPanel({ mapId }) {
   );
 }
 
-function TrendChart({ rows }) {
-  if (!rows.length)
+function TrendChart({ rows, metric, automatic }) {
+  const [activeIndex, setActiveIndex] = useState(null);
+  useEffect(() => setActiveIndex(null), [metric.key]);
+  const indexedRows = rows.map((item, sourceIndex) => ({
+    ...item,
+    sourceIndex,
+  }));
+  const chartRows =
+    metric.percentage && automatic
+      ? indexedRows.filter(
+          (item) => Number(item[metric.denominatorKey] || 0) > 0,
+        )
+      : indexedRows;
+  if (metric.automaticOnly && !automatic)
     return (
       <EmptyState
         icon={BarChart3}
-        title="暂无趋势数据"
-        description="接入游戏客户端并上报指标后，这里会显示近 30 天趋势。"
+        title="需要接入自动会话统计"
+        description="旧指标快照没有逐局开始、心跳和结束时间，不能推算超过 10 分钟的有效局。"
+      />
+    );
+  if (!chartRows.length)
+    return (
+      <EmptyState
+        icon={BarChart3}
+        title={metric.percentage ? "暂无可计算样本" : "暂无趋势数据"}
+        description={
+          metric.percentage
+            ? "当前日期范围内没有可用于计算该比例的分母样本。"
+            : "接入游戏客户端并上报指标后，这里会显示近 30 天趋势。"
+        }
       />
     );
   const width = 920,
     height = 248;
-  const values = rows.map((item) => Number(item.cumulativeUsers || 0)),
+  const values = chartRows.map((item) => Number(item[metric.key] || 0)),
     min = Math.min(...values),
     max = Math.max(...values);
-  const points = rows.map((item, index) => ({
+  const points = chartRows.map((item, index) => ({
     ...item,
-    x: 34 + index * ((width - 68) / Math.max(1, rows.length - 1)),
+    x: 34 + item.sourceIndex * ((width - 68) / Math.max(1, rows.length - 1)),
     y:
       height -
       40 -
-      ((Number(item.cumulativeUsers) - min) / Math.max(1, max - min)) * 142,
+      ((Number(item[metric.key]) - min) / Math.max(1, max - min)) * 142,
   }));
-  const line = points.map((item) => `${item.x},${item.y}`).join(" "),
-    area = `${points[0].x},${height - 40} ${line} ${points.at(-1).x},${height - 40}`;
+  const segments = points.reduce((groups, point) => {
+    const previous = groups.at(-1)?.at(-1);
+    if (!previous || point.sourceIndex !== previous.sourceIndex + 1) {
+      groups.push([point]);
+    } else {
+      groups.at(-1).push(point);
+    }
+    return groups;
+  }, []);
+  const activePoint = activeIndex === null ? null : points[activeIndex];
+  const activeValue = activePoint
+    ? metric.percentage
+      ? `${Number(activePoint[metric.key] || 0)}%`
+      : formatNumber(activePoint[metric.key])
+    : "";
+  const selectNearestPoint = (event) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const pointerX = ((event.clientX - bounds.left) / bounds.width) * width;
+    let nearestIndex = 0;
+    for (let index = 1; index < points.length; index += 1) {
+      if (
+        Math.abs(points[index].x - pointerX) <
+        Math.abs(points[nearestIndex].x - pointerX)
+      ) {
+        nearestIndex = index;
+      }
+    }
+    setActiveIndex(nearestIndex);
+  };
+  const moveActivePoint = (direction) => {
+    setActiveIndex((current) => {
+      if (current === null) return direction > 0 ? 0 : points.length - 1;
+      return Math.min(points.length - 1, Math.max(0, current + direction));
+    });
+  };
   return (
     <div className="chart-wrap">
       <div className="chart-head">
         <div>
-          <span className="eyebrow">USER GROWTH</span>
-          <h3>累计用户趋势</h3>
+          <span className="eyebrow">METRIC TREND</span>
+          <h3>{metric.label}趋势</h3>
         </div>
         <div className="chart-legend">
           <span>
             <i className="legend-gold" />
-            累计用户
+            {metric.label}
           </span>
         </div>
       </div>
-      <svg
-        className="trend-chart"
-        viewBox={`0 0 ${width} ${height}`}
-        role="img"
-        aria-label="累计用户趋势"
-      >
-        {[0, 1, 2, 3].map((index) => (
-          <line
-            key={index}
-            x1="34"
-            y1={44 + index * 48}
-            x2={width - 34}
-            y2={44 + index * 48}
-            className="chart-gridline"
-          />
-        ))}
-        <polygon points={area} className="chart-area" />
-        <polyline points={line} className="chart-line" />
-        {points.map((item, index) => (
-          <g key={`${item.date}-${index}`}>
+      <div className="trend-chart-stage">
+        <svg
+          className="trend-chart"
+          viewBox={`0 0 ${width} ${height}`}
+          role="img"
+          tabIndex="0"
+          aria-label={`${metric.label}趋势。移动鼠标查看节点，键盘左右方向键切换日期，Escape 关闭提示。`}
+          aria-describedby={activePoint ? "metric-trend-tooltip" : undefined}
+          onFocus={() =>
+            setActiveIndex((current) => current ?? points.length - 1)
+          }
+          onBlur={() => setActiveIndex(null)}
+          onPointerMove={selectNearestPoint}
+          onPointerDown={selectNearestPoint}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "mouse") setActiveIndex(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              moveActivePoint(-1);
+            } else if (event.key === "ArrowRight") {
+              event.preventDefault();
+              moveActivePoint(1);
+            } else if (event.key === "Escape") {
+              setActiveIndex(null);
+            }
+          }}
+        >
+          {[0, 1, 2, 3].map((index) => (
+            <line
+              key={index}
+              x1="34"
+              y1={44 + index * 48}
+              x2={width - 34}
+              y2={44 + index * 48}
+              className="chart-gridline"
+            />
+          ))}
+          {segments.map((segment) => {
+            const line = segment.map((item) => `${item.x},${item.y}`).join(" ");
+            const area = `${segment[0].x},${height - 40} ${line} ${segment.at(-1).x},${height - 40}`;
+            return (
+              <g key={`segment-${segment[0].sourceIndex}`}>
+                <polygon points={area} className="chart-area" />
+                <polyline points={line} className="chart-line" />
+              </g>
+            );
+          })}
+          {activePoint && (
+            <line
+              x1={activePoint.x}
+              y1="36"
+              x2={activePoint.x}
+              y2={height - 40}
+              className="chart-crosshair"
+            />
+          )}
+          {points.map((item, index) => (
             <circle
+              key={`${item.date}-${index}`}
               cx={item.x}
               cy={item.y}
-              r={index === points.length - 1 ? 5 : 3}
-              className="chart-point"
+              r={
+                index === activeIndex ? 6 : index === points.length - 1 ? 5 : 3
+              }
+              className={`chart-point ${index === activeIndex ? "is-active" : ""}`}
             />
-            <text
-              x={item.x}
-              y={height - 15}
-              textAnchor="middle"
-              className="chart-label"
-            >
-              {String(item.date).slice(5, 10)}
-            </text>
-          </g>
-        ))}
-      </svg>
+          ))}
+          {indexedRows.map((item, index) => {
+            const step = Math.max(1, Math.ceil(indexedRows.length / 6));
+            return (
+              (index === 0 ||
+                index === indexedRows.length - 1 ||
+                index % step === 0) && (
+                <text
+                  key={`label-${item.date}-${index}`}
+                  x={
+                    34 +
+                    index * ((width - 68) / Math.max(1, indexedRows.length - 1))
+                  }
+                  y={height - 15}
+                  textAnchor="middle"
+                  className="chart-label"
+                >
+                  {String(item.date).slice(5, 10)}
+                </text>
+              )
+            );
+          })}
+        </svg>
+        {activePoint && (
+          <div
+            id="metric-trend-tooltip"
+            className={`chart-tooltip ${activePoint.x < width * 0.16 ? "is-left" : activePoint.x > width * 0.84 ? "is-right" : ""}`}
+            style={{
+              "--chart-x": `${(activePoint.x / width) * 100}%`,
+              "--chart-y": `${(activePoint.y / height) * 100}%`,
+            }}
+            role="tooltip"
+            aria-live="polite"
+          >
+            <span>{activePoint.date}</span>
+            <strong>{activeValue}</strong>
+            <small>{metric.label}</small>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -345,14 +670,7 @@ const configSections = [
   ["preloadCode", "预加载代码"],
 ];
 
-function ConfigPanel({
-  map,
-  mapId,
-  isAdmin,
-  can,
-  refreshMap,
-  refreshMaps,
-}) {
+function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
   const [active, setActive] = useState("basic");
   const [config, setConfig] = useState(null);
   const [mapForm, setMapForm] = useState({
@@ -570,8 +888,8 @@ function ConfigPanel({
                   <span>
                     <strong>永久删除地图</strong>
                     <small>
-                      清除玩家、存档、配置、榜单、礼包、日志、API Key 和上传文件，
-                      不可撤销。
+                      清除玩家、存档、配置、榜单、礼包、日志、API Key
+                      和上传文件， 不可撤销。
                     </small>
                   </span>
                 </div>
@@ -712,31 +1030,94 @@ function PlayersPanel({ mapId, can }) {
     [messages, setMessages] = useState([]),
     [query, setQuery] = useState(""),
     [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [playerPagination, setPlayerPagination] = useState({
+    page: 1,
+    limit: 20,
+    total: 0,
+  });
+  const [sortBy, setSortBy] = useState("lastActiveAt");
+  const [sortDirection, setSortDirection] = useState("desc");
   const [selected, setSelected] = useState([]),
     [editing, setEditing] = useState(null),
     [mailOpen, setMailOpen] = useState(false);
   const [mail, setMail] = useState({ subject: "", content: "" });
+  const playerRequestId = useRef(0);
+  const messageRequestId = useRef(0);
   const toast = useToast(),
     manageable = can("players.manage");
-  const load = useCallback(async () => {
+  const loadPlayers = useCallback(async () => {
+    const requestId = ++playerRequestId.current;
     setLoading(true);
     try {
-      const [playerRows, messageRows] = await Promise.all([
-        api(`/api/maps/${mapId}/players?q=${encodeURIComponent(query)}&limit=100`),
-        api(`/api/maps/${mapId}/messages?limit=20`),
-      ]);
-      setPlayers(playerRows);
-      setMessages(messageRows);
+      const params = new URLSearchParams({
+        q: query,
+        page: String(page),
+        limit: "20",
+        sortBy,
+        sortDirection,
+      });
+      const result = await apiPage(`/api/maps/${mapId}/players?${params}`);
+      if (requestId !== playerRequestId.current) return;
+      const totalPages = Math.max(
+        1,
+        Math.ceil(result.pagination.total / result.pagination.limit),
+      );
+      if (page > totalPages) {
+        setPage(totalPages);
+        return;
+      }
+      setPlayers(result.data);
+      setPlayerPagination(result.pagination);
     } catch (error) {
-      toast(error.message, "danger");
+      if (requestId === playerRequestId.current) toast(error.message, "danger");
     } finally {
-      setLoading(false);
+      if (requestId === playerRequestId.current) setLoading(false);
     }
-  }, [mapId, query, toast]);
+  }, [mapId, page, query, sortBy, sortDirection, toast]);
+  const loadMessages = useCallback(async () => {
+    const requestId = ++messageRequestId.current;
+    try {
+      const messageRows = await api(`/api/maps/${mapId}/messages?limit=20`);
+      if (requestId === messageRequestId.current) setMessages(messageRows);
+    } catch (error) {
+      if (requestId === messageRequestId.current)
+        toast(error.message, "danger");
+    }
+  }, [mapId, toast]);
   useEffect(() => {
-    const timer = setTimeout(load, 200);
-    return () => clearTimeout(timer);
-  }, [load]);
+    playerRequestId.current += 1;
+    messageRequestId.current += 1;
+    setPlayers([]);
+    setMessages([]);
+    setSelected([]);
+    setPage(1);
+    setPlayerPagination({ page: 1, limit: 20, total: 0 });
+    setLoading(true);
+  }, [mapId]);
+  useEffect(() => {
+    const timer = setTimeout(loadPlayers, 200);
+    return () => {
+      clearTimeout(timer);
+      playerRequestId.current += 1;
+    };
+  }, [loadPlayers]);
+  useEffect(() => {
+    loadMessages();
+  }, [loadMessages]);
+  const refreshPlayersAndMessages = async () => {
+    await Promise.all([loadPlayers(), loadMessages()]);
+  };
+  const toggleSort = (nextSortBy) => {
+    setPage(1);
+    setSelected([]);
+    if (sortBy === nextSortBy) {
+      setSortDirection((current) => (current === "desc" ? "asc" : "desc"));
+      return;
+    }
+    setSortBy(nextSortBy);
+    setSortDirection("desc");
+  };
   const save = async () => {
     try {
       const path = editing.id
@@ -748,7 +1129,7 @@ function PlayersPanel({ mapId, can }) {
       });
       setEditing(null);
       toast("玩家资料已保存");
-      load();
+      refreshPlayersAndMessages();
     } catch (error) {
       toast(error.message, "danger");
     }
@@ -761,7 +1142,12 @@ function PlayersPanel({ mapId, can }) {
       });
       setSelected((current) => current.filter((id) => id !== player.id));
       toast("玩家已删除");
-      load();
+      if (players.length === 1 && page > 1) {
+        setPage((current) => current - 1);
+        loadMessages();
+      } else {
+        refreshPlayersAndMessages();
+      }
     } catch (error) {
       toast(error.message, "danger");
     }
@@ -775,14 +1161,15 @@ function PlayersPanel({ mapId, can }) {
       setMailOpen(false);
       setMail({ subject: "", content: "" });
       toast("消息已进入游戏客户端待领取队列");
-      load();
+      loadMessages();
     } catch (error) {
       toast(error.message, "danger");
     }
   };
   const toggleAll = () =>
     setSelected(
-      selected.length === players.length
+      players.length > 0 &&
+        players.every((player) => selected.includes(player.id))
         ? []
         : players.map((player) => player.id),
     );
@@ -793,7 +1180,11 @@ function PlayersPanel({ mapId, can }) {
           <Search size={16} />
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(1);
+              setSelected([]);
+            }}
             placeholder="玩家 UID 或玩家名"
           />
         </div>
@@ -839,15 +1230,69 @@ function PlayersPanel({ mapId, can }) {
                 <th className="check-cell">
                   <input
                     type="checkbox"
-                    checked={selected.length === players.length}
+                    checked={
+                      players.length > 0 &&
+                      players.every((player) => selected.includes(player.id))
+                    }
                     onChange={toggleAll}
                   />
                 </th>
                 <th>玩家</th>
                 <th>UID</th>
-                <th>等级</th>
+                <th
+                  aria-sort={
+                    sortBy === "level"
+                      ? sortDirection === "asc"
+                        ? "ascending"
+                        : "descending"
+                      : "none"
+                  }
+                >
+                  <button
+                    type="button"
+                    className={`table-sort-button ${sortBy === "level" ? "active" : ""}`}
+                    onClick={() => toggleSort("level")}
+                  >
+                    等级
+                    {sortBy === "level" ? (
+                      sortDirection === "asc" ? (
+                        <ArrowUp size={14} />
+                      ) : (
+                        <ArrowDown size={14} />
+                      )
+                    ) : (
+                      <span className="sort-placeholder">↕</span>
+                    )}
+                  </button>
+                </th>
                 <th>状态</th>
-                <th>最后活跃</th>
+                <th
+                  aria-sort={
+                    sortBy === "lastActiveAt"
+                      ? sortDirection === "asc"
+                        ? "ascending"
+                        : "descending"
+                      : "none"
+                  }
+                >
+                  <button
+                    type="button"
+                    className={`table-sort-button ${sortBy === "lastActiveAt" ? "active" : ""}`}
+                    onClick={() => toggleSort("lastActiveAt")}
+                    title="最近一次游戏客户端上报玩家资料的时间"
+                  >
+                    最后活跃
+                    {sortBy === "lastActiveAt" ? (
+                      sortDirection === "asc" ? (
+                        <ArrowUp size={14} />
+                      ) : (
+                        <ArrowDown size={14} />
+                      )
+                    ) : (
+                      <span className="sort-placeholder">↕</span>
+                    )}
+                  </button>
+                </th>
                 <th className="align-right">操作</th>
               </tr>
             </thead>
@@ -876,9 +1321,7 @@ function PlayersPanel({ mapId, can }) {
                   <td>
                     <code>{player.uid}</code>
                   </td>
-                  <td>
-                    {player.level} / {player.gameLevel || "—"}
-                  </td>
+                  <td>{formatNumber(player.level)}</td>
                   <td>
                     <div className="badge-row">
                       {player.itemBan && <Badge tone="warning">物品封禁</Badge>}
@@ -916,12 +1359,24 @@ function PlayersPanel({ mapId, can }) {
               ))}
             </tbody>
           </table>
+          <PaginationControls
+            pagination={playerPagination}
+            noun="位玩家"
+            onPageChange={(nextPage) => {
+              setSelected([]);
+              setPage(nextPage);
+            }}
+          />
         </div>
       ) : (
         <EmptyState
           icon={Users}
-          title="当前地图没有玩家"
-          description="可由游戏客户端 API 自动写入，也可以手动添加。"
+          title={query ? "没有匹配的玩家" : "当前地图没有玩家"}
+          description={
+            query
+              ? "请调整玩家名称或 UID 搜索词。"
+              : "可由游戏客户端 API 自动写入，也可以手动添加。"
+          }
         />
       )}
       {messages.length > 0 && (
@@ -994,10 +1449,18 @@ function PlayersPanel({ mapId, can }) {
         {editing && (
           <>
             <div className="form-grid">
-              <Field label="玩家 UID">
+              <Field
+                label="玩家 UID"
+                hint={
+                  editing.uidLocked
+                    ? "该玩家已有游戏或运营数据，UID 已锁定；姓名、等级与封禁状态仍可修改。"
+                    : "玩家产生游戏、存档、消息、礼包、榜单、指标、风控或群抽数据后将自动锁定。"
+                }
+              >
                 <input
                   className="input"
                   value={editing.uid}
+                  disabled={Boolean(editing.id && editing.uidLocked)}
                   onChange={(event) =>
                     setEditing({ ...editing, uid: event.target.value })
                   }
@@ -1347,9 +1810,18 @@ function LeaderboardsPanel({ mapId, can }) {
                     </Button>
                   )}
                   {manageable && (
-                    <Button variant="primary" icon={Save} onClick={publish}>
-                      发布前 100 名
-                    </Button>
+                    <span className="publish-action">
+                      <Button
+                        variant="primary"
+                        icon={Save}
+                        onClick={publish}
+                        disabled={!current.entryCount}
+                        title="将当前实时候选池的前 100 名发布为不可变快照"
+                      >
+                        发布前 100 名
+                      </Button>
+                      {!current.entryCount && <small>暂无候选，不能发布</small>}
+                    </span>
                   )}
                 </div>
               </div>
@@ -1371,13 +1843,21 @@ function LeaderboardsPanel({ mapId, can }) {
                   <span>更新策略</span>
                   <strong>
                     {current.scoreUpdateMode === "best"
-                      ? "仅保留历史最佳"
-                      : "使用最新上报"}
+                      ? "每日首份 · 仅更优时更新"
+                      : "每日首份 · 覆盖当前成绩"}
                   </strong>
                 </div>
                 <div>
+                  <span>实时候选</span>
+                  <strong>{formatNumber(current.entryCount)} 条</strong>
+                </div>
+                <div>
                   <span>最近发布</span>
-                  <strong>{formatDate(current.latestPublishedAt)}</strong>
+                  <strong>
+                    {current.latestPublishedAt
+                      ? `${formatDate(current.latestPublishedAt)} · ${formatNumber(current.latestSnapshotCount)} 条`
+                      : "尚未发布"}
+                  </strong>
                 </div>
                 <Badge tone={current.enabled ? "positive" : "neutral"}>
                   {current.enabled ? "接收上报" : "已停用"}
@@ -1461,9 +1941,7 @@ function LeaderboardsPanel({ mapId, can }) {
                           </td>
                           <td>{formatNumber(entry.gameCount)}</td>
                           <td className="muted-cell">
-                            {snapshotId
-                              ? "快照记录"
-                              : formatDate(entry.updatedAt)}
+                            {formatDate(entry.updatedAt)}
                           </td>
                           {manageable && !snapshotId && (
                             <td className="align-right">
@@ -1485,7 +1963,11 @@ function LeaderboardsPanel({ mapId, can }) {
                 <EmptyState
                   icon={Trophy}
                   title={snapshotId ? "该快照没有记录" : "实时榜暂无玩家"}
-                  description="使用带 game.leaderboards.write 权限的 API Key 上报榜单条目。"
+                  description={
+                    snapshotId
+                      ? "该次发布没有包含候选条目。"
+                      : "榜单定义已经就绪；还需地图客户端使用 game.leaderboards.write 权限上报候选条目，随后由后台发布前 100 名快照。"
+                  }
                 />
               )}
             </>
@@ -1549,10 +2031,18 @@ function LeaderboardsPanel({ mapId, can }) {
                 placeholder="例如 落地战力榜"
               />
             </Field>
-            <Field label="榜单 Key" hint="客户端上报时使用，建议创建后保持不变">
+            <Field
+              label="榜单 Key"
+              hint={
+                editing.id
+                  ? "客户端接口的稳定标识，创建后不可修改"
+                  : "客户端上报和查询时使用，创建后不可修改"
+              }
+            >
               <input
                 className="input"
                 value={editing.leaderboardKey}
+                disabled={Boolean(editing.id)}
                 onChange={(event) =>
                   setEditing({ ...editing, leaderboardKey: event.target.value })
                 }
@@ -1597,8 +2087,8 @@ function LeaderboardsPanel({ mapId, can }) {
                   })
                 }
               >
-                <option value="latest">使用最新上报</option>
-                <option value="best">仅保留历史最佳</option>
+                <option value="latest">每日首份样本覆盖当前成绩</option>
+                <option value="best">每日首份样本仅在更优时更新</option>
               </select>
             </Field>
             <Field label="接收上报">
@@ -1694,18 +2184,15 @@ function RiskPanel({ mapId, can }) {
   const saveRule = async () => {
     try {
       const id = editingRule.id;
-      await api(
-        `/api/maps/${mapId}/risk/rules${id ? `/${id}` : ""}`,
-        {
-          method: id ? "PATCH" : "POST",
-          body: {
-            ruleKey: editingRule.ruleKey,
-            name: editingRule.name,
-            severity: editingRule.severity,
-            enabled: editingRule.enabled,
-          },
+      await api(`/api/maps/${mapId}/risk/rules${id ? `/${id}` : ""}`, {
+        method: id ? "PATCH" : "POST",
+        body: {
+          ruleKey: editingRule.ruleKey,
+          name: editingRule.name,
+          severity: editingRule.severity,
+          enabled: editingRule.enabled,
         },
-      );
+      });
       setEditingRule(null);
       toast("风控规则已保存");
       loadRules();
@@ -2094,13 +2581,22 @@ function RiskPanel({ mapId, can }) {
 }
 
 function GiftsPanel({ mapId }) {
+  const [activeGiftView, setActiveGiftView] = useState("entitlements");
   const [gifts, setGifts] = useState([]),
     [players, setPlayers] = useState([]),
-    [entitlements, setEntitlements] = useState([]),
+    [entitlementsByPlayer, setEntitlementsByPlayer] = useState({}),
     [playerSearch, setPlayerSearch] = useState(""),
     [selectedPlayers, setSelectedPlayers] = useState([]),
     [selectedGifts, setSelectedGifts] = useState([]),
+    [playerGiftFilterIds, setPlayerGiftFilterIds] = useState([]),
     [giftValues, setGiftValues] = useState({});
+  const [playerPage, setPlayerPage] = useState(1),
+    [playerLoading, setPlayerLoading] = useState(true),
+    [playerPagination, setPlayerPagination] = useState({
+      page: 1,
+      limit: 10,
+      total: 0,
+    });
   const [giftOpen, setGiftOpen] = useState(false),
     [giftForm, setGiftForm] = useState({
       giftKey: "",
@@ -2111,38 +2607,94 @@ function GiftsPanel({ mapId }) {
     });
   const [lotteries, setLotteries] = useState([]),
     [lotteryOpen, setLotteryOpen] = useState(false),
+    [lotteryToDelete, setLotteryToDelete] = useState(null),
+    [permanentDeletingLottery, setPermanentDeletingLottery] = useState(false),
     [lottery, setLottery] = useState({
       title: "",
       description: "",
       drawAt: "",
       winnerCount: 1,
     });
+  const giftPlayerRequestId = useRef(0);
   const toast = useToast();
   const load = useCallback(async () => {
     try {
-      const [giftRows, playerRows, entitlementRows, lotteryRows] =
-        await Promise.all([
-          api(`/api/maps/${mapId}/gifts`),
-          api(`/api/maps/${mapId}/players?limit=100`),
-          api(`/api/maps/${mapId}/gifts/entitlements`),
-          api(`/api/maps/${mapId}/lotteries`),
-        ]);
+      const [giftRows, lotteryRows] = await Promise.all([
+        api(`/api/maps/${mapId}/gifts`),
+        api(`/api/maps/${mapId}/lotteries`),
+      ]);
       setGifts(giftRows);
-      setPlayers(playerRows);
-      setEntitlements(entitlementRows);
       setLotteries(lotteryRows);
     } catch (error) {
       toast(error.message, "danger");
     }
   }, [mapId, toast]);
+  const loadGiftPlayers = useCallback(async () => {
+    const requestId = ++giftPlayerRequestId.current;
+    setPlayerLoading(true);
+    try {
+      const params = new URLSearchParams({
+        q: playerSearch,
+        page: String(playerPage),
+        limit: "10",
+      });
+      if (playerGiftFilterIds.length) {
+        params.set("giftIds", playerGiftFilterIds.join(","));
+      }
+      const result = await apiPage(
+        `/api/maps/${mapId}/gifts/entitlements/players?${params}`,
+      );
+      if (requestId !== giftPlayerRequestId.current) return;
+      const totalPages = Math.max(
+        1,
+        Math.ceil(result.pagination.total / result.pagination.limit),
+      );
+      if (playerPage > totalPages) {
+        setPlayerPage(totalPages);
+        return;
+      }
+      setPlayers(result.data);
+      setPlayerPagination(result.pagination);
+      setEntitlementsByPlayer((current) => {
+        const next = { ...current };
+        for (const player of result.data) {
+          next[player.id] = Object.fromEntries(
+            player.entitlements.map((item) => [item.giftId, item.value]),
+          );
+        }
+        return next;
+      });
+    } catch (error) {
+      if (requestId === giftPlayerRequestId.current)
+        toast(error.message, "danger");
+    } finally {
+      if (requestId === giftPlayerRequestId.current) setPlayerLoading(false);
+    }
+  }, [mapId, playerGiftFilterIds, playerPage, playerSearch, toast]);
   useEffect(() => {
     load();
   }, [load]);
   useEffect(() => {
+    const timer = setTimeout(loadGiftPlayers, 200);
+    return () => {
+      clearTimeout(timer);
+      giftPlayerRequestId.current += 1;
+    };
+  }, [loadGiftPlayers]);
+  useEffect(() => {
+    giftPlayerRequestId.current += 1;
+    setPlayers([]);
     setSelectedPlayers([]);
     setSelectedGifts([]);
+    setPlayerGiftFilterIds([]);
     setGiftValues({});
+    setEntitlementsByPlayer({});
     setPlayerSearch("");
+    setPlayerPage(1);
+    setPlayerPagination({ page: 1, limit: 10, total: 0 });
+    setPlayerLoading(true);
+    setActiveGiftView("entitlements");
+    setLotteryToDelete(null);
   }, [mapId]);
   const emptyGift = {
     giftKey: "",
@@ -2151,25 +2703,24 @@ function GiftsPanel({ mapId }) {
     defaultValue: 0,
     enabled: true,
   };
-  const filteredPlayers = useMemo(() => {
-    const keyword = playerSearch.trim().toLocaleLowerCase();
-    if (!keyword) return players;
-    return players.filter(
-      (player) =>
-        player.name.toLocaleLowerCase().includes(keyword) ||
-        player.uid.toLocaleLowerCase().includes(keyword),
-    );
-  }, [players, playerSearch]);
   const entitlementValue = (playerId, giftId) =>
-    entitlements.find(
-      (item) => item.playerId === playerId && item.giftId === giftId,
-    )?.value ?? 0;
+    entitlementsByPlayer[playerId]?.[giftId] ?? 0;
   const currentGiftValue = (giftId) => {
     if (!selectedPlayers.length) return "未选择玩家";
     const values = selectedPlayers.map((playerId) =>
       entitlementValue(playerId, giftId),
     );
     return values.every((value) => value === values[0]) ? values[0] : "混合";
+  };
+  const selectCurrentPlayerPage = () => {
+    const next = [
+      ...new Set([...selectedPlayers, ...players.map((player) => player.id)]),
+    ];
+    if (next.length > 500) {
+      toast("单次最多选择 500 位玩家，请先应用当前选择", "warning");
+      return;
+    }
+    setSelectedPlayers(next);
   };
   const saveGift = async () => {
     try {
@@ -2179,8 +2730,8 @@ function GiftsPanel({ mapId }) {
       );
       setGiftOpen(false);
       setGiftForm(emptyGift);
+      await load();
       toast(giftForm.id ? "礼包已更新" : "礼包已创建");
-      load();
     } catch (error) {
       toast(error.message, "danger");
     }
@@ -2190,6 +2741,9 @@ function GiftsPanel({ mapId }) {
     try {
       await api(`/api/maps/${mapId}/gifts/${gift.id}`, { method: "DELETE" });
       setSelectedGifts((current) => current.filter((id) => id !== gift.id));
+      setPlayerGiftFilterIds((current) =>
+        current.filter((id) => id !== gift.id),
+      );
       toast("礼包已删除");
       load();
     } catch (error) {
@@ -2224,10 +2778,21 @@ function GiftsPanel({ mapId }) {
           })),
         },
       });
-      const entitlementRows = await api(
-        `/api/maps/${mapId}/gifts/entitlements`,
-      );
-      setEntitlements(entitlementRows);
+      setEntitlementsByPlayer((current) => {
+        const next = { ...current };
+        for (const playerId of selectedPlayers) {
+          const values = { ...(next[playerId] || {}) };
+          for (const giftId of selectedGifts) {
+            const value = giftValues[giftId] ?? 0;
+            if (value > 0) values[giftId] = value;
+            else delete values[giftId];
+          }
+          next[playerId] = values;
+        }
+        return next;
+      });
+      await load();
+      if (playerGiftFilterIds.length) await loadGiftPlayers();
       toast("礼包资格已应用，下局将读取最新数值");
     } catch (error) {
       toast(error.message, "danger");
@@ -2280,301 +2845,527 @@ function GiftsPanel({ mapId }) {
       toast(error.message, "danger");
     }
   };
+  const permanentlyDeleteLottery = async () => {
+    if (!lotteryToDelete) return;
+    setPermanentDeletingLottery(true);
+    try {
+      await api(
+        `/api/maps/${mapId}/lotteries/${lotteryToDelete.id}/permanent`,
+        { method: "DELETE" },
+      );
+      setLotteryToDelete(null);
+      await load();
+      toast("群抽记录已永久删除");
+    } catch (error) {
+      toast(error.message, "danger");
+    } finally {
+      setPermanentDeletingLottery(false);
+    }
+  };
+  const handleGiftTabKeyDown = (event) => {
+    const views = ["entitlements", "lotteries"];
+    const currentIndex = views.indexOf(activeGiftView);
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowRight")
+      nextIndex = (currentIndex + 1) % views.length;
+    else if (event.key === "ArrowLeft")
+      nextIndex = (currentIndex - 1 + views.length) % views.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = views.length - 1;
+    else return;
+    event.preventDefault();
+    const nextView = views[nextIndex];
+    setActiveGiftView(nextView);
+    requestAnimationFrame(() =>
+      document.getElementById(`gift-tab-${nextView}-${mapId}`)?.focus(),
+    );
+  };
   return (
     <>
-      <div className="gift-workspace">
-        <section className="gift-player-pane">
-          <div className="pane-head">
-            <div>
-              <span className="eyebrow">TARGET PLAYERS</span>
-              <h3>选择玩家</h3>
-            </div>
-            <Badge>{selectedPlayers.length} 已选</Badge>
-          </div>
-          <label className="gift-search">
-            <Search size={15} />
-            <input
-              value={playerSearch}
-              onChange={(event) => setPlayerSearch(event.target.value)}
-              placeholder="搜索名称或 UID"
-            />
-          </label>
-          <div className="gift-player-tools">
-            <button
-              type="button"
-              onClick={() =>
-                setSelectedPlayers((current) => [
-                  ...new Set([
-                    ...current,
-                    ...filteredPlayers.map((player) => player.id),
-                  ]),
-                ])
-              }
-            >
-              全选当前结果
-            </button>
-            <button type="button" onClick={() => setSelectedPlayers([])}>
-              清空
-            </button>
-          </div>
-          <div className="gift-player-list">
-            {filteredPlayers.map((player) => (
-              <label
-                key={player.id}
-                className={
-                  selectedPlayers.includes(player.id) ? "selected" : ""
-                }
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedPlayers.includes(player.id)}
-                  onChange={() =>
-                    setSelectedPlayers((current) =>
-                      current.includes(player.id)
-                        ? current.filter((id) => id !== player.id)
-                        : [...current, player.id],
-                    )
-                  }
-                />
-                <span>
-                  <strong>{player.name}</strong>
-                  <small>{player.uid}</small>
-                </span>
-              </label>
-            ))}
-            {!filteredPlayers.length && (
-              <p className="gift-empty-copy">没有匹配的玩家</p>
-            )}
-          </div>
-        </section>
-        <section className="gift-catalog-pane">
-          <div className="pane-head">
-            <div>
-              <span className="eyebrow">GIFT CATALOG</span>
-              <h3>礼包目录</h3>
-            </div>
-            <Button
-              icon={Plus}
-              onClick={() => {
-                setGiftForm(emptyGift);
-                setGiftOpen(true);
-              }}
-            >
-              新建礼包
-            </Button>
-          </div>
-          <div className="gift-catalog-head" aria-hidden="true">
-            <span>礼包 / Key</span>
-            <span>说明</span>
-            <span>默认</span>
-            <span>操作</span>
-          </div>
-          <div className="gift-catalog-list">
-            {gifts.map((gift) => (
-              <div
-                key={gift.id}
-                className={selectedGifts.includes(gift.id) ? "selected" : ""}
-              >
-                <label className="gift-catalog-identity">
+      <div className="gift-module-shell">
+        <div
+          className="gift-module-tabs"
+          role="tablist"
+          aria-label="礼包与群抽管理"
+          onKeyDown={handleGiftTabKeyDown}
+        >
+          <button
+            type="button"
+            id={`gift-tab-entitlements-${mapId}`}
+            role="tab"
+            aria-selected={activeGiftView === "entitlements"}
+            aria-controls={`gift-panel-entitlements-${mapId}`}
+            tabIndex={activeGiftView === "entitlements" ? 0 : -1}
+            className={activeGiftView === "entitlements" ? "active" : ""}
+            onClick={() => setActiveGiftView("entitlements")}
+          >
+            礼包资格
+            <span>{formatNumber(gifts.length)} 项礼包</span>
+          </button>
+          <button
+            type="button"
+            id={`gift-tab-lotteries-${mapId}`}
+            role="tab"
+            aria-selected={activeGiftView === "lotteries"}
+            aria-controls={`gift-panel-lotteries-${mapId}`}
+            tabIndex={activeGiftView === "lotteries" ? 0 : -1}
+            className={activeGiftView === "lotteries" ? "active" : ""}
+            onClick={() => setActiveGiftView("lotteries")}
+          >
+            群抽活动
+            <span>{formatNumber(lotteries.length)} 条记录</span>
+          </button>
+        </div>
+        {activeGiftView === "entitlements" && (
+          <div
+            id={`gift-panel-entitlements-${mapId}`}
+            className="gift-tab-panel"
+            role="tabpanel"
+            aria-labelledby={`gift-tab-entitlements-${mapId}`}
+          >
+            <div className="gift-workspace">
+              <section className="gift-player-pane">
+                <div className="pane-head">
+                  <div>
+                    <span className="eyebrow">TARGET PLAYERS</span>
+                    <h3>选择玩家</h3>
+                  </div>
+                  <Badge>{selectedPlayers.length} 已选</Badge>
+                </div>
+                <label className="gift-search">
+                  <Search size={15} />
                   <input
-                    type="checkbox"
-                    checked={selectedGifts.includes(gift.id)}
-                    onChange={() => {
-                      setSelectedGifts((current) =>
-                        current.includes(gift.id)
-                          ? current.filter((id) => id !== gift.id)
-                          : [...current, gift.id],
-                      );
-                      setGiftValues((current) =>
-                        current[gift.id] === undefined
-                          ? { ...current, [gift.id]: gift.defaultValue ?? 0 }
-                          : current,
-                      );
+                    value={playerSearch}
+                    onChange={(event) => {
+                      setPlayerLoading(true);
+                      setPlayerSearch(event.target.value);
+                      setPlayerPage(1);
                     }}
+                    placeholder="搜索名称或 UID"
                   />
-                  <span>
-                    <strong>{gift.name}</strong>
-                    <small>{gift.giftKey}</small>
-                  </span>
                 </label>
-                <p>{gift.description || "无说明"}</p>
-                <Badge>{gift.defaultValue}</Badge>
-                <div className="gift-row-actions">
-                  <button type="button" onClick={() => copyGift(gift)}>
-                    <Clipboard size={13} />
-                    复制
-                  </button>
+                {playerGiftFilterIds.length > 0 && (
+                  <div className="gift-filter-summary" role="status">
+                    <span>
+                      <Filter size={13} />
+                      拥有任一所选礼包
+                      <strong>{playerGiftFilterIds.length} 项</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPlayerLoading(true);
+                        setPlayerGiftFilterIds([]);
+                        setPlayerPage(1);
+                      }}
+                    >
+                      清除筛选
+                    </button>
+                  </div>
+                )}
+                <div className="gift-player-tools">
                   <button
                     type="button"
+                    onClick={selectCurrentPlayerPage}
+                    disabled={!players.length || playerLoading}
+                  >
+                    全选本页
+                  </button>
+                  <button type="button" onClick={() => setSelectedPlayers([])}>
+                    清空全部
+                  </button>
+                </div>
+                <div
+                  className="gift-player-list"
+                  aria-busy={playerLoading}
+                  aria-live="polite"
+                >
+                  {playerLoading ? (
+                    <>
+                      <span className="sr-only" role="status">
+                        正在读取玩家
+                      </span>
+                      <div className="gift-player-skeleton" aria-hidden="true">
+                        {Array.from({ length: 6 }, (_, index) => (
+                          <div key={index}>
+                            <i />
+                            <span>
+                              <b />
+                              <small />
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    players.map((player) => (
+                      <label
+                        key={player.id}
+                        className={
+                          selectedPlayers.includes(player.id) ? "selected" : ""
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedPlayers.includes(player.id)}
+                          onChange={() => {
+                            if (
+                              !selectedPlayers.includes(player.id) &&
+                              selectedPlayers.length >= 500
+                            ) {
+                              toast("单次最多选择 500 位玩家", "warning");
+                              return;
+                            }
+                            setSelectedPlayers((current) =>
+                              current.includes(player.id)
+                                ? current.filter((id) => id !== player.id)
+                                : [...current, player.id],
+                            );
+                          }}
+                        />
+                        <span>
+                          <strong>{player.name}</strong>
+                          <small>{player.uid}</small>
+                        </span>
+                      </label>
+                    ))
+                  )}
+                  {!playerLoading && !players.length && (
+                    <p className="gift-empty-copy">
+                      {playerGiftFilterIds.length
+                        ? "没有拥有所选礼包的玩家"
+                        : "没有匹配的玩家"}
+                    </p>
+                  )}
+                </div>
+                <PaginationControls
+                  pagination={playerPagination}
+                  noun="位玩家"
+                  onPageChange={(nextPage) => {
+                    setPlayerLoading(true);
+                    setPlayerPage(nextPage);
+                  }}
+                />
+              </section>
+              <section className="gift-catalog-pane">
+                <div className="pane-head">
+                  <div>
+                    <span className="eyebrow">GIFT CATALOG</span>
+                    <h3>礼包目录</h3>
+                  </div>
+                  <Button
+                    icon={Plus}
                     onClick={() => {
-                      setGiftForm({ ...gift });
+                      setGiftForm(emptyGift);
                       setGiftOpen(true);
                     }}
                   >
-                    <Edit3 size={13} />
-                    编辑
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() => removeGift(gift)}
+                    新建礼包
+                  </Button>
+                </div>
+                <div className="gift-catalog-head" aria-hidden="true">
+                  <span>礼包 / Key</span>
+                  <span>状态 / 资格 / 说明</span>
+                  <span>默认</span>
+                  <span>操作</span>
+                </div>
+                <div className="gift-catalog-list">
+                  {gifts.map((gift) => (
+                    <div
+                      key={gift.id}
+                      className={[
+                        selectedGifts.includes(gift.id) ? "selected" : "",
+                        playerGiftFilterIds.includes(gift.id)
+                          ? "filtering"
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      <div className="gift-catalog-primary">
+                        <label className="gift-catalog-identity">
+                          <input
+                            type="checkbox"
+                            checked={selectedGifts.includes(gift.id)}
+                            onChange={() => {
+                              setSelectedGifts((current) =>
+                                current.includes(gift.id)
+                                  ? current.filter((id) => id !== gift.id)
+                                  : [...current, gift.id],
+                              );
+                              setGiftValues((current) =>
+                                current[gift.id] === undefined
+                                  ? {
+                                      ...current,
+                                      [gift.id]: gift.defaultValue ?? 0,
+                                    }
+                                  : current,
+                              );
+                            }}
+                          />
+                          <span>
+                            <strong>{gift.name}</strong>
+                            <small>{gift.giftKey}</small>
+                          </span>
+                        </label>
+                        <button
+                          type="button"
+                          className={
+                            playerGiftFilterIds.includes(gift.id)
+                              ? "gift-filter-toggle active"
+                              : "gift-filter-toggle"
+                          }
+                          aria-pressed={playerGiftFilterIds.includes(gift.id)}
+                          aria-label={`${playerGiftFilterIds.includes(gift.id) ? "取消筛选" : "筛选"}拥有“${gift.name}”的玩家`}
+                          title={
+                            playerGiftFilterIds.includes(gift.id)
+                              ? "取消此礼包筛选"
+                              : "筛选拥有此礼包的玩家"
+                          }
+                          onClick={() => {
+                            setPlayerLoading(true);
+                            setPlayerGiftFilterIds((current) =>
+                              current.includes(gift.id)
+                                ? current.filter((id) => id !== gift.id)
+                                : [...current, gift.id],
+                            );
+                            setPlayerPage(1);
+                          }}
+                        >
+                          <Filter size={13} />
+                        </button>
+                      </div>
+                      <div className="gift-catalog-meta">
+                        <div className="gift-catalog-status">
+                          <Badge tone={gift.enabled ? "positive" : "neutral"}>
+                            {gift.enabled ? "已启用" : "已停用"}
+                          </Badge>
+                          <small>
+                            {formatNumber(gift.entitlementCount ?? 0)} 人有资格
+                          </small>
+                        </div>
+                        <p>{gift.description || "无说明"}</p>
+                      </div>
+                      <Badge>{gift.defaultValue}</Badge>
+                      <div className="gift-row-actions">
+                        <button type="button" onClick={() => copyGift(gift)}>
+                          <Clipboard size={13} />
+                          复制
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setGiftForm({ ...gift });
+                            setGiftOpen(true);
+                          }}
+                        >
+                          <Edit3 size={13} />
+                          编辑
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => removeGift(gift)}
+                        >
+                          <Trash2 size={13} />
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+              <section className="gift-setting-pane">
+                <div className="pane-head">
+                  <div>
+                    <span className="eyebrow">ENTITLEMENT SET</span>
+                    <h3>本次资格设置</h3>
+                  </div>
+                  <Badge>{selectedGifts.length} 项</Badge>
+                </div>
+                <div className="gift-setting-list">
+                  {selectedGifts.map((giftId) => {
+                    const gift = gifts.find((item) => item.id === giftId);
+                    if (!gift) return null;
+                    return (
+                      <div key={gift.id}>
+                        <span>
+                          <strong>{gift.name}</strong>
+                          <small>当前：{currentGiftValue(gift.id)}</small>
+                        </span>
+                        <label>
+                          设为
+                          <input
+                            className="input"
+                            type="number"
+                            min="0"
+                            max="1000000"
+                            value={giftValues[gift.id] ?? 0}
+                            onChange={(event) =>
+                              setGiftValues((current) => ({
+                                ...current,
+                                [gift.id]: Number(event.target.value),
+                              }))
+                            }
+                          />
+                        </label>
+                      </div>
+                    );
+                  })}
+                  {!selectedGifts.length && (
+                    <p className="gift-empty-copy">
+                      从礼包目录选择要设置的项目
+                    </p>
+                  )}
+                </div>
+                <div className="gift-apply-summary">
+                  <p>
+                    将更新{" "}
+                    <strong>
+                      {selectedPlayers.length * selectedGifts.length}
+                    </strong>{" "}
+                    条玩家礼包资格
+                  </p>
+                  <small>数值大于 0 时激活，设为 0 将取消资格。</small>
+                  <Button
+                    variant="primary"
+                    icon={Gift}
+                    disabled={!selectedPlayers.length || !selectedGifts.length}
+                    onClick={applyEntitlements}
                   >
-                    <Trash2 size={13} />
-                    删除
-                  </button>
+                    应用礼包资格
+                  </Button>
                 </div>
-              </div>
-            ))}
-          </div>
-        </section>
-        <section className="gift-setting-pane">
-          <div className="pane-head">
-            <div>
-              <span className="eyebrow">ENTITLEMENT SET</span>
-              <h3>本次资格设置</h3>
+              </section>
             </div>
-            <Badge>{selectedGifts.length} 项</Badge>
           </div>
-          <div className="gift-setting-list">
-            {selectedGifts.map((giftId) => {
-              const gift = gifts.find((item) => item.id === giftId);
-              if (!gift) return null;
-              return (
-                <div key={gift.id}>
-                  <span>
-                    <strong>{gift.name}</strong>
-                    <small>当前：{currentGiftValue(gift.id)}</small>
-                  </span>
-                  <label>
-                    设为
-                    <input
-                      className="input"
-                      type="number"
-                      min="0"
-                      max="1000000"
-                      value={giftValues[gift.id] ?? 0}
-                      onChange={(event) =>
-                        setGiftValues((current) => ({
-                          ...current,
-                          [gift.id]: Number(event.target.value),
-                        }))
-                      }
-                    />
-                  </label>
-                </div>
-              );
-            })}
-            {!selectedGifts.length && (
-              <p className="gift-empty-copy">从礼包目录选择要设置的项目</p>
-            )}
-          </div>
-          <div className="gift-apply-summary">
-            <p>
-              将更新{" "}
-              <strong>{selectedPlayers.length * selectedGifts.length}</strong>{" "}
-              条玩家礼包资格
-            </p>
-            <small>数值大于 0 时激活，设为 0 将取消资格。</small>
-            <Button
-              variant="primary"
-              icon={Gift}
-              disabled={!selectedPlayers.length || !selectedGifts.length}
-              onClick={applyEntitlements}
-            >
-              应用礼包资格
-            </Button>
-          </div>
-        </section>
-      </div>
-      <section className="subsection-panel">
-        <div className="subsection-head">
-          <div>
-            <span className="eyebrow">GROUP LOTTERY</span>
-            <h3>群抽活动</h3>
-            <p>公开链接无需后台账号，参与者信息与开奖结果保存在当前地图。</p>
-          </div>
-          <Button icon={Sparkles} onClick={() => setLotteryOpen(true)}>
-            创建群抽
-          </Button>
-        </div>
-        {lotteries.length ? (
-          <div className="table-shell">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>活动</th>
-                  <th>状态</th>
-                  <th>参与 / 名额</th>
-                  <th>开奖时间</th>
-                  <th className="align-right">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lotteries.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      <strong>{item.title}</strong>
-                    </td>
-                    <td>
-                      <Badge
-                        tone={item.status === "open" ? "positive" : "neutral"}
-                      >
-                        {item.status === "open"
-                          ? "进行中"
-                          : item.status === "drawn"
-                            ? "已开奖"
-                            : "已取消"}
-                      </Badge>
-                    </td>
-                    <td>
-                      {item.participantCount} / {item.winnerCount}
-                    </td>
-                    <td>{formatDate(item.drawAt)}</td>
-                    <td className="align-right">
-                      <button
-                        className="table-action"
-                        onClick={() => {
-                          navigator.clipboard?.writeText(
-                            `${location.origin}${item.publicPath}`,
-                          );
-                          toast("公开链接已复制");
-                        }}
-                      >
-                        <Clipboard size={14} />
-                        复制链接
-                      </button>
-                      {item.status === "open" && (
-                        <>
-                          <button
-                            className="table-action"
-                            onClick={() => draw(item)}
-                          >
-                            <Sparkles size={14} />
-                            开奖
-                          </button>
-                          <button
-                            className="table-action danger"
-                            onClick={() => cancelLottery(item)}
-                          >
-                            <Trash2 size={14} />
-                            取消
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyState
-            icon={Sparkles}
-            title="暂无群抽活动"
-            description="创建后可将公开链接发送到玩家群。"
-          />
         )}
-      </section>
+        {activeGiftView === "lotteries" && (
+          <section
+            id={`gift-panel-lotteries-${mapId}`}
+            className="subsection-panel gift-lottery-panel gift-tab-panel"
+            role="tabpanel"
+            aria-labelledby={`gift-tab-lotteries-${mapId}`}
+          >
+            <div className="subsection-head">
+              <div>
+                <span className="eyebrow">GROUP LOTTERY</span>
+                <h3>群抽活动</h3>
+                <p>
+                  公开链接无需后台账号，参与者信息与开奖结果保存在当前地图。
+                </p>
+              </div>
+              <Button icon={Sparkles} onClick={() => setLotteryOpen(true)}>
+                创建群抽
+              </Button>
+            </div>
+            {lotteries.length ? (
+              <div className="table-shell">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>活动</th>
+                      <th>状态</th>
+                      <th>参与 / 名额</th>
+                      <th>开奖时间</th>
+                      <th className="align-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lotteries.map((item) => {
+                      const expiredOpen =
+                        item.status === "open" &&
+                        item.drawAt &&
+                        new Date(item.drawAt).getTime() <= Date.now();
+                      const permanentlyDeletable =
+                        item.status === "drawn" ||
+                        item.status === "cancelled" ||
+                        expiredOpen;
+                      return (
+                        <tr key={item.id}>
+                          <td>
+                            <strong>{item.title}</strong>
+                          </td>
+                          <td>
+                            <Badge
+                              tone={
+                                item.status === "open" && !expiredOpen
+                                  ? "positive"
+                                  : "neutral"
+                              }
+                            >
+                              {expiredOpen
+                                ? "已过期"
+                                : item.status === "open"
+                                  ? "进行中"
+                                  : item.status === "drawn"
+                                    ? "已开奖"
+                                    : "已取消"}
+                            </Badge>
+                          </td>
+                          <td>
+                            {item.participantCount} / {item.winnerCount}
+                          </td>
+                          <td>{formatDate(item.drawAt)}</td>
+                          <td className="align-right">
+                            <button
+                              className="table-action"
+                              onClick={() => {
+                                navigator.clipboard?.writeText(
+                                  `${location.origin}${item.publicPath}`,
+                                );
+                                toast("公开链接已复制");
+                              }}
+                            >
+                              <Clipboard size={14} />
+                              复制链接
+                            </button>
+                            {item.status === "open" && (
+                              <>
+                                <button
+                                  className="table-action"
+                                  onClick={() => draw(item)}
+                                >
+                                  <Sparkles size={14} />
+                                  开奖
+                                </button>
+                                {!expiredOpen && (
+                                  <button
+                                    className="table-action danger"
+                                    onClick={() => cancelLottery(item)}
+                                  >
+                                    <Trash2 size={14} />
+                                    取消
+                                  </button>
+                                )}
+                              </>
+                            )}
+                            {permanentlyDeletable && (
+                              <button
+                                className="table-action danger"
+                                onClick={() => setLotteryToDelete(item)}
+                              >
+                                <Trash2 size={14} />
+                                删除记录
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState
+                icon={Sparkles}
+                title="暂无群抽活动"
+                description="创建后可将公开链接发送到玩家群。"
+              />
+            )}
+          </section>
+        )}
+      </div>
       <Modal
         open={giftOpen}
         onClose={() => setGiftOpen(false)}
@@ -2700,6 +3491,41 @@ function GiftsPanel({ mapId }) {
             }
           />
         </Field>
+      </Modal>
+      <Modal
+        open={Boolean(lotteryToDelete)}
+        onClose={() => {
+          if (!permanentDeletingLottery) setLotteryToDelete(null);
+        }}
+        title="永久删除群抽记录"
+        eyebrow="IRREVERSIBLE ACTION"
+        danger
+        footer={
+          <>
+            <Button
+              onClick={() => setLotteryToDelete(null)}
+              disabled={permanentDeletingLottery}
+            >
+              返回
+            </Button>
+            <Button
+              variant="danger"
+              onClick={permanentlyDeleteLottery}
+              disabled={permanentDeletingLottery}
+            >
+              {permanentDeletingLottery ? "正在删除…" : "确认永久删除"}
+            </Button>
+          </>
+        }
+      >
+        <div className="permanent-delete-target">
+          <span>即将永久删除群抽记录</span>
+          <strong>{lotteryToDelete?.title}</strong>
+          <code>活动 ID：{lotteryToDelete?.id}</code>
+        </div>
+        <p className="warning-note danger-warning">
+          活动记录、参与名单与开奖结果将一并删除，操作完成后无法恢复。
+        </p>
       </Modal>
     </>
   );

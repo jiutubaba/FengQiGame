@@ -514,6 +514,14 @@
     },
     {
       "method": "GET",
+      "path": "/api/maps/:mapId/gifts/entitlements/players",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/api/maps/:mapId/leaderboards",
       "source": "server/routes/maps.js",
       "guards": [
@@ -611,6 +619,14 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/lotteries/:campaignId/draw",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/lotteries/:campaignId/permanent",
       "source": "server/routes/maps.js",
       "guards": [
         "map:GIFTS_MANAGE"
@@ -920,6 +936,7 @@
     "log.delete",
     "lottery.cancel",
     "lottery.create",
+    "lottery.delete",
     "lottery.draw",
     "map.archive",
     "map.config.update",
@@ -981,6 +998,14 @@
         "users"
       ],
       "alteredTables": []
+    },
+    {
+      "file": "server/db/migrations/002_leaderboard_daily_collections.sql",
+      "sha256": "a2171fb496939ead63388f60fa45ebe576e40731a680b420a195221c7c2943b6",
+      "tables": [
+        "leaderboard_daily_collections"
+      ],
+      "alteredTables": []
     }
   ],
   "environmentVariables": {
@@ -1040,7 +1065,7 @@
         "排行榜发布快照、风险事件幂等上报与玩家封禁形成闭环",
         "同地图多 Key 共享数据，同 UID 在不同地图仍隔离",
         "文件夹、文件上传、列表、下载和级联删除形成闭环",
-        "公开抽奖支持报名、防重复、开奖与中奖结果公开",
+        "公开抽奖支持报名、防重复、开奖、状态受控永久删除与级联清理",
         "个人资料、密码更新、退出登录和重新登录均有效",
         "管理员运维、审计、清理、凭据停用和地图归档完整生效",
         "永久删除地图经过双重服务端校验并清除数据库与上传目录"
@@ -1102,6 +1127,10 @@
       "lines": 61
     },
     {
+      "file": "server/db/migrations/002_leaderboard_daily_collections.sql",
+      "lines": 25
+    },
+    {
       "file": "server/index.js",
       "lines": 52
     },
@@ -1139,11 +1168,11 @@
     },
     {
       "file": "server/routes/game.js",
-      "lines": 915
+      "lines": 929
     },
     {
       "file": "server/routes/maps.js",
-      "lines": 2498
+      "lines": 2762
     },
     {
       "file": "server/routes/public.js",
@@ -1171,7 +1200,7 @@
     },
     {
       "file": "server/services/metrics.js",
-      "lines": 254
+      "lines": 306
     },
     {
       "file": "server/services/users.js",
@@ -1179,7 +1208,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 1674
+      "lines": 2110
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1199,7 +1228,7 @@
     },
     {
       "file": "src/api/client.js",
-      "lines": 64
+      "lines": 89
     },
     {
       "file": "src/App.jsx",
@@ -1247,7 +1276,7 @@
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 3562
+      "lines": 4388
     },
     {
       "file": "src/pages/ProfilePage.jsx",
@@ -1259,7 +1288,7 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 4347
+      "lines": 4854
     },
     {
       "file": "src/utils/format.js",

@@ -114,6 +114,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       "player_messages",
       "lottery_campaigns",
       "leaderboards",
+      "leaderboard_daily_collections",
       "risk_rules",
       "risk_events",
       "fq_player_archives",
@@ -277,6 +278,37 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       })
       .expect(200);
     const players = await admin.get(`/api/maps/${mapId}/players`).expect(200);
+    const playersByLevel = await admin
+      .get(
+        `/api/maps/${mapId}/players?sortBy=level&sortDirection=asc&limit=100`,
+      )
+      .expect(200);
+    expect(playersByLevel.body.data.map((player) => player.level)).toEqual([
+      1, 1, 5, 10,
+    ]);
+    expect(players.body.pagination).toMatchObject({
+      page: 1,
+      limit: 20,
+      total: 4,
+    });
+    expect(players.body.data.every((player) => player.uidLocked)).toBe(true);
+    const secondPlayerPage = await admin
+      .get(`/api/maps/${mapId}/players?page=2&limit=2`)
+      .expect(200);
+    expect(secondPlayerPage.body.pagination).toMatchObject({
+      page: 2,
+      limit: 2,
+      total: 4,
+    });
+    expect(secondPlayerPage.body.data).toHaveLength(2);
+    expect(
+      new Set([
+        ...(
+          await admin.get(`/api/maps/${mapId}/players?page=1&limit=2`)
+        ).body.data.map((player) => player.id),
+        ...secondPlayerPage.body.data.map((player) => player.id),
+      ]).size,
+    ).toBe(4);
     playerId = players.body.data.find(
       (player) => player.uid === "player-001",
     ).id;
@@ -289,6 +321,38 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     const unmatchedPlayerId = players.body.data.find(
       (player) => player.uid === "player-004",
     ).id;
+    const lockedUidUpdate = await admin
+      .patch(`/api/maps/${mapId}/players/${playerId}`)
+      .send({ uid: "player-001-changed" })
+      .expect(409);
+    expect(lockedUidUpdate.body.error.code).toBe("PLAYER_UID_LOCKED");
+    const lockedProfileUpdate = await admin
+      .patch(`/api/maps/${mapId}/players/${playerId}`)
+      .send({ level: 11 })
+      .expect(200);
+    expect(lockedProfileUpdate.body.data).toMatchObject({
+      uid: "player-001",
+      level: 11,
+      uidLocked: true,
+    });
+    const placeholder = await admin
+      .post(`/api/maps/${mapId}/players`)
+      .send({ uid: "placeholder-old", name: "后台占位玩家" })
+      .expect(201);
+    expect(placeholder.body.data.uidLocked).toBe(false);
+    const renamedPlaceholder = await admin
+      .patch(`/api/maps/${mapId}/players/${placeholder.body.data.id}`)
+      .send({ uid: "placeholder-new" })
+      .expect(200);
+    expect(renamedPlaceholder.body.data.uid).toBe("placeholder-new");
+    const duplicateUid = await admin
+      .patch(`/api/maps/${mapId}/players/${placeholder.body.data.id}`)
+      .send({ uid: "player-004" })
+      .expect(409);
+    expect(duplicateUid.body.error.code).toBe("PLAYER_UID_CONFLICT");
+    await admin
+      .delete(`/api/maps/${mapId}/players/${placeholder.body.data.id}`)
+      .expect(200);
 
     const giftResponse = await admin
       .post(`/api/maps/${mapId}/gifts`)
@@ -296,6 +360,34 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(201);
     giftId = giftResponse.body.data.id;
     expect(giftResponse.body.data.defaultValue).toBe(0);
+    const businessPlaceholder = await admin
+      .post(`/api/maps/${mapId}/players`)
+      .send({ uid: "business-placeholder", name: "已有资格占位玩家" })
+      .expect(201);
+    await admin
+      .put(`/api/maps/${mapId}/gifts/entitlements`)
+      .send({
+        playerIds: [businessPlaceholder.body.data.id],
+        gifts: [{ giftId, value: 1 }],
+      })
+      .expect(200);
+    const lockedBusinessUid = await admin
+      .patch(`/api/maps/${mapId}/players/${businessPlaceholder.body.data.id}`)
+      .send({ uid: "business-placeholder-changed" })
+      .expect(409);
+    expect(lockedBusinessUid.body.error.code).toBe("PLAYER_UID_LOCKED");
+    const editableBusinessName = await admin
+      .patch(`/api/maps/${mapId}/players/${businessPlaceholder.body.data.id}`)
+      .send({ name: "资格玩家可改名" })
+      .expect(200);
+    expect(editableBusinessName.body.data).toMatchObject({
+      uid: "business-placeholder",
+      name: "资格玩家可改名",
+      uidLocked: true,
+    });
+    await admin
+      .delete(`/api/maps/${mapId}/players/${businessPlaceholder.body.data.id}`)
+      .expect(200);
     await normalUser
       .put(`/api/maps/${mapId}/gifts/entitlements`)
       .send({
@@ -325,6 +417,71 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       expect.objectContaining({ playerId: secondPlayerId, giftId, value: 2 }),
       expect.objectContaining({ playerId: sameNamePlayerId, giftId, value: 5 }),
     ]);
+    const giftsWithEntitlementCount = await admin
+      .get(`/api/maps/${mapId}/gifts`)
+      .expect(200);
+    expect(
+      giftsWithEntitlementCount.body.data.find((gift) => gift.id === giftId),
+    ).toMatchObject({
+      enabled: true,
+      entitlementCount: 3,
+    });
+    const entitlementPlayers = await admin
+      .get(`/api/maps/${mapId}/gifts/entitlements/players?page=2&limit=2`)
+      .expect(200);
+    expect(entitlementPlayers.body.pagination).toMatchObject({
+      page: 2,
+      limit: 2,
+      total: 4,
+    });
+    expect(entitlementPlayers.body.data).toHaveLength(2);
+    const entitlementSearch = await admin
+      .get(`/api/maps/${mapId}/gifts/entitlements/players?q=批量资格`)
+      .expect(200);
+    expect(entitlementSearch.body.pagination.total).toBe(1);
+    expect(entitlementSearch.body.data[0]).toMatchObject({
+      id: secondPlayerId,
+      entitlements: [expect.objectContaining({ giftId, value: 2 })],
+    });
+    await normalUser
+      .get(`/api/maps/${mapId}/gifts/entitlements/players?giftIds=${giftId}`)
+      .expect(403);
+    const entitlementGiftFilter = await admin
+      .get(`/api/maps/${mapId}/gifts/entitlements/players?giftIds=${giftId}`)
+      .expect(200);
+    expect(entitlementGiftFilter.body.pagination.total).toBe(3);
+    expect(
+      new Set(entitlementGiftFilter.body.data.map((player) => player.id)),
+    ).toEqual(new Set([playerId, secondPlayerId, sameNamePlayerId]));
+    const secondaryGift = await admin
+      .post(`/api/maps/${mapId}/gifts`)
+      .send({ giftKey: "filter_gift", name: "筛选专用礼包" })
+      .expect(201);
+    await admin
+      .put(`/api/maps/${mapId}/gifts/entitlements`)
+      .send({
+        playerIds: [unmatchedPlayerId],
+        gifts: [{ giftId: secondaryGift.body.data.id, value: 1 }],
+      })
+      .expect(200);
+    const multiGiftFilter = await admin
+      .get(
+        `/api/maps/${mapId}/gifts/entitlements/players?giftIds=${giftId},${secondaryGift.body.data.id}`,
+      )
+      .expect(200);
+    expect(multiGiftFilter.body.pagination.total).toBe(4);
+    const combinedSearchAndGiftFilter = await admin
+      .get(
+        `/api/maps/${mapId}/gifts/entitlements/players?q=无资格&giftIds=${giftId}`,
+      )
+      .expect(200);
+    expect(combinedSearchAndGiftFilter.body.pagination.total).toBe(0);
+    await admin
+      .get(`/api/maps/${mapId}/gifts/entitlements/players?giftIds=invalid`)
+      .expect(400);
+    await admin
+      .delete(`/api/maps/${mapId}/gifts/${secondaryGift.body.data.id}`)
+      .expect(200);
     await admin
       .post(`/api/maps/${mapId}/messages`)
       .send({
@@ -548,19 +705,16 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .patch(`/api/maps/${mapId}/players/${playerId}`)
       .send({ dataBan: false })
       .expect(200);
-    await admin
+    const archivedUidUpdate = await admin
       .patch(`/api/maps/${mapId}/players/${playerId}`)
       .send({ uid: "player-renamed" })
-      .expect(200);
-    const renamedArchive = await request(app)
-      .get("/api/fq/archives/players/player-renamed")
+      .expect(409);
+    expect(archivedUidUpdate.body.error.code).toBe("PLAYER_UID_LOCKED");
+    const preservedArchive = await request(app)
+      .get("/api/fq/archives/players/player-001")
       .set("fq-map-key", gameToken)
       .expect(200);
-    expect(renamedArchive.body.data.values.gold).toBe(100);
-    await admin
-      .patch(`/api/maps/${mapId}/players/${playerId}`)
-      .send({ uid: "player-001" })
-      .expect(200);
+    expect(preservedArchive.body.data.values.gold).toBe(100);
 
     await request(app)
       .post("/api/fq/bootstrap")
@@ -589,7 +743,9 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(200);
     const metrics = await admin.get(`/api/maps/${mapId}/metrics`).expect(200);
     const logs = await admin.get(`/api/maps/${mapId}/logs`).expect(200);
+    expect(metrics.body.data.source).toBe("snapshot");
     expect(metrics.body.data.summary.cumulativeUsers).toBe(1);
+    expect(metrics.body.data.summary.validGameCount).toBeNull();
     expect(logs.body.data[0].context).toBe("[integration] chain ok");
   });
 
@@ -649,7 +805,8 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(automaticMetrics.rows.at(-1)).toMatchObject({
       cumulative_users: "1",
       online_users: "1",
-      total_game_count: "1",
+      total_game_count: "0",
+      valid_game_count: "0",
     });
     await request(app)
       .post("/api/fq/metrics/sessions/start")
@@ -719,11 +876,16 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     const d1 = await getAutomaticMetrics(mapId, "2026-01-02T12:00:00Z");
     expect(d1.rows.at(-1)).toMatchObject({
       cumulative_users: "5",
-      total_game_count: "2",
+      total_game_count: "0",
+      valid_game_count: "0",
       daily_new_users: "1",
       daily_active_users: "2",
       active_user_retention_rate: "25.00",
+      active_user_retained_count: "1",
+      active_user_cohort_count: "4",
       new_user_retention_rate: "25.00",
+      new_user_retained_count: "1",
+      new_user_cohort_count: "4",
     });
     expect(Number(d1.rows.at(-1).seven_day_retention_rate)).toBe(0);
     expect(Number(d1.rows.at(-1).replay_rate)).toBe(0);
@@ -731,7 +893,11 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(d7.rows.at(-1)).toMatchObject({
       daily_active_users: "2",
       seven_day_retention_rate: "50.00",
+      seven_day_retained_count: "2",
+      seven_day_cohort_count: "4",
       replay_rate: "50.00",
+      replay_user_count: "1",
+      replay_cohort_count: "2",
     });
     const d30 = await getAutomaticMetrics(mapId, "2026-01-31T12:00:00Z");
     expect(d30.rows.at(-1).lost_user_count).toBe("1");
@@ -739,7 +905,8 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(returned.rows.at(-1)).toMatchObject({
       cumulative_users: "5",
       online_users: "0",
-      total_game_count: "7",
+      total_game_count: "0",
+      valid_game_count: "0",
       daily_new_users: "0",
       daily_active_users: "1",
       lost_user_count: "2",
@@ -749,14 +916,153 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(Number(returned.rows.at(-1).new_user_retention_rate)).toBe(0);
     expect(Number(returned.rows.at(-1).seven_day_retention_rate)).toBe(0);
     expect(Number(returned.rows.at(-1).replay_rate)).toBe(0);
+
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "duration-exact-ten",
+      uids: ["same-uid"],
+      event: "start",
+      now: "2026-04-01T04:00:00Z",
+    });
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "duration-exact-ten",
+      uids: ["same-uid"],
+      event: "end",
+      now: "2026-04-01T04:10:00Z",
+    });
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "duration-exact-ten",
+      uids: ["same-uid"],
+      event: "end",
+      now: "2026-04-02T04:10:01Z",
+    });
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "duration-over-ten",
+      uids: ["same-uid"],
+      event: "start",
+      now: "2026-04-01T05:00:00Z",
+    });
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "duration-over-ten",
+      uids: ["same-uid"],
+      event: "end",
+      now: "2026-04-01T05:10:01Z",
+    });
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "duration-heartbeat",
+      uids: ["same-uid"],
+      event: "start",
+      now: "2026-04-02T05:00:00Z",
+    });
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "duration-heartbeat",
+      uids: ["same-uid"],
+      event: "heartbeat",
+      now: "2026-04-02T05:11:00Z",
+    });
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "duration-cross-midnight",
+      uids: ["same-uid"],
+      event: "start",
+      now: "2026-04-03T15:55:00Z",
+    });
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "duration-cross-midnight",
+      uids: ["same-uid"],
+      event: "end",
+      now: "2026-04-03T16:06:00Z",
+    });
+    const aprilMetrics = await getAutomaticMetrics(
+      mapId,
+      "2026-04-04T04:00:00Z",
+    );
+    expect(aprilMetrics.rows.at(-4)).toMatchObject({
+      total_game_count: "1",
+      valid_game_count: "1",
+    });
+    expect(aprilMetrics.rows.at(-3)).toMatchObject({
+      total_game_count: "2",
+      valid_game_count: "1",
+    });
+    expect(aprilMetrics.rows.at(-2)).toMatchObject({
+      total_game_count: "3",
+      valid_game_count: "1",
+    });
+    expect(aprilMetrics.rows.at(-1)).toMatchObject({
+      total_game_count: "3",
+      valid_game_count: "0",
+    });
     const automatic = await admin.get(`/api/maps/${mapId}/metrics`).expect(200);
     expect(automatic.body.data.source).toBe("automatic");
+    expect(automatic.body.data.epochDate).toBe("2026-01-01");
+    expect(automatic.body.data.summary.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(
+      automatic.body.data.trends.every((item) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(item.date),
+      ),
+    ).toBe(true);
     expect(automatic.body.data.summary.cumulativeUsers).toBe(6);
+    expect(automatic.body.data.summary.validGameCount).toBe(0);
     const mapCenter = await admin.get("/api/maps").expect(200);
     expect(mapCenter.body.data[0]).toMatchObject({
       cumulativeUsers: 6,
-      totalGameCount: 10,
+      totalGameCount: 3,
     });
+
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "cross-midnight-replay",
+      uids: ["cross-midnight-user"],
+      event: "start",
+      now: "2026-03-01T15:59:00Z",
+    });
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "cross-midnight-replay",
+      uids: ["cross-midnight-user"],
+      event: "start",
+      now: "2026-03-01T16:01:00Z",
+    });
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "cross-midnight-replay",
+      uids: ["cross-midnight-user"],
+      event: "end",
+      now: "2026-03-01T16:02:00Z",
+    });
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "cross-midnight-replay",
+      uids: ["cross-midnight-user"],
+      event: "end",
+      now: "2026-03-02T16:02:00Z",
+    });
+    await recordMetricSessionEvent({
+      mapId,
+      sessionId: "cross-midnight-replay",
+      uids: ["late-heartbeat-user"],
+      event: "heartbeat",
+      now: "2026-03-03T04:00:00Z",
+    });
+    const replayedActivity = await query(
+      `SELECT player_uid,TO_CHAR(active_date,'YYYY-MM-DD') AS active_date
+         FROM fq_metric_session_activity
+        WHERE map_id=$1 AND session_id='cross-midnight-replay'
+        ORDER BY active_date,player_uid`,
+      [mapId],
+    );
+    expect(replayedActivity.rows).toEqual([
+      { player_uid: "cross-midnight-user", active_date: "2026-03-01" },
+      { player_uid: "cross-midnight-user", active_date: "2026-03-02" },
+    ]);
   });
 
   it("地图局部编辑、地图配置和系统设置均能持久化", async () => {
@@ -838,6 +1144,14 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(201);
     const leaderboardId = leaderboard.body.data.id;
     expect(leaderboard.body.data.scoreUpdateMode).toBe("best");
+    await admin
+      .patch(`/api/maps/${mapId}/leaderboards/${leaderboardId}`)
+      .send({ leaderboardKey: "renamed-key" })
+      .expect(400);
+    await admin
+      .post(`/api/maps/${mapId}/leaderboards/${leaderboardId}/publish`)
+      .send({ limit: 101 })
+      .expect(400);
     const unpublished = await request(app)
       .post("/api/fq/leaderboards/landing_power_v1/query")
       .set("fq-map-key", gameToken)
@@ -897,6 +1211,50 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       "player-001",
       "player-002",
     ]);
+    const deletionProbe = await request(app)
+      .post("/api/fq/leaderboards/landing_power_v1/entries")
+      .set("fq-map-key", gameToken)
+      .send({
+        entries: [
+          {
+            uid: "daily-delete-probe",
+            name: "当日删除门闩测试",
+            score: 1,
+          },
+        ],
+      })
+      .expect(200);
+    expect(deletionProbe.body.data.acceptedUids).toEqual([
+      "daily-delete-probe",
+    ]);
+    const liveWithProbe = await admin
+      .get(`/api/maps/${mapId}/leaderboards/${leaderboardId}/entries`)
+      .expect(200);
+    const probeEntry = liveWithProbe.body.data.entries.find(
+      (entry) => entry.uid === "daily-delete-probe",
+    );
+    await admin
+      .delete(
+        `/api/maps/${mapId}/leaderboards/${leaderboardId}/entries/${probeEntry.id}`,
+      )
+      .expect(200);
+    const retryAfterDeletion = await request(app)
+      .post("/api/fq/leaderboards/landing_power_v1/entries")
+      .set("fq-map-key", gameToken)
+      .send({
+        entries: [
+          {
+            uid: "daily-delete-probe",
+            name: "当日删除门闩测试",
+            score: 2,
+          },
+        ],
+      })
+      .expect(200);
+    expect(retryAfterDeletion.body.data).toMatchObject({
+      acceptedUids: [],
+      skippedUids: ["daily-delete-probe"],
+    });
     const snapshot = await admin
       .post(`/api/maps/${mapId}/leaderboards/${leaderboardId}/publish`)
       .send({ limit: 100 })
@@ -944,6 +1302,12 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
 
     await query(
       `UPDATE leaderboard_entries SET last_submitted_on=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date-1
+        WHERE leaderboard_id=$1 AND player_uid='player-001'`,
+      [leaderboardId],
+    );
+    await query(
+      `UPDATE leaderboard_daily_collections
+          SET collection_date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date-1
         WHERE leaderboard_id=$1 AND player_uid='player-001'`,
       [leaderboardId],
     );
@@ -1243,7 +1607,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(emptyList.body.data).toHaveLength(0);
   });
 
-  it("公开抽奖支持报名、防重复、开奖与中奖结果公开", async () => {
+  it("公开抽奖支持报名、防重复、开奖、状态受控永久删除与级联清理", async () => {
     const campaign = await admin
       .post(`/api/maps/${mapId}/lotteries`)
       .send({
@@ -1281,6 +1645,77 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(publicAfter.body.data.status).toBe("drawn");
     expect(publicAfter.body.data.participantCount).toBe(2);
     expect(publicAfter.body.data.winners).toHaveLength(1);
+
+    await normalUser
+      .delete(`/api/maps/${mapId}/lotteries/${campaignId}/permanent`)
+      .expect(403);
+    await admin
+      .delete(`/api/maps/${secondMapId}/lotteries/${campaignId}/permanent`)
+      .expect(404);
+    const entriesBeforeDelete = await query(
+      "SELECT COUNT(*)::int AS count FROM lottery_entries WHERE campaign_id=$1",
+      [campaignId],
+    );
+    expect(entriesBeforeDelete.rows[0].count).toBe(2);
+    await admin
+      .delete(`/api/maps/${mapId}/lotteries/${campaignId}/permanent`)
+      .expect(200);
+    await request(app).get(`/api/public/lotteries/${token}`).expect(404);
+    const entriesAfterDelete = await query(
+      "SELECT COUNT(*)::int AS count FROM lottery_entries WHERE campaign_id=$1",
+      [campaignId],
+    );
+    expect(entriesAfterDelete.rows[0].count).toBe(0);
+
+    const futureCampaign = await admin
+      .post(`/api/maps/${mapId}/lotteries`)
+      .send({
+        title: "未到期群抽",
+        drawAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      })
+      .expect(201);
+    const futureCampaignId = futureCampaign.body.data.id;
+    const blockedDelete = await admin
+      .delete(`/api/maps/${mapId}/lotteries/${futureCampaignId}/permanent`)
+      .expect(409);
+    expect(blockedDelete.body.error.code).toBe("LOTTERY_DELETE_NOT_ALLOWED");
+    await admin
+      .delete(`/api/maps/${mapId}/lotteries/${futureCampaignId}`)
+      .expect(200);
+    await admin
+      .delete(`/api/maps/${mapId}/lotteries/${futureCampaignId}/permanent`)
+      .expect(200);
+
+    const expiredCampaign = await admin
+      .post(`/api/maps/${mapId}/lotteries`)
+      .send({
+        title: "已到期未开奖群抽",
+        drawAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      })
+      .expect(201);
+    const expiredCampaignId = expiredCampaign.body.data.id;
+    await admin
+      .delete(`/api/maps/${mapId}/lotteries/${expiredCampaignId}/permanent`)
+      .expect(200);
+    const campaigns = await admin
+      .get(`/api/maps/${mapId}/lotteries`)
+      .expect(200);
+    expect(
+      campaigns.body.data.some((item) =>
+        [campaignId, futureCampaignId, expiredCampaignId].includes(item.id),
+      ),
+    ).toBe(false);
+    const deleteAudits = await query(
+      `SELECT resource_id FROM audit_logs
+        WHERE action='lottery.delete' AND map_id=$1
+        ORDER BY id`,
+      [mapId],
+    );
+    expect(deleteAudits.rows.map((row) => Number(row.resource_id))).toEqual([
+      campaignId,
+      futureCampaignId,
+      expiredCampaignId,
+    ]);
   });
 
   it("个人资料、密码更新、退出登录和重新登录均有效", async () => {
@@ -1342,9 +1777,10 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(cleared.body.data.players).toBe(1);
     expect(cleared.body.data.logs).toBe(1);
     expect(cleared.body.data.metrics).toBe(1);
-    expect(cleared.body.data.automaticMetricSessions).toBe(10);
+    expect(cleared.body.data.automaticMetricSessions).toBe(15);
     expect(cleared.body.data.leaderboardEntries).toBe(2);
     expect(cleared.body.data.leaderboardSnapshots).toBe(2);
+    expect(cleared.body.data.leaderboardDailyCollections).toBe(4);
     expect(cleared.body.data.riskEvents).toBe(1);
     expect(cleared.body.data.playerArchives).toBe(2);
     expect(cleared.body.data.globalArchives).toBe(1);
