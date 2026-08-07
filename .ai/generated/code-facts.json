@@ -514,6 +514,14 @@
     },
     {
       "method": "GET",
+      "path": "/api/maps/:mapId/gifts/entitlements/players",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/api/maps/:mapId/leaderboards",
       "source": "server/routes/maps.js",
       "guards": [
@@ -611,6 +619,14 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/lotteries/:campaignId/draw",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:GIFTS_MANAGE"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/maps/:mapId/lotteries/:campaignId/permanent",
       "source": "server/routes/maps.js",
       "guards": [
         "map:GIFTS_MANAGE"
@@ -920,6 +936,7 @@
     "log.delete",
     "lottery.cancel",
     "lottery.create",
+    "lottery.delete",
     "lottery.draw",
     "map.archive",
     "map.config.update",
@@ -947,21 +964,34 @@
   ],
   "migrations": [
     {
-      "file": "server/db/migrations/001_initial.sql",
-      "sha256": "5bf35b512a2907d268bb1b3ebeb4e74624a8a3df1b9f35d99a88fa51151356f0",
+      "file": "server/db/migrations/001_single_map_baseline.sql",
+      "sha256": "8abaed2687a2c00b62ec27083d0c0c61abcd4c4a0ffac2403279515f79d866fb",
       "tables": [
         "anchors",
         "api_keys",
         "audit_logs",
-        "gift_grants",
+        "fq_global_archives",
+        "fq_metric_session_activity",
+        "fq_metric_sessions",
+        "fq_player_archives",
+        "gift_entitlements",
         "gifts",
+        "leaderboard_entries",
+        "leaderboard_snapshot_entries",
+        "leaderboard_snapshots",
+        "leaderboards",
+        "lottery_campaigns",
+        "lottery_entries",
         "map_configs",
         "map_files",
         "map_logs",
         "map_metrics",
         "map_permissions",
         "maps",
+        "player_messages",
         "players",
+        "risk_events",
+        "risk_rules",
         "sessions",
         "system_settings",
         "tracking_points",
@@ -970,82 +1000,12 @@
       "alteredTables": []
     },
     {
-      "file": "server/db/migrations/002_messages_lotteries.sql",
-      "sha256": "4d11a4f69d16d64c7d37942bcc6a0bb592ce1fc8ad758a3f7958c9fc47b5edb7",
+      "file": "server/db/migrations/002_leaderboard_daily_collections.sql",
+      "sha256": "a2171fb496939ead63388f60fa45ebe576e40731a680b420a195221c7c2943b6",
       "tables": [
-        "lottery_campaigns",
-        "lottery_entries",
-        "player_messages"
-      ],
-      "alteredTables": [
-        "gift_grants"
-      ]
-    },
-    {
-      "file": "server/db/migrations/003_leaderboards_risk.sql",
-      "sha256": "754bde1002a9df4d57c1749b6cd78ecf467fba4307f335c5fe1453506a632ec4",
-      "tables": [
-        "leaderboard_entries",
-        "leaderboard_snapshot_entries",
-        "leaderboard_snapshots",
-        "leaderboards",
-        "risk_events",
-        "risk_rules"
+        "leaderboard_daily_collections"
       ],
       "alteredTables": []
-    },
-    {
-      "file": "server/db/migrations/004_fq_archives.sql",
-      "sha256": "145ebc293e1e5cd5903f7a2cb75a1ec9c7047f2616e377de88a8ca7cdb3879cc",
-      "tables": [
-        "fq_global_archives",
-        "fq_player_archives"
-      ],
-      "alteredTables": []
-    },
-    {
-      "file": "server/db/migrations/005_leaderboard_score_update_mode.sql",
-      "sha256": "530af8c3068bc6df50bb8137659b500dee1df20a0b3012813df0f61bd5bc98e2",
-      "tables": [],
-      "alteredTables": [
-        "leaderboards"
-      ]
-    },
-    {
-      "file": "server/db/migrations/006_leaderboard_publication_and_daily_collection.sql",
-      "sha256": "38b8f27fbe7b6f02099dfae48bf8441a54804e83d7494c2ad546e91ef7a0cd52",
-      "tables": [],
-      "alteredTables": [
-        "leaderboard_entries",
-        "leaderboard_snapshot_entries"
-      ]
-    },
-    {
-      "file": "server/db/migrations/007_gift_entitlements.sql",
-      "sha256": "5045b63209103ab9e30d70876e5208a6846301cc61fcce08a779bdcdf884dfc3",
-      "tables": [
-        "gift_entitlements"
-      ],
-      "alteredTables": [
-        "gifts"
-      ]
-    },
-    {
-      "file": "server/db/migrations/008_automatic_metrics.sql",
-      "sha256": "8e6bb9370f20522febb8be5a3e14aede21fb3b67fcc9d82aee1e91d5e46a2ebf",
-      "tables": [
-        "fq_metric_session_activity",
-        "fq_metric_sessions"
-      ],
-      "alteredTables": []
-    },
-    {
-      "file": "server/db/migrations/009_api_key_token_encryption.sql",
-      "sha256": "c497c897ea3bbb1c7851502a1b9b2be45b6790df759216164fa6156ba25a5096",
-      "tables": [],
-      "alteredTables": [
-        "api_keys"
-      ]
     }
   ],
   "environmentVariables": {
@@ -1093,6 +1053,7 @@
       "file": "server/tests/integration/full-chain.test.js",
       "tests": [
         "HTTP 安全头、跨站请求和非法 JSON 均按生产规则处理",
+        "单运行空间基线不存在环境列",
         "管理员登录并创建地图与普通用户",
         "普通用户只能访问被授权的地图与功能",
         "游戏客户端写入玩家，后台批量设置当前礼包资格，消息仍需确认领取",
@@ -1102,9 +1063,9 @@
         "地图局部编辑、地图配置和系统设置均能持久化",
         "主播和埋点支持增改查，游戏客户端可上报埋点",
         "排行榜发布快照、风险事件幂等上报与玩家封禁形成闭环",
-        "测试服、正式服与大厅服的数据和凭据严格隔离",
+        "同地图多 Key 共享数据，同 UID 在不同地图仍隔离",
         "文件夹、文件上传、列表、下载和级联删除形成闭环",
-        "公开抽奖支持报名、防重复、开奖与中奖结果公开",
+        "公开抽奖支持报名、防重复、开奖、状态受控永久删除与级联清理",
         "个人资料、密码更新、退出登录和重新登录均有效",
         "管理员运维、审计、清理、凭据停用和地图归档完整生效",
         "永久删除地图经过双重服务端校验并清除数据库与上传目录"
@@ -1162,40 +1123,12 @@
       "lines": 31
     },
     {
-      "file": "server/db/migrations/001_initial.sql",
-      "lines": 213
+      "file": "server/db/migrations/001_single_map_baseline.sql",
+      "lines": 61
     },
     {
-      "file": "server/db/migrations/002_messages_lotteries.sql",
-      "lines": 54
-    },
-    {
-      "file": "server/db/migrations/003_leaderboards_risk.sql",
-      "lines": 101
-    },
-    {
-      "file": "server/db/migrations/004_fq_archives.sql",
-      "lines": 40
-    },
-    {
-      "file": "server/db/migrations/005_leaderboard_score_update_mode.sql",
-      "lines": 10
-    },
-    {
-      "file": "server/db/migrations/006_leaderboard_publication_and_daily_collection.sql",
-      "lines": 6
-    },
-    {
-      "file": "server/db/migrations/007_gift_entitlements.sql",
-      "lines": 36
-    },
-    {
-      "file": "server/db/migrations/008_automatic_metrics.sql",
-      "lines": 39
-    },
-    {
-      "file": "server/db/migrations/009_api_key_token_encryption.sql",
-      "lines": 3
+      "file": "server/db/migrations/002_leaderboard_daily_collections.sql",
+      "lines": 25
     },
     {
       "file": "server/index.js",
@@ -1235,11 +1168,11 @@
     },
     {
       "file": "server/routes/game.js",
-      "lines": 938
+      "lines": 929
     },
     {
       "file": "server/routes/maps.js",
-      "lines": 2565
+      "lines": 2762
     },
     {
       "file": "server/routes/public.js",
@@ -1267,7 +1200,7 @@
     },
     {
       "file": "server/services/metrics.js",
-      "lines": 260
+      "lines": 306
     },
     {
       "file": "server/services/users.js",
@@ -1275,7 +1208,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 1687
+      "lines": 2110
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1295,7 +1228,7 @@
     },
     {
       "file": "src/api/client.js",
-      "lines": 69
+      "lines": 89
     },
     {
       "file": "src/App.jsx",
@@ -1307,7 +1240,7 @@
     },
     {
       "file": "src/components/AppShell.jsx",
-      "lines": 330
+      "lines": 320
     },
     {
       "file": "src/components/ui.jsx",
@@ -1339,11 +1272,11 @@
     },
     {
       "file": "src/pages/MapCenter.jsx",
-      "lines": 256
+      "lines": 235
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 3802
+      "lines": 4388
     },
     {
       "file": "src/pages/ProfilePage.jsx",
@@ -1355,11 +1288,11 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 4369
+      "lines": 4854
     },
     {
       "file": "src/utils/format.js",
-      "lines": 27
+      "lines": 21
     }
   ]
 }

@@ -18,6 +18,12 @@ const metricSessionSchema = z.object({
     .max(24)
     .transform((uids) => [...new Set(uids)]),
 });
+const chinaDateFormatter = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Asia/Shanghai",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 const fqRequestIdSchema = z
   .string()
   .trim()
@@ -131,20 +137,20 @@ router.post(
       query(
         `SELECT player_uid,archive_data,revision,updated_at
            FROM fq_player_archives
-          WHERE map_id=$1 AND environment=$2 AND player_uid=ANY($3::text[])`,
-        [req.apiKey.map_id, req.apiKey.environment, req.body.uids],
+          WHERE map_id=$1 AND player_uid=ANY($2::text[])`,
+        [req.apiKey.map_id, req.body.uids],
       ),
       query(
         `SELECT uid FROM players
-          WHERE map_id=$1 AND environment=$2 AND uid=ANY($3::text[]) AND data_ban=TRUE`,
-        [req.apiKey.map_id, req.apiKey.environment, req.body.uids],
+          WHERE map_id=$1 AND uid=ANY($2::text[]) AND data_ban=TRUE`,
+        [req.apiKey.map_id, req.body.uids],
       ),
       req.body.includeGlobal
         ? query(
             `SELECT archive_data,revision,updated_at
                FROM fq_global_archives
-              WHERE map_id=$1 AND environment=$2`,
-            [req.apiKey.map_id, req.apiKey.environment],
+              WHERE map_id=$1`,
+            [req.apiKey.map_id],
           )
         : Promise.resolve({ rows: [] }),
     ]);
@@ -156,7 +162,6 @@ router.post(
       success: true,
       data: {
         mapId: Number(req.apiKey.map_id),
-        environment: req.apiKey.environment,
         players: req.body.uids.map((uid) =>
           playerArchiveRow(archiveByUid.get(uid), uid, bannedUids.has(uid)),
         ),
@@ -177,13 +182,13 @@ router.get(
       query(
         `SELECT archive_data,revision,updated_at
            FROM fq_player_archives
-          WHERE map_id=$1 AND environment=$2 AND player_uid=$3`,
-        [req.apiKey.map_id, req.apiKey.environment, req.params.uid],
+          WHERE map_id=$1 AND player_uid=$2`,
+        [req.apiKey.map_id, req.params.uid],
       ),
       query(
         `SELECT data_ban FROM players
-          WHERE map_id=$1 AND environment=$2 AND uid=$3`,
-        [req.apiKey.map_id, req.apiKey.environment, req.params.uid],
+          WHERE map_id=$1 AND uid=$2`,
+        [req.apiKey.map_id, req.params.uid],
       ),
     ]);
     if (player.rows[0]?.data_ban) {
@@ -210,24 +215,24 @@ router.post(
     const result = await transaction(async (client) => {
       const player = await client.query(
         `SELECT data_ban FROM players
-          WHERE map_id=$1 AND environment=$2 AND uid=$3`,
-        [req.apiKey.map_id, req.apiKey.environment, req.params.uid],
+          WHERE map_id=$1 AND uid=$2`,
+        [req.apiKey.map_id, req.params.uid],
       );
       if (player.rows[0]?.data_ban) {
         throw new HttpError(403, "玩家存档已被后台封禁", "FQ_ARCHIVE_BANNED");
       }
       await client.query(
-        `INSERT INTO fq_player_archives(map_id,environment,player_uid)
-         VALUES($1,$2,$3)
-         ON CONFLICT(map_id,environment,player_uid) DO NOTHING`,
-        [req.apiKey.map_id, req.apiKey.environment, req.params.uid],
+        `INSERT INTO fq_player_archives(map_id,player_uid)
+         VALUES($1,$2)
+         ON CONFLICT(map_id,player_uid) DO NOTHING`,
+        [req.apiKey.map_id, req.params.uid],
       );
       const currentResult = await client.query(
         `SELECT archive_data,revision,last_request_id,last_request_hash,updated_at
            FROM fq_player_archives
-          WHERE map_id=$1 AND environment=$2 AND player_uid=$3
+          WHERE map_id=$1 AND player_uid=$2
           FOR UPDATE`,
-        [req.apiKey.map_id, req.apiKey.environment, req.params.uid],
+        [req.apiKey.map_id, req.params.uid],
       );
       const current = currentResult.rows[0];
       if (assertMatchingRequest(current, req.body.requestId, requestHash)) {
@@ -240,16 +245,15 @@ router.post(
       assertExpectedRevision(req.body.expectedRevision, currentRevision);
       const saved = await client.query(
         `UPDATE fq_player_archives
-            SET archive_data=$4::jsonb,
+            SET archive_data=$3::jsonb,
                 revision=revision+1,
-                last_request_id=$5,
-                last_request_hash=$6,
+                last_request_id=$4,
+                last_request_hash=$5,
                 updated_at=NOW()
-          WHERE map_id=$1 AND environment=$2 AND player_uid=$3
+          WHERE map_id=$1 AND player_uid=$2
           RETURNING archive_data,revision,updated_at`,
         [
           req.apiKey.map_id,
-          req.apiKey.environment,
           req.params.uid,
           JSON.stringify(req.body.values),
           req.body.requestId,
@@ -275,8 +279,8 @@ router.get(
     const result = await query(
       `SELECT archive_data,revision,updated_at
          FROM fq_global_archives
-        WHERE map_id=$1 AND environment=$2`,
-      [req.apiKey.map_id, req.apiKey.environment],
+        WHERE map_id=$1`,
+      [req.apiKey.map_id],
     );
     res.json({ success: true, data: globalArchiveRow(result.rows[0]) });
   },
@@ -290,17 +294,17 @@ router.post(
     const requestHash = archiveRequestHash("global.save", "global", req.body);
     const result = await transaction(async (client) => {
       await client.query(
-        `INSERT INTO fq_global_archives(map_id,environment)
-         VALUES($1,$2)
-         ON CONFLICT(map_id,environment) DO NOTHING`,
-        [req.apiKey.map_id, req.apiKey.environment],
+        `INSERT INTO fq_global_archives(map_id)
+         VALUES($1)
+         ON CONFLICT(map_id) DO NOTHING`,
+        [req.apiKey.map_id],
       );
       const currentResult = await client.query(
         `SELECT archive_data,revision,last_request_id,last_request_hash,updated_at
            FROM fq_global_archives
-          WHERE map_id=$1 AND environment=$2
+          WHERE map_id=$1
           FOR UPDATE`,
-        [req.apiKey.map_id, req.apiKey.environment],
+        [req.apiKey.map_id],
       );
       const current = currentResult.rows[0];
       if (assertMatchingRequest(current, req.body.requestId, requestHash)) {
@@ -310,16 +314,15 @@ router.post(
       assertExpectedRevision(req.body.expectedRevision, currentRevision);
       const saved = await client.query(
         `UPDATE fq_global_archives
-            SET archive_data=$3::jsonb,
+            SET archive_data=$2::jsonb,
                 revision=revision+1,
-                last_request_id=$4,
-                last_request_hash=$5,
+                last_request_id=$3,
+                last_request_hash=$4,
                 updated_at=NOW()
-          WHERE map_id=$1 AND environment=$2
+          WHERE map_id=$1
           RETURNING archive_data,revision,updated_at`,
         [
           req.apiKey.map_id,
-          req.apiKey.environment,
           JSON.stringify(req.body.values),
           req.body.requestId,
           requestHash,
@@ -381,13 +384,12 @@ router.post(
       const rows = [];
       for (const player of req.body.players) {
         const result = await client.query(
-          `INSERT INTO players(map_id,environment,uid,name,level,game_level,profile,last_active_at)
-           VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,NOW())
-           ON CONFLICT(map_id,environment,uid) DO UPDATE SET name=EXCLUDED.name,level=EXCLUDED.level,game_level=EXCLUDED.game_level,profile=EXCLUDED.profile,last_active_at=NOW(),updated_at=NOW()
+          `INSERT INTO players(map_id,uid,name,level,game_level,profile,last_active_at)
+           VALUES($1,$2,$3,$4,$5,$6::jsonb,NOW())
+           ON CONFLICT(map_id,uid) DO UPDATE SET name=EXCLUDED.name,level=EXCLUDED.level,game_level=EXCLUDED.game_level,profile=EXCLUDED.profile,last_active_at=NOW(),updated_at=NOW()
            RETURNING id,uid,name,last_active_at`,
           [
             req.apiKey.map_id,
-            req.apiKey.environment,
             player.uid,
             player.name,
             player.level,
@@ -414,16 +416,11 @@ router.post(
   ),
   async (req, res) => {
     const result = await query(
-      `INSERT INTO map_logs(map_id,environment,context,player_count,upload_count)
-     VALUES($1,$2,$3,$4,1)
-     ON CONFLICT(map_id,environment,context) DO UPDATE SET player_count=GREATEST(map_logs.player_count,EXCLUDED.player_count),upload_count=map_logs.upload_count+1,updated_at=NOW()
+      `INSERT INTO map_logs(map_id,context,player_count,upload_count)
+     VALUES($1,$2,$3,1)
+     ON CONFLICT(map_id,context) DO UPDATE SET player_count=GREATEST(map_logs.player_count,EXCLUDED.player_count),upload_count=map_logs.upload_count+1,updated_at=NOW()
      RETURNING id,player_count,upload_count,updated_at`,
-      [
-        req.apiKey.map_id,
-        req.apiKey.environment,
-        req.body.context,
-        req.body.playerCount,
-      ],
+      [req.apiKey.map_id, req.body.context, req.body.playerCount],
     );
     res.json({ success: true, data: result.rows[0] });
   },
@@ -437,7 +434,7 @@ router.post(
       date: z.iso
         .date()
         .optional()
-        .default(() => new Date().toISOString().slice(0, 10)),
+        .default(() => chinaDateFormatter.format(new Date())),
       cumulativeUsers: z.coerce.number().int().min(0).default(0),
       onlineUsers: z.coerce.number().int().min(0).default(0),
       totalGameCount: z.coerce.number().int().min(0).default(0),
@@ -454,12 +451,11 @@ router.post(
   async (req, res) => {
     const b = req.body;
     await query(
-      `INSERT INTO map_metrics(map_id,environment,metric_date,cumulative_users,online_users,total_game_count,daily_new_users,daily_active_users,lost_user_count,return_user_count,active_user_retention_rate,new_user_retention_rate,seven_day_retention_rate,replay_rate)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-     ON CONFLICT(map_id,environment,metric_date) DO UPDATE SET cumulative_users=EXCLUDED.cumulative_users,online_users=EXCLUDED.online_users,total_game_count=EXCLUDED.total_game_count,daily_new_users=EXCLUDED.daily_new_users,daily_active_users=EXCLUDED.daily_active_users,lost_user_count=EXCLUDED.lost_user_count,return_user_count=EXCLUDED.return_user_count,active_user_retention_rate=EXCLUDED.active_user_retention_rate,new_user_retention_rate=EXCLUDED.new_user_retention_rate,seven_day_retention_rate=EXCLUDED.seven_day_retention_rate,replay_rate=EXCLUDED.replay_rate,updated_at=NOW()`,
+      `INSERT INTO map_metrics(map_id,metric_date,cumulative_users,online_users,total_game_count,daily_new_users,daily_active_users,lost_user_count,return_user_count,active_user_retention_rate,new_user_retention_rate,seven_day_retention_rate,replay_rate)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+     ON CONFLICT(map_id,metric_date) DO UPDATE SET cumulative_users=EXCLUDED.cumulative_users,online_users=EXCLUDED.online_users,total_game_count=EXCLUDED.total_game_count,daily_new_users=EXCLUDED.daily_new_users,daily_active_users=EXCLUDED.daily_active_users,lost_user_count=EXCLUDED.lost_user_count,return_user_count=EXCLUDED.return_user_count,active_user_retention_rate=EXCLUDED.active_user_retention_rate,new_user_retention_rate=EXCLUDED.new_user_retention_rate,seven_day_retention_rate=EXCLUDED.seven_day_retention_rate,replay_rate=EXCLUDED.replay_rate,updated_at=NOW()`,
       [
         req.apiKey.map_id,
-        req.apiKey.environment,
         b.date,
         b.cumulativeUsers,
         b.onlineUsers,
@@ -482,7 +478,6 @@ function metricSessionHandler(event) {
   return async (req, res) => {
     const session = await recordMetricSessionEvent({
       mapId: req.apiKey.map_id,
-      environment: req.apiKey.environment,
       sessionId: req.body.sessionId,
       uids: req.body.uids,
       event,
@@ -530,13 +525,8 @@ router.post(
   async (req, res) => {
     const result = await query(
       `UPDATE tracking_points SET trigger_count=trigger_count+$1,updated_at=NOW()
-      WHERE map_id=$2 AND environment=$3 AND point_key=$4 AND enabled=TRUE RETURNING id,point_key,trigger_count`,
-      [
-        req.body.amount,
-        req.apiKey.map_id,
-        req.apiKey.environment,
-        req.params.pointKey,
-      ],
+      WHERE map_id=$2 AND point_key=$3 AND enabled=TRUE RETURNING id,point_key,trigger_count`,
+      [req.body.amount, req.apiKey.map_id, req.params.pointKey],
     );
     if (!result.rows[0])
       return res.status(404).json({
@@ -617,8 +607,8 @@ router.post(
             WHERE leaderboard_id=l.id
             ORDER BY published_at DESC,id DESC LIMIT 1
          ) latest ON TRUE
-        WHERE l.map_id=$1 AND l.environment=$2 AND l.leaderboard_key=$3 AND l.enabled=TRUE`,
-      [req.apiKey.map_id, req.apiKey.environment, leaderboardKey],
+        WHERE l.map_id=$1 AND l.leaderboard_key=$2 AND l.enabled=TRUE`,
+      [req.apiKey.map_id, leaderboardKey],
     );
     const leaderboard = leaderboardResult.rows[0];
     if (!leaderboard)
@@ -631,9 +621,9 @@ router.post(
       });
 
     const submittedToday = await query(
-      `SELECT player_uid FROM leaderboard_entries
+      `SELECT player_uid FROM leaderboard_daily_collections
         WHERE leaderboard_id=$1 AND player_uid=ANY($2::text[])
-          AND last_submitted_on=$3::date`,
+          AND collection_date=$3::date`,
       [leaderboard.id, req.body.uids, leaderboard.collection_date],
     );
     let entries = [];
@@ -649,7 +639,7 @@ router.post(
         query(
           `SELECT rank,player_uid,player_name,game_level,score,game_count,metadata,achieved_at AS updated_at
              FROM leaderboard_snapshot_entries
-            WHERE snapshot_id=$1 AND player_uid=ANY($2::text[]) ORDER BY rank`,
+            WHERE snapshot_id=$1 AND rank<=100 AND player_uid=ANY($2::text[]) ORDER BY rank`,
           [leaderboard.snapshot_id, req.body.uids],
         ),
       ]);
@@ -708,8 +698,8 @@ router.post(
       `SELECT id,sort_direction,score_update_mode,
               (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date::text AS collection_date
          FROM leaderboards
-        WHERE map_id=$1 AND environment=$2 AND leaderboard_key=$3 AND enabled=TRUE`,
-      [req.apiKey.map_id, req.apiKey.environment, leaderboardKey],
+        WHERE map_id=$1 AND leaderboard_key=$2 AND enabled=TRUE`,
+      [req.apiKey.map_id, leaderboardKey],
     );
     const leaderboard = leaderboardResult.rows[0];
     if (!leaderboard)
@@ -724,6 +714,15 @@ router.post(
     const acceptedUids = await transaction(async (client) => {
       const accepted = [];
       for (const entry of req.body.entries) {
+        const collection = await client.query(
+          `INSERT INTO leaderboard_daily_collections(
+             leaderboard_id,player_uid,collection_date
+           ) VALUES($1,$2,$3::date)
+           ON CONFLICT DO NOTHING
+           RETURNING player_uid`,
+          [leaderboard.id, entry.uid, leaderboard.collection_date],
+        );
+        if (!collection.rows[0]) continue;
         const result = await client.query(
           `INSERT INTO leaderboard_entries(leaderboard_id,player_uid,player_name,game_level,score,game_count,metadata,last_submitted_on)
            VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$10::date)
@@ -745,7 +744,6 @@ router.post(
                 WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
                 THEN NOW() ELSE leaderboard_entries.updated_at END,
               last_submitted_on=EXCLUDED.last_submitted_on
-           WHERE leaderboard_entries.last_submitted_on IS DISTINCT FROM EXCLUDED.last_submitted_on
            RETURNING player_uid`,
           [
             leaderboard.id,
@@ -760,7 +758,7 @@ router.post(
             leaderboard.collection_date,
           ],
         );
-        if (result.rows[0]) accepted.push(result.rows[0].player_uid);
+        accepted.push(result.rows[0].player_uid);
       }
       return accepted;
     });
@@ -796,8 +794,8 @@ router.post(
   async (req, res) => {
     const ruleResult = await query(
       `SELECT id,rule_key,name,severity FROM risk_rules
-        WHERE map_id=$1 AND environment=$2 AND rule_key=$3 AND enabled=TRUE`,
-      [req.apiKey.map_id, req.apiKey.environment, req.body.ruleKey],
+        WHERE map_id=$1 AND rule_key=$2 AND enabled=TRUE`,
+      [req.apiKey.map_id, req.body.ruleKey],
     );
     const rule = ruleResult.rows[0];
     if (!rule)
@@ -810,13 +808,12 @@ router.post(
       });
 
     const inserted = await query(
-      `INSERT INTO risk_events(map_id,environment,event_key,rule_id,rule_key,rule_name,severity,player_uid,player_name,occurrence_count,details,occurred_at)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,COALESCE($12::timestamptz,NOW()))
-       ON CONFLICT(map_id,environment,event_key) DO NOTHING
+      `INSERT INTO risk_events(map_id,event_key,rule_id,rule_key,rule_name,severity,player_uid,player_name,occurrence_count,details,occurred_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,COALESCE($11::timestamptz,NOW()))
+       ON CONFLICT(map_id,event_key) DO NOTHING
        RETURNING id,event_key,status,occurred_at`,
       [
         req.apiKey.map_id,
-        req.apiKey.environment,
         req.body.eventId,
         rule.id,
         rule.rule_key,
@@ -836,8 +833,8 @@ router.post(
       });
     const existing = await query(
       `SELECT id,event_key,status,occurred_at FROM risk_events
-        WHERE map_id=$1 AND environment=$2 AND event_key=$3`,
-      [req.apiKey.map_id, req.apiKey.environment, req.body.eventId],
+        WHERE map_id=$1 AND event_key=$2`,
+      [req.apiKey.map_id, req.body.eventId],
     );
     return res.json({
       success: true,
@@ -866,32 +863,30 @@ router.post(
            SELECT p.uid,pm.id,pm.subject,pm.content,pm.attachments,pm.created_at,
                   ROW_NUMBER() OVER (PARTITION BY p.uid ORDER BY pm.created_at) AS item_order
              FROM player_messages pm JOIN players p ON p.id=pm.player_id
-            WHERE pm.map_id=$1 AND pm.environment=$2 AND p.uid=ANY($3::text[])
+            WHERE pm.map_id=$1 AND p.map_id=$1 AND p.uid=ANY($2::text[])
               AND p.data_ban IS DISTINCT FROM TRUE AND pm.status='pending'
          ) pending WHERE item_order<=100 ORDER BY uid,item_order`,
-        [req.apiKey.map_id, req.apiKey.environment, req.body.uids],
+        [req.apiKey.map_id, req.body.uids],
       ),
       query(
         `WITH current_players AS (
            SELECT uid,name
              FROM players
-            WHERE map_id=$1 AND environment=$2 AND uid=ANY($3::text[])
+            WHERE map_id=$1 AND uid=ANY($2::text[])
          )
          SELECT current_players.uid,g.gift_key,g.name,MAX(ge.value)::float8 AS value
            FROM current_players
            JOIN players entitled_players
              ON entitled_players.map_id=$1
-            AND entitled_players.environment=$2
             AND entitled_players.name=current_players.name
            JOIN gift_entitlements ge
              ON ge.map_id=$1
-            AND ge.environment=$2
             AND ge.player_id=entitled_players.id
-           JOIN gifts g ON g.id=ge.gift_id
+           JOIN gifts g ON g.id=ge.gift_id AND g.map_id=$1
           WHERE ge.value>0
           GROUP BY current_players.uid,g.id,g.gift_key,g.name
           ORDER BY current_players.uid,g.id`,
-        [req.apiKey.map_id, req.apiKey.environment, req.body.uids],
+        [req.apiKey.map_id, req.body.uids],
       ),
     ]);
     const byUid = new Map(
@@ -916,14 +911,10 @@ router.post(
   async (req, res) => {
     const result = await query(
       `UPDATE player_messages pm SET status='delivered',delivered_at=NOW()
-      FROM players p WHERE pm.id=$1 AND pm.player_id=p.id AND pm.map_id=$2 AND pm.environment=$3
-        AND p.uid=$4 AND pm.status='pending' RETURNING pm.id,pm.delivered_at`,
-      [
-        req.params.messageId,
-        req.apiKey.map_id,
-        req.apiKey.environment,
-        req.body.uid,
-      ],
+      FROM players p WHERE pm.id=$1 AND pm.player_id=p.id AND pm.map_id=$2
+        AND p.map_id=$2 AND p.uid=$3 AND pm.status='pending'
+      RETURNING pm.id,pm.delivered_at`,
+      [req.params.messageId, req.apiKey.map_id, req.body.uid],
     );
     if (!result.rows[0])
       return res.status(404).json({

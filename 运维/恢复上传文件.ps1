@@ -14,7 +14,7 @@ Get-Content -LiteralPath $envPath | ForEach-Object {
   if ($_ -match '^([^#=]+)=(.*)$') { $settings[$matches[1]] = $matches[2] }
 }
 $mode = if ($settings['DEPLOYMENT_MODE']) { $settings['DEPLOYMENT_MODE'] } else { 'docker' }
-$confirmationTarget = if ($mode -eq 'docker') { 'uploads_data' } else { 'uploads' }
+$confirmationTarget = if ($mode -eq 'docker') { 'uploads_single_data' } else { 'uploads' }
 $confirmation = Read-Host "恢复会覆盖全部上传文件。请输入 $confirmationTarget 确认"
 if ($confirmation -ne $confirmationTarget) { throw '确认内容不匹配，已取消恢复。' }
 
@@ -50,7 +50,7 @@ if ($mode -eq 'docker') {
     if (-not $appId) { throw '未找到应用容器，请先启动 Docker 服务。' }
     $image = (docker inspect --format '{{.Config.Image}}' $appId).Trim()
     $volume = (docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/uploads"}}{{.Name}}{{end}}{{end}}' $appId).Trim()
-    if (-not $image -or -not $volume) { throw '无法识别应用镜像或 uploads_data 卷。' }
+    if (-not $image -or -not $volume) { throw '无法识别应用镜像或 uploads_single_data 挂载卷。' }
     $snapshotMount = "type=bind,source=$resolvedSnapshot,target=/snapshot.tar.gz,readonly"
     $entries = docker run --rm --user 0 --mount $snapshotMount --entrypoint tar $image -tzf /snapshot.tar.gz
     if ($LASTEXITCODE -ne 0) { throw '上传文件快照校验失败。' }

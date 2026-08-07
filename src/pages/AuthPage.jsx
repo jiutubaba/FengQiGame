@@ -57,7 +57,7 @@ export default function AuthPage() {
             始终保持清晰。
           </h1>
           <p>
-            正式服、测试大厅和测试服独立运行。账号操作、权限变更与危险操作均写入审计日志。
+            每张地图使用一个独立运行空间。账号操作、权限变更与危险操作均写入审计日志。
           </p>
         </div>
         <div className="auth-system-state">

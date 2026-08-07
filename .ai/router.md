@@ -5,9 +5,9 @@
 | 源码范围                                                                                                     | 必读系统文档                                      | 重点验证                                                  |
 | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- | --------------------------------------------------------- |
 | `server/middleware/**`、`server/routes/auth.js`、`server/routes/admin.js`、`src/auth/**`、`src/pages/Admin*` | `systems/账号与权限.md`、`security.md`            | 会话失效、管理员边界、地图最小权限、审计                  |
-| `server/routes/maps.js`、`src/pages/MapCenter.jsx`、地图配置与环境切换                                       | `systems/地图与环境.md`                           | `map_id + environment` 隔离、归档、永久删除、运行数据清理 |
+| `server/routes/maps.js`、`src/pages/MapCenter.jsx`、地图配置与运行数据                                      | `systems/地图与环境.md`                           | `map_id` 隔离、归档、永久删除、运行数据清理               |
 | `server/routes/game.js`、API Key 页面、客户端接入                                                            | `systems/客户端协议.md`、`systems/账号与权限.md`  | Key 绑定、权限、幂等、ACK、错误格式                       |
-| 玩家、消息、礼包、主播、埋点、日志相关代码                                                                   | `systems/玩家与运营内容.md`                       | 环境隔离、发放/送达语义、审计                             |
+| 玩家、消息、礼包、主播、埋点、日志相关代码                                                                   | `systems/玩家与运营内容.md`                       | 地图隔离、发放/送达语义、审计                             |
 | 排行榜、风险规则和风险事件相关代码                                                                           | `systems/排行榜与风控.md`                         | 快照不可变、事件幂等、封禁联动                            |
 | 群抽、公开接口、上传下载相关代码                                                                             | `systems/群抽与文件.md`                           | 公开 Token、重复报名、路径与扩展名安全                    |
 | `server/db/**`、`server/config.js`、`.env.example`                                                           | `architecture.md`、`security.md`、`operations.md` | 迁移顺序、配置校验、敏感值、恢复兼容性                    |

@@ -31,8 +31,6 @@ import {
 } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
-import { environmentLabel } from "../utils/format";
-import { Badge } from "./ui";
 
 const workspaceNavigation = [
   {
@@ -186,10 +184,7 @@ export default function AppShell() {
                 />
                 <div>
                   <strong>{selectedMap.name}</strong>
-                  <span>
-                    ID {selectedMap.id} ·{" "}
-                    {environmentLabel(selectedMap.runtimeEnv)}
-                  </span>
+                  <span>ID {selectedMap.id}</span>
                 </div>
               </div>
               {visibleWorkspaceNavigation.map((item) => (
@@ -269,11 +264,6 @@ export default function AppShell() {
             <div className="breadcrumb">
               <Map size={15} />
               <span>{pageTitle}</span>
-              {selectedMap && (
-                <Badge tone="positive" dot>
-                  {environmentLabel(selectedMap.runtimeEnv)}
-                </Badge>
-              )}
             </div>
           </div>
           <div className="topbar-right">

@@ -87,7 +87,7 @@ export async function loadApiKey(req, _res, next) {
   const result = await query(
     `UPDATE api_keys SET last_used_at=NOW()
       WHERE token_hash=$1 AND status='active'
-      RETURNING id, map_id, environment, name, permissions`,
+      RETURNING id, map_id, name, permissions`,
     [hashToken(token)],
   );
   if (!result.rows[0])

@@ -18,9 +18,3 @@ export function formatBytes(value) {
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
-
-export function environmentLabel(value) {
-  return (
-    { release: "正式服", lobby: "测试大厅", test: "测试服" }[value] || value
-  );
-}

@@ -43,9 +43,29 @@ export async function api(path, options = {}) {
   return payload?.data;
 }
 
-export function withEnvironment(path, environment) {
-  const separator = path.includes("?") ? "&" : "?";
-  return `${path}${separator}environment=${encodeURIComponent(environment)}`;
+export async function apiPage(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    ...options,
+  });
+  const contentType = response.headers.get("content-type") || "";
+  const payload = contentType.includes("application/json")
+    ? await response.json()
+    : null;
+  if (!response.ok) {
+    if (response.status === 401)
+      window.dispatchEvent(new CustomEvent("fq:unauthenticated"));
+    throw new ApiError(
+      payload?.error?.message || `请求失败（${response.status}）`,
+      response.status,
+      payload?.error?.code,
+      payload?.error?.details,
+    );
+  }
+  return {
+    data: payload?.data || [],
+    pagination: payload?.pagination || { page: 1, limit: 20, total: 0 },
+  };
 }
 
 export async function download(path, fileName) {

@@ -68,7 +68,7 @@ export default function PublicHome() {
             <span>03</span>
             <ShieldCheck size={19} />
             <strong>处理业务</strong>
-            <small>环境隔离与权限控制</small>
+            <small>地图隔离与权限控制</small>
           </div>
         </section>
       </main>

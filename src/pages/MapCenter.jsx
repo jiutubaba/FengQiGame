@@ -11,7 +11,6 @@ import { useNavigate } from "react-router";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import {
-  Badge,
   Button,
   EmptyState,
   Field,
@@ -19,7 +18,7 @@ import {
   SectionHead,
   useToast,
 } from "../components/ui";
-import { environmentLabel, formatDate, formatNumber } from "../utils/format";
+import { formatDate, formatNumber } from "../utils/format";
 
 export default function MapCenter() {
   const [view, setView] = useState("grid");
@@ -27,11 +26,7 @@ export default function MapCenter() {
   const [maps, setMaps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState({
-    name: "",
-    description: "",
-    runtimeEnv: "release",
-  });
+  const [form, setForm] = useState({ name: "", description: "" });
   const navigate = useNavigate();
   const toast = useToast();
   const { isAdmin } = useAuth();
@@ -65,7 +60,7 @@ export default function MapCenter() {
     try {
       const created = await api("/api/maps", { method: "POST", body: form });
       setCreateOpen(false);
-      setForm({ name: "", description: "", runtimeEnv: "release" });
+      setForm({ name: "", description: "" });
       toast("地图已创建");
       await loadMaps();
       navigate(`/maps/${created.id}/metrics`);
@@ -151,9 +146,6 @@ export default function MapCenter() {
                   loading="lazy"
                 />
                 <div className="map-cover-shade" />
-                <Badge tone="positive" dot>
-                  {environmentLabel(map.runtimeEnv)}
-                </Badge>
                 <span className="map-open-icon" aria-hidden="true">
                   <ArrowUpRight size={18} />
                 </span>
@@ -175,7 +167,7 @@ export default function MapCenter() {
                     <b>{formatNumber(map.cumulativeUsers)}</b>
                   </span>
                   <span className="map-meta-games">
-                    <small>总局数</small>
+                    <small>累计有效局</small>
                     <b>{formatNumber(map.totalGameCount)}</b>
                   </span>
                 </div>
@@ -235,19 +227,6 @@ export default function MapCenter() {
             }
             placeholder="用途、负责人或接入说明"
           />
-        </Field>
-        <Field label="默认运行环境">
-          <select
-            className="input"
-            value={form.runtimeEnv}
-            onChange={(event) =>
-              setForm({ ...form, runtimeEnv: event.target.value })
-            }
-          >
-            <option value="release">正式服</option>
-            <option value="lobby">测试大厅</option>
-            <option value="test">测试服</option>
-          </select>
         </Field>
       </Modal>
     </div>
