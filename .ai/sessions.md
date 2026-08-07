@@ -2,11 +2,12 @@
 
 只保留最近 5 次重要开发任务。新增一条时删除最旧一条；稳定事实必须同步到系统文档。
 
-## 2026-08-08 [Codex] 云助手免 SSH 发布通道与生产发布
+## 2026-08-08 [Codex] 云助手免 SSH 发布通道、生产发布与技能固化
 
 - 访问通道：本机安装阿里云 CLI 3.4.11 与 ECS 插件 0.7.6，使用 OAuth 配置 `fq-production` 和 RAM 用户 `fq-codex-deployer`；最小权限策略只绑定广州正式实例 `i-7xvdufe80gxzqw3oowvo` 的云助手命令、结果查询和文件投递，不持有长期 AccessKey。新增通用调用脚本，已通过真实 Agent 状态和只读远程命令验证。
 - 正式发布：PR #27 已合并为 `main@bc344155`。发布载荷通过 GitHub 非正式发布传输并完成 SHA-256 校验；发布前数据库与上传卷备份 `fengqi-20260808-021720.dump`、`fengqi-uploads-20260808-021720.tar.gz` 均完成私有 OSS CRC64 校验。仅替换 app，未改变 PostgreSQL、上传卷、Caddy 或 `.env`。
 - 回滚与验收：新镜像为 `sha256:5d497141e5df59a8a2e0b5081a6079e29fe26be4076a3961255e303b1584de2f`，旧镜像标签 `pre-bc344155-20260807-181921` 与源码备份 `source-pre-bc344155-20260807-181921.tar.gz` 已保留。迁移 `002_leaderboard_daily_collections.sql`、排行榜每日采集表、app/db healthy、备份 timer、新前端资源、公网 HTTP 308/HTTPS 200/WWW 301、安全响应头和缺 Key 401 均已验证。
+- 技能固化：新增仓库级 `$publish-fq-admin`，覆盖“发布 FQ 后台”及同义生产部署请求；强制执行 `main`/required checks、双备份与 OSS 校验、载荷 SHA-256、app-only 更新、失败回滚、生产验收和五条会话归档，并明确排除凭据读取、地图包、数据库恢复、数据删除和基础设施变更。官方校验器在 UTF-8 模式下验证通过。
 
 ## 2026-08-07 [Codex] 数据中心、玩家管理与排行榜正确性完善
 
