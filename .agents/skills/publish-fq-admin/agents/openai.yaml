@@ -1,0 +1,4 @@
+interface:
+  display_name: "发布 FQ 后台"
+  short_description: "安全完成 FQ 后台生产备份、部署、验收与回滚准备"
+  default_prompt: "使用 $publish-fq-admin 将当前已验证的 FQ 后台版本安全发布到正式环境并完成验收。"
