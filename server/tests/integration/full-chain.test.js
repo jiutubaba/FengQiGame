@@ -1466,10 +1466,58 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       )
       .expect(200);
     expect(published.body.data.entries).toHaveLength(2);
+    const remainingLiveEntry = liveAfterBlock.body.data.entries[0];
+    await normalUser
+      .post(
+        `/api/maps/${mapId}/leaderboards/${leaderboardId}/entries/${remainingLiveEntry.id}/rank-ban`,
+      )
+      .expect(403);
+    const rankBan = await admin
+      .post(
+        `/api/maps/${mapId}/leaderboards/${leaderboardId}/entries/${remainingLiveEntry.id}/rank-ban`,
+      )
+      .expect(200);
+    expect(rankBan.body.data).toMatchObject({
+      entryId: remainingLiveEntry.id,
+      uid: "player-002",
+      rankBan: true,
+    });
+    const liveAfterRankBan = await admin
+      .get(`/api/maps/${mapId}/leaderboards/${leaderboardId}/entries`)
+      .expect(200);
+    expect(liveAfterRankBan.body.data.entries).toHaveLength(0);
+    const publishedAfterRankBan = await admin
+      .get(
+        `/api/maps/${mapId}/leaderboards/${leaderboardId}/entries?snapshotId=${snapshot.body.data.id}`,
+      )
+      .expect(200);
+    expect(publishedAfterRankBan.body.data.entries).toHaveLength(2);
     const players = await admin.get(`/api/maps/${mapId}/players`).expect(200);
     expect(
       players.body.data.find((item) => item.uid === "player-001").rankBan,
     ).toBe(true);
+    expect(
+      players.body.data.find((item) => item.uid === "player-002").rankBan,
+    ).toBe(true);
+    const rankBanAudit = await query(
+      `SELECT action,resource_type,details FROM audit_logs
+        WHERE map_id=$1 AND action='leaderboard.player.ban'
+        ORDER BY id DESC LIMIT 1`,
+      [mapId],
+    );
+    expect(rankBanAudit.rows[0]).toMatchObject({
+      action: "leaderboard.player.ban",
+      resource_type: "player",
+      details: {
+        leaderboardId,
+        entryId: remainingLiveEntry.id,
+        uid: "player-002",
+      },
+    });
+    await query("DELETE FROM players WHERE id=$1 AND map_id=$2", [
+      rankBan.body.data.playerId,
+      mapId,
+    ]);
   });
 
   it("同地图多 Key 共享数据，同 UID 在不同地图仍隔离", async () => {

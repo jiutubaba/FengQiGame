@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import {
   KeyRound,
   Plus,
@@ -12,7 +13,10 @@ import {
   Badge,
   Button,
   EmptyState,
+  ErrorState,
   Field,
+  FilterSummary,
+  InlineAlert,
   Modal,
   SectionHead,
   useToast,
@@ -20,9 +24,11 @@ import {
 import { formatDate } from "../utils/format";
 
 export default function AdminUsersPage() {
+  const [viewParams, setViewParams] = useSearchParams();
   const [users, setUsers] = useState([]),
-    [search, setSearch] = useState(""),
+    [search, setSearch] = useState(() => viewParams.get("q") || ""),
     [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [createOpen, setCreateOpen] = useState(false),
     [editing, setEditing] = useState(null),
     [permissionUser, setPermissionUser] = useState(null),
@@ -35,24 +41,34 @@ export default function AdminUsersPage() {
       role: "user",
     }),
     [newPassword, setNewPassword] = useState("");
+  const [submitting, setSubmitting] = useState("");
+  const [modalError, setModalError] = useState("");
   const toast = useToast();
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
       setUsers(
         await api(`/api/admin/users?q=${encodeURIComponent(search)}&limit=100`),
       );
     } catch (error) {
-      toast(error.message, "danger");
+      setLoadError(error.message);
     } finally {
       setLoading(false);
     }
-  }, [search, toast]);
+  }, [search]);
   useEffect(() => {
     const timer = setTimeout(load, 200);
     return () => clearTimeout(timer);
   }, [load]);
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (search.trim()) next.set("q", search.trim());
+    setViewParams(next, { replace: true });
+  }, [search, setViewParams]);
   const createUser = async () => {
+    setSubmitting("create");
+    setModalError("");
     try {
       await api("/api/admin/users", {
         method: "POST",
@@ -69,10 +85,14 @@ export default function AdminUsersPage() {
       toast("账号已创建");
       load();
     } catch (error) {
-      toast(error.message, "danger");
+      setModalError(error.message);
+    } finally {
+      setSubmitting("");
     }
   };
   const updateUser = async () => {
+    setSubmitting("edit");
+    setModalError("");
     try {
       await api(`/api/admin/users/${editing.id}`, {
         method: "PATCH",
@@ -87,10 +107,14 @@ export default function AdminUsersPage() {
       toast("账号已更新");
       load();
     } catch (error) {
-      toast(error.message, "danger");
+      setModalError(error.message);
+    } finally {
+      setSubmitting("");
     }
   };
   const resetPassword = async () => {
+    setSubmitting("password");
+    setModalError("");
     try {
       await api(`/api/admin/users/${passwordUser.id}/password`, {
         method: "POST",
@@ -100,7 +124,9 @@ export default function AdminUsersPage() {
       setNewPassword("");
       toast("密码已重置，该账号的全部会话已退出");
     } catch (error) {
-      toast(error.message, "danger");
+      setModalError(error.message);
+    } finally {
+      setSubmitting("");
     }
   };
   return (
@@ -113,7 +139,10 @@ export default function AdminUsersPage() {
           <Button
             variant="primary"
             icon={Plus}
-            onClick={() => setCreateOpen(true)}
+            onClick={() => {
+              setModalError("");
+              setCreateOpen(true);
+            }}
           >
             创建账号
           </Button>
@@ -130,8 +159,23 @@ export default function AdminUsersPage() {
         </div>
         <span className="result-count">{users.length} 个账号</span>
       </div>
-      {loading ? (
+      <FilterSummary
+        items={search.trim() ? [`搜索：${search.trim()}`] : []}
+        resultText={loading ? "正在更新…" : `当前返回 ${users.length} 个账号`}
+        onClear={() => setSearch("")}
+      />
+      {loadError && users.length > 0 && (
+        <InlineAlert
+          tone="danger"
+          title="账号列表刷新失败"
+          description={loadError}
+          action={<Button onClick={load}>重新尝试</Button>}
+        />
+      )}
+      {loading && !users.length ? (
         <div className="loading-state">正在读取账号…</div>
+      ) : loadError && !users.length ? (
+        <ErrorState description={loadError} onRetry={load} />
       ) : users.length ? (
         <div className="table-shell">
           <table className="data-table">
@@ -185,7 +229,10 @@ export default function AdminUsersPage() {
                     )}
                     <button
                       className="table-action"
-                      onClick={() => setEditing({ ...user })}
+                      onClick={() => {
+                        setModalError("");
+                        setEditing({ ...user });
+                      }}
                     >
                       <UserCog size={14} />
                       编辑
@@ -195,6 +242,7 @@ export default function AdminUsersPage() {
                       onClick={() => {
                         setPasswordUser(user);
                         setNewPassword("");
+                        setModalError("");
                       }}
                     >
                       <KeyRound size={14} />
@@ -211,26 +259,41 @@ export default function AdminUsersPage() {
       )}
       <Modal
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => {
+          if (!submitting) setCreateOpen(false);
+        }}
         title="创建后台账号"
         eyebrow="NEW ACCOUNT"
         footer={
           <>
-            <Button onClick={() => setCreateOpen(false)}>取消</Button>
+            <Button
+              onClick={() => setCreateOpen(false)}
+              disabled={submitting === "create"}
+            >
+              取消
+            </Button>
             <Button
               variant="primary"
               onClick={createUser}
               disabled={
                 !createForm.username ||
                 !createForm.displayName ||
-                createForm.password.length < 6
+                createForm.password.length < 6 ||
+                submitting === "create"
               }
             >
-              创建账号
+              {submitting === "create" ? "正在创建…" : "创建账号"}
             </Button>
           </>
         }
       >
+        {modalError && (
+          <InlineAlert
+            tone="danger"
+            title="账号创建失败"
+            description={modalError}
+          />
+        )}
         <div className="form-grid">
           <Field label="用户名">
             <input
@@ -288,20 +351,38 @@ export default function AdminUsersPage() {
       </Modal>
       <Modal
         open={Boolean(editing)}
-        onClose={() => setEditing(null)}
+        onClose={() => {
+          if (!submitting) setEditing(null);
+        }}
         title={`编辑账号 · ${editing?.username || ""}`}
         eyebrow="ACCOUNT CONTROL"
         footer={
           <>
-            <Button onClick={() => setEditing(null)}>取消</Button>
-            <Button variant="primary" onClick={updateUser}>
-              保存
+            <Button
+              onClick={() => setEditing(null)}
+              disabled={submitting === "edit"}
+            >
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              onClick={updateUser}
+              disabled={submitting === "edit" || !editing?.displayName}
+            >
+              {submitting === "edit" ? "正在保存…" : "保存"}
             </Button>
           </>
         }
       >
         {editing && (
           <>
+            {modalError && (
+              <InlineAlert
+                tone="danger"
+                title="账号保存失败"
+                description={modalError}
+              />
+            )}
             <Field label="显示名称">
               <input
                 className="input"
@@ -351,23 +432,37 @@ export default function AdminUsersPage() {
       </Modal>
       <Modal
         open={Boolean(passwordUser)}
-        onClose={() => setPasswordUser(null)}
+        onClose={() => {
+          if (!submitting) setPasswordUser(null);
+        }}
         title={`重置密码 · ${passwordUser?.displayName || ""}`}
         eyebrow="SECURITY RESET"
         danger
         footer={
           <>
-            <Button onClick={() => setPasswordUser(null)}>取消</Button>
+            <Button
+              onClick={() => setPasswordUser(null)}
+              disabled={submitting === "password"}
+            >
+              取消
+            </Button>
             <Button
               variant="danger"
               onClick={resetPassword}
-              disabled={newPassword.length < 6}
+              disabled={newPassword.length < 6 || submitting === "password"}
             >
-              重置并退出会话
+              {submitting === "password" ? "正在重置…" : "重置并退出会话"}
             </Button>
           </>
         }
       >
+        {modalError && (
+          <InlineAlert
+            tone="danger"
+            title="密码重置失败"
+            description={modalError}
+          />
+        )}
         <p className="warning-note">
           密码重置后，该账号的全部登录会话立即失效。
         </p>
@@ -393,26 +488,36 @@ function PermissionModal({ user, onClose, onSaved }) {
   const [catalog, setCatalog] = useState([]),
     [maps, setMaps] = useState([]),
     [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const toast = useToast();
-  useEffect(() => {
+  const loadPermissions = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    Promise.all([
-      api("/api/admin/permissions"),
-      api(`/api/admin/users/${user.id}/maps`),
-    ])
-      .then(([permissions, mapRows]) => {
-        setCatalog(permissions);
-        setMaps(
-          mapRows.map((map) => ({
-            ...map,
-            permissions: map.permissions || [],
-          })),
-        );
-      })
-      .catch((error) => toast(error.message, "danger"))
-      .finally(() => setLoading(false));
-  }, [user, toast]);
+    setError("");
+    setCatalog([]);
+    setMaps([]);
+    try {
+      const [permissions, mapRows] = await Promise.all([
+        api("/api/admin/permissions"),
+        api(`/api/admin/users/${user.id}/maps`),
+      ]);
+      setCatalog(permissions);
+      setMaps(
+        mapRows.map((map) => ({
+          ...map,
+          permissions: map.permissions || [],
+        })),
+      );
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+  useEffect(() => {
+    loadPermissions();
+  }, [loadPermissions]);
   const setPermission = (mapId, permission, checked) =>
     setMaps((current) =>
       current.map((map) =>
@@ -427,7 +532,8 @@ function PermissionModal({ user, onClose, onSaved }) {
       ),
     );
   const save = async () => {
-    setLoading(true);
+    setSaving(true);
+    setError("");
     try {
       await Promise.all(
         maps.map((map) =>
@@ -441,9 +547,9 @@ function PermissionModal({ user, onClose, onSaved }) {
       onClose();
       onSaved();
     } catch (error) {
-      toast(error.message, "danger");
+      setError(error.message);
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
   const assignedCount = useMemo(
@@ -453,76 +559,100 @@ function PermissionModal({ user, onClose, onSaved }) {
   return (
     <Modal
       open={Boolean(user)}
-      onClose={onClose}
+      onClose={() => {
+        if (!saving) onClose();
+      }}
       title={`功能权限 · ${user?.displayName || ""}`}
       eyebrow="MAP RBAC"
       wide
       footer={
         <>
           <span className="result-count">已授权 {assignedCount} 张地图</span>
-          <Button onClick={onClose}>取消</Button>
-          <Button variant="primary" onClick={save} disabled={loading}>
-            保存全部权限
+          <Button onClick={onClose} disabled={saving}>
+            取消
+          </Button>
+          <Button
+            variant="primary"
+            onClick={save}
+            disabled={loading || saving || Boolean(error && !maps.length)}
+          >
+            {saving ? "正在保存…" : "保存全部权限"}
           </Button>
         </>
       }
     >
       {loading && !maps.length ? (
         <div className="loading-state">正在读取权限…</div>
+      ) : error && !maps.length ? (
+        <ErrorState
+          title="权限读取失败"
+          description={error}
+          onRetry={loadPermissions}
+        />
       ) : (
-        <div className="permission-matrix">
-          {maps.map((map) => (
-            <section key={map.id}>
-              <header>
+        <>
+          {error && (
+            <InlineAlert
+              tone="danger"
+              title="权限保存失败"
+              description={error}
+              action={<Button onClick={save}>重新保存</Button>}
+            />
+          )}
+          <div className="permission-matrix">
+            {maps.map((map) => (
+              <section key={map.id}>
+                <header>
+                  <div>
+                    <strong>{map.name}</strong>
+                    <small>MAP / {map.id}</small>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      setMaps((current) =>
+                        current.map((item) =>
+                          item.id === map.id
+                            ? {
+                                ...item,
+                                permissions: item.permissions.length
+                                  ? []
+                                  : catalog.map((entry) => entry.value),
+                              }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    {map.permissions.length ? "取消整张地图" : "授权整张地图"}
+                  </Button>
+                </header>
                 <div>
-                  <strong>{map.name}</strong>
-                  <small>MAP / {map.id}</small>
+                  {catalog.map((permission) => (
+                    <label key={permission.value}>
+                      <input
+                        type="checkbox"
+                        checked={map.permissions.includes(permission.value)}
+                        onChange={(event) =>
+                          setPermission(
+                            map.id,
+                            permission.value,
+                            event.target.checked,
+                          )
+                        }
+                      />
+                      <span>
+                        <CheckIcon />
+                        {permission.label}
+                        <code>{permission.value}</code>
+                      </span>
+                    </label>
+                  ))}
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    setMaps((current) =>
-                      current.map((item) =>
-                        item.id === map.id
-                          ? {
-                              ...item,
-                              permissions: item.permissions.length
-                                ? []
-                                : catalog.map((entry) => entry.value),
-                            }
-                          : item,
-                      ),
-                    )
-                  }
-                >
-                  {map.permissions.length ? "取消整张地图" : "授权整张地图"}
-                </Button>
-              </header>
-              <div>
-                {catalog.map((permission) => (
-                  <label key={permission.value}>
-                    <input
-                      type="checkbox"
-                      checked={map.permissions.includes(permission.value)}
-                      onChange={(event) =>
-                        setPermission(
-                          map.id,
-                          permission.value,
-                          event.target.checked,
-                        )
-                      }
-                    />
-                    <span>
-                      <CheckIcon />
-                      {permission.label}
-                      <code>{permission.value}</code>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+              </section>
+            ))}
+          </div>
+        </>
       )}
     </Modal>
   );

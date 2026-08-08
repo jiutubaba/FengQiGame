@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useAuth } from "../auth/AuthContext";
-import { Button, Field, useToast } from "../components/ui";
+import { Button, Field, InlineAlert, useToast } from "../components/ui";
 
 export default function AuthPage() {
   const [visible, setVisible] = useState(false);
@@ -18,6 +18,7 @@ export default function AuthPage() {
   const [remember, setRemember] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const { user, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -30,12 +31,13 @@ export default function AuthPage() {
   const submit = async (event) => {
     event.preventDefault();
     setLoading(true);
+    setError("");
     try {
       await login({ username, password, remember });
       toast("登录成功");
       navigate(location.state?.from || "/maps", { replace: true });
     } catch (error) {
-      toast(error.message, "danger");
+      setError(error.message);
     } finally {
       setLoading(false);
     }
@@ -89,7 +91,10 @@ export default function AuthPage() {
               <UserRound size={16} />
               <input
                 value={username}
-                onChange={(event) => setUsername(event.target.value)}
+                onChange={(event) => {
+                  setUsername(event.target.value);
+                  setError("");
+                }}
                 autoComplete="username"
                 placeholder="请输入用户名"
                 required
@@ -101,7 +106,10 @@ export default function AuthPage() {
               <LockKeyhole size={16} />
               <input
                 value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  setError("");
+                }}
                 type={visible ? "text" : "password"}
                 autoComplete="current-password"
                 placeholder="请输入密码"
@@ -130,6 +138,9 @@ export default function AuthPage() {
             </button>
             在此设备保持登录
           </label>
+          {error && (
+            <InlineAlert tone="danger" title="无法登录" description={error} />
+          )}
           <Button
             type="submit"
             variant="primary"

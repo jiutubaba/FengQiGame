@@ -4,10 +4,11 @@ import {
   useContext,
   useEffect,
   useId,
+  useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { CheckCircle2, CircleAlert, Info, X } from "lucide-react";
+import { CheckCircle2, CircleAlert, Info, RefreshCw, X } from "lucide-react";
 
 export function Button({
   variant = "secondary",
@@ -52,6 +53,69 @@ export function EmptyState({ icon: Icon = Info, title, description, action }) {
   );
 }
 
+export function ErrorState({
+  title = "暂时无法读取数据",
+  description,
+  onRetry,
+}) {
+  return (
+    <div className="error-state" role="alert">
+      <div className="error-state-icon">
+        <CircleAlert size={23} strokeWidth={1.6} />
+      </div>
+      <div>
+        <strong>{title}</strong>
+        {description && <p>{description}</p>}
+      </div>
+      {onRetry && (
+        <Button icon={RefreshCw} onClick={onRetry}>
+          重新尝试
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function InlineAlert({ tone = "info", title, description, action }) {
+  const Icon = tone === "danger" ? CircleAlert : Info;
+  return (
+    <div
+      className={`inline-alert inline-alert-${tone}`}
+      role={tone === "danger" ? "alert" : "status"}
+    >
+      <Icon size={18} strokeWidth={1.7} />
+      <div>
+        {title && <strong>{title}</strong>}
+        {description && <p>{description}</p>}
+      </div>
+      {action && <div className="inline-alert-action">{action}</div>}
+    </div>
+  );
+}
+
+export function FilterSummary({ items = [], resultText, onClear }) {
+  if (!items.length && !resultText) return null;
+  return (
+    <div className="filter-summary" role="status" aria-live="polite">
+      <span className="filter-summary-label">当前视图</span>
+      {items.map((item, index) => (
+        <span className="filter-summary-chip" key={`${item}-${index}`}>
+          {item}
+        </span>
+      ))}
+      {resultText && (
+        <span className="filter-summary-result">{resultText}</span>
+      )}
+      {items.length > 0 && onClear && (
+        <button type="button" onClick={onClear}>
+          <X size={14} />
+          清除筛选
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function Modal({
   open,
   onClose,
@@ -61,24 +125,85 @@ export function Modal({
   footer,
   danger = false,
   wide = false,
+  closeOnBackdrop = true,
+  closeOnEscape = true,
 }) {
   const titleId = useId();
+  const modalRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  const previousFocusRef = useRef(null);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
   useEffect(() => {
     if (!open) return undefined;
-    const handler = (event) => event.key === "Escape" && onClose();
+    previousFocusRef.current = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusFrame = window.requestAnimationFrame(() => {
+      const preferred = modalRef.current?.querySelector(
+        "[data-modal-initial-focus]",
+      );
+      const firstInput = modalRef.current?.querySelector(
+        "input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled])",
+      );
+      const firstControl = modalRef.current?.querySelector(
+        "button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])",
+      );
+      (preferred || firstInput || firstControl || modalRef.current)?.focus();
+    });
+    const handler = (event) => {
+      if (event.key === "Escape" && closeOnEscape) {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !modalRef.current) return;
+      const controls = [
+        ...modalRef.current.querySelectorAll(
+          "button:not([disabled]), a[href], input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+        ),
+      ].filter((element) => !element.hidden && element.offsetParent !== null);
+      if (!controls.length) {
+        event.preventDefault();
+        modalRef.current.focus();
+        return;
+      }
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
     document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handler);
+      document.body.style.overflow = previousOverflow;
+      if (previousFocusRef.current?.isConnected) {
+        previousFocusRef.current.focus();
+      }
+    };
+  }, [open, closeOnEscape]);
 
   if (!open) return null;
   return createPortal(
-    <div className="modal-backdrop" onMouseDown={onClose}>
+    <div
+      className="modal-backdrop"
+      onMouseDown={closeOnBackdrop ? onClose : undefined}
+    >
       <section
+        ref={modalRef}
         className={`modal ${wide ? "modal-wide" : ""} ${danger ? "modal-danger" : ""}`}
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        tabIndex={-1}
       >
         <header className="modal-head">
           <div>
@@ -100,6 +225,80 @@ export function Modal({
     </div>,
     document.body,
   );
+}
+
+const ConfirmContext = createContext(null);
+
+export function ConfirmProvider({ children }) {
+  const [request, setRequest] = useState(null);
+  const resolveRef = useRef(null);
+  const confirm = useCallback(
+    (options) =>
+      new Promise((resolve) => {
+        resolveRef.current?.(false);
+        resolveRef.current = resolve;
+        setRequest(
+          typeof options === "string"
+            ? { title: "确认操作", description: options }
+            : options,
+        );
+      }),
+    [],
+  );
+  const finish = useCallback((confirmed) => {
+    const resolve = resolveRef.current;
+    resolveRef.current = null;
+    setRequest(null);
+    resolve?.(confirmed);
+  }, []);
+  useEffect(
+    () => () => {
+      resolveRef.current?.(false);
+    },
+    [],
+  );
+
+  return (
+    <ConfirmContext.Provider value={confirm}>
+      {children}
+      <Modal
+        open={Boolean(request)}
+        onClose={() => finish(false)}
+        title={request?.title || "确认操作"}
+        eyebrow="CONFIRM ACTION"
+        danger={request?.tone !== "primary"}
+        closeOnBackdrop={false}
+        footer={
+          <>
+            <Button data-modal-initial-focus onClick={() => finish(false)}>
+              取消
+            </Button>
+            <Button
+              variant={request?.tone === "primary" ? "primary" : "danger"}
+              onClick={() => finish(true)}
+            >
+              {request?.confirmLabel || "确认"}
+            </Button>
+          </>
+        }
+      >
+        <div className="confirm-copy">
+          <CircleAlert size={20} />
+          <div>
+            <p>{request?.description}</p>
+            {request?.detail && <small>{request.detail}</small>}
+          </div>
+        </div>
+      </Modal>
+    </ConfirmContext.Provider>
+  );
+}
+
+export function useConfirm() {
+  const confirm = useContext(ConfirmContext);
+  if (!confirm)
+    throw new Error("useConfirm must be used inside ConfirmProvider");
+  return confirm;
 }
 
 const ToastContext = createContext(null);
@@ -142,12 +341,18 @@ export function useToast() {
   return useContext(ToastContext);
 }
 
-export function Field({ label, hint, children, className = "" }) {
+export function Field({ label, hint, error, children, className = "" }) {
   return (
-    <label className={`field ${className}`}>
+    <label className={`field ${error ? "field-invalid" : ""} ${className}`}>
       <span className="field-label">{label}</span>
       {children}
-      {hint && <small>{hint}</small>}
+      {error ? (
+        <small className="field-error" role="alert">
+          {error}
+        </small>
+      ) : (
+        hint && <small>{hint}</small>
+      )}
     </label>
   );
 }

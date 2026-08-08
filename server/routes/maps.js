@@ -989,6 +989,58 @@ router.delete(
   },
 );
 
+router.post(
+  "/:mapId/leaderboards/:leaderboardId/entries/:entryId/rank-ban",
+  requireMapPermission(PERMISSIONS.LEADERBOARDS_MANAGE),
+  async (req, res) => {
+    const mapId = idSchema.parse(req.params.mapId);
+    const leaderboardId = idSchema.parse(req.params.leaderboardId);
+    const entryId = idSchema.parse(req.params.entryId);
+    const blocked = await transaction(async (client) => {
+      const entryResult = await client.query(
+        `SELECT e.id,e.player_uid,e.player_name
+           FROM leaderboard_entries e
+           JOIN leaderboards l ON l.id=e.leaderboard_id
+          WHERE e.id=$1 AND e.leaderboard_id=$2 AND l.map_id=$3
+          FOR UPDATE OF e`,
+        [entryId, leaderboardId, mapId],
+      );
+      const entry = entryResult.rows[0];
+      if (!entry) throw notFound("排行榜记录不存在");
+      const playerResult = await client.query(
+        `INSERT INTO players(map_id,uid,name,rank_ban)
+         VALUES($1,$2,$3,TRUE)
+         ON CONFLICT(map_id,uid) DO UPDATE SET
+           rank_ban=TRUE,
+           updated_at=NOW()
+         RETURNING id,uid,name,rank_ban`,
+        [mapId, entry.player_uid, entry.player_name],
+      );
+      return { entry, player: playerResult.rows[0] };
+    });
+    await writeAudit(req, {
+      action: "leaderboard.player.ban",
+      resourceType: "player",
+      resourceId: blocked.player.id,
+      mapId,
+      details: {
+        leaderboardId,
+        entryId,
+        uid: blocked.entry.player_uid,
+      },
+    });
+    res.json({
+      success: true,
+      data: {
+        entryId: Number(blocked.entry.id),
+        playerId: Number(blocked.player.id),
+        uid: blocked.player.uid,
+        rankBan: Boolean(blocked.player.rank_ban),
+      },
+    });
+  },
+);
+
 const riskRuleSchema = z.object({
   ruleKey: z
     .string()

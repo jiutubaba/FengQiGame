@@ -13,7 +13,9 @@ import { useAuth } from "../auth/AuthContext";
 import {
   Button,
   EmptyState,
+  ErrorState,
   Field,
+  InlineAlert,
   Modal,
   SectionHead,
   useToast,
@@ -25,7 +27,10 @@ export default function MapCenter() {
   const [search, setSearch] = useState("");
   const [maps, setMaps] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
   const [form, setForm] = useState({ name: "", description: "" });
   const navigate = useNavigate();
   const toast = useToast();
@@ -33,10 +38,11 @@ export default function MapCenter() {
 
   const loadMaps = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
       setMaps(await api("/api/maps"));
     } catch (error) {
-      toast(error.message, "danger");
+      setLoadError(error.message);
     } finally {
       setLoading(false);
     }
@@ -57,6 +63,8 @@ export default function MapCenter() {
   );
 
   const createMap = async () => {
+    setCreating(true);
+    setCreateError("");
     try {
       const created = await api("/api/maps", { method: "POST", body: form });
       setCreateOpen(false);
@@ -65,7 +73,9 @@ export default function MapCenter() {
       await loadMaps();
       navigate(`/maps/${created.id}/metrics`);
     } catch (error) {
-      toast(error.message, "danger");
+      setCreateError(error.message);
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -84,7 +94,10 @@ export default function MapCenter() {
             <Button
               variant="primary"
               icon={Plus}
-              onClick={() => setCreateOpen(true)}
+              onClick={() => {
+                setCreateError("");
+                setCreateOpen(true);
+              }}
             >
               新建地图
             </Button>
@@ -119,8 +132,10 @@ export default function MapCenter() {
         <span className="result-count">共 {filtered.length} 张地图</span>
       </div>
 
-      {loading ? (
+      {loading && !maps.length ? (
         <div className="loading-state">正在读取地图数据…</div>
+      ) : loadError && !maps.length ? (
+        <ErrorState description={loadError} onRetry={loadMaps} />
       ) : filtered.length ? (
         <div className={`map-list map-list-${view}`}>
           {filtered.map((map) => (
@@ -193,22 +208,33 @@ export default function MapCenter() {
 
       <Modal
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => !creating && setCreateOpen(false)}
         title="新建地图"
         eyebrow="CREATE MAP"
+        closeOnBackdrop={!creating}
+        closeOnEscape={!creating}
         footer={
           <>
-            <Button onClick={() => setCreateOpen(false)}>取消</Button>
+            <Button onClick={() => setCreateOpen(false)} disabled={creating}>
+              取消
+            </Button>
             <Button
               variant="primary"
               onClick={createMap}
-              disabled={!form.name.trim()}
+              disabled={!form.name.trim() || creating}
             >
-              创建地图
+              {creating ? "正在创建…" : "创建地图"}
             </Button>
           </>
         }
       >
+        {createError && (
+          <InlineAlert
+            tone="danger"
+            title="地图创建失败"
+            description={createError}
+          />
+        )}
         <Field label="地图名称">
           <input
             className="input"

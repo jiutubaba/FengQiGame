@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useOutletContext, useParams } from "react-router";
+import {
+  useNavigate,
+  useOutletContext,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import {
   Activity,
   ArrowLeft,
@@ -7,6 +12,7 @@ import {
   ArrowUp,
   ArrowUpRight,
   BarChart3,
+  Ban,
   Check,
   CircleHelp,
   Clipboard,
@@ -45,10 +51,14 @@ import {
   Badge,
   Button,
   EmptyState,
+  ErrorState,
   Field,
+  FilterSummary,
+  InlineAlert,
   Modal,
   SectionHead,
   Switch,
+  useConfirm,
   useToast,
 } from "../components/ui";
 import { formatBytes, formatDate, formatNumber } from "../utils/format";
@@ -101,13 +111,19 @@ export default function MapWorkspace() {
   const { selectedMap, refreshMaps } = useOutletContext();
   const { isAdmin } = useAuth();
   const [map, setMap] = useState(selectedMap || null);
-  const toast = useToast();
+  const [loadError, setLoadError] = useState("");
 
+  const loadMap = useCallback(async () => {
+    setLoadError("");
+    try {
+      setMap(await api(`/api/maps/${mapId}`));
+    } catch (error) {
+      setLoadError(error.message);
+    }
+  }, [mapId]);
   useEffect(() => {
-    api(`/api/maps/${mapId}`)
-      .then(setMap)
-      .catch((error) => toast(error.message, "danger"));
-  }, [mapId, toast]);
+    loadMap();
+  }, [loadMap]);
 
   const title = sectionTitles[section];
   const allowed = Boolean(
@@ -125,6 +141,8 @@ export default function MapWorkspace() {
         }
       />
     );
+  if (!map && loadError)
+    return <ErrorState description={loadError} onRetry={loadMap} />;
   if (!map) return <div className="loading-state">正在读取地图与权限…</div>;
   if (!allowed)
     return (
@@ -171,6 +189,14 @@ export default function MapWorkspace() {
           description={title[1]}
         />
       </div>
+      {loadError && (
+        <InlineAlert
+          tone="danger"
+          title="地图信息刷新失败"
+          description={loadError}
+          action={<Button onClick={loadMap}>重新尝试</Button>}
+        />
+      )}
       {panels[section]}
     </div>
   );
@@ -191,28 +217,28 @@ const metricDefinitions = [
   {
     key: "validGameCount",
     label: "游戏有效局",
-    help: "北京时间当天开始，且服务端从首次开局到首次结束或最后心跳观测到的时长严格超过 10 分钟的去重对局数；同一 sessionId 只计一局。",
+    help: "当天开始，且服务端从首次开局到首次结束或最后心跳观测到的时长严格超过 10 分钟的去重对局数；同一 sessionId 只计一局。",
     automaticOnly: true,
   },
   {
     key: "dailyNewUsers",
     label: "日新增用户",
-    help: "北京时间当天首次出现在本地图自动统计中的去重玩家 UID 数。",
+    help: "当天首次出现在本地图自动统计中的去重玩家 UID 数。",
   },
   {
     key: "dailyActiveUsers",
     label: "日活跃用户",
-    help: "北京时间当天被正式对局开始、心跳或结束事件上报过的去重玩家 UID 数。",
+    help: "当天被正式对局开始、心跳或结束事件上报过的去重玩家 UID 数。",
   },
   {
     key: "lostUserCount",
     label: "流失用户数",
-    help: "北京时间当天刚满连续 30 个自然日未活跃的去重玩家数；同一段沉默只在达标当天计算一次。",
+    help: "当天刚满连续 30 个自然日未活跃的去重玩家数；同一段沉默只在达标当天计算一次。",
   },
   {
     key: "returnUserCount",
     label: "回流用户数",
-    help: "上次活跃后连续 30 个自然日未活跃，并在北京时间当天再次活跃的去重玩家数。",
+    help: "上次活跃后连续 30 个自然日未活跃，并在当天再次活跃的去重玩家数。",
   },
   {
     key: "activeUserRetentionRate",
@@ -241,7 +267,7 @@ const metricDefinitions = [
   {
     key: "replayRate",
     label: "复玩率",
-    help: "北京时间当天进入至少 4 个不同正式对局的玩家数 ÷ 当日日活跃玩家数。",
+    help: "当天进入至少 4 个不同正式对局的玩家数 ÷ 当日日活跃玩家数。",
     percentage: true,
     numeratorKey: "replayUserCount",
     denominatorKey: "replayCohortCount",
@@ -683,17 +709,29 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
   const [confirmName, setConfirmName] = useState("");
   const [deleteStep, setDeleteStep] = useState(0);
   const [deleting, setDeleting] = useState(false);
+  const [clearSaving, setClearSaving] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [mapSaving, setMapSaving] = useState(false);
+  const [sectionSaving, setSectionSaving] = useState(false);
+  const [configError, setConfigError] = useState("");
+  const [mapSaveError, setMapSaveError] = useState("");
+  const [sectionSaveError, setSectionSaveError] = useState("");
+  const [clearError, setClearError] = useState("");
+  const [archiveError, setArchiveError] = useState("");
+  const [deleteError, setDeleteError] = useState("");
   const navigate = useNavigate();
+  const confirmAction = useConfirm();
   const toast = useToast();
   const editable = can("map.edit");
 
   const load = useCallback(async () => {
+    setConfigError("");
     try {
       setConfig(await api(`/api/maps/${mapId}/config`));
     } catch (error) {
-      toast(error.message, "danger");
+      setConfigError(error.message);
     }
-  }, [mapId, toast]);
+  }, [mapId]);
   useEffect(() => {
     load();
   }, [load]);
@@ -706,7 +744,48 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
     );
   }, [active, config]);
 
+  const mapChanged =
+    mapForm.name !== map.name ||
+    mapForm.description !== (map.description || "") ||
+    mapForm.coverPath !== (map.coverPath || "");
+  const savedEditor =
+    !config || active === "basic"
+      ? ""
+      : active === "preloadCode"
+        ? String(config[active] || "")
+        : JSON.stringify(config[active] || [], null, 2);
+  const sectionChanged =
+    active !== "basic" && Boolean(config) && editor !== savedEditor;
+
+  const selectSection = async (nextSection) => {
+    if (nextSection === active) return;
+    if (
+      (active === "basic" ? mapChanged : sectionChanged) &&
+      !(await confirmAction({
+        title: "放弃未保存修改",
+        description: "当前板块还有未保存修改，确认切换吗？",
+        detail: "继续切换后，本板块尚未保存的内容会被还原。",
+        confirmLabel: "放弃修改",
+      }))
+    )
+      return;
+    if (active === "basic") {
+      setMapForm({
+        name: map.name,
+        description: map.description || "",
+        coverPath: map.coverPath || "",
+      });
+    } else {
+      setEditor(savedEditor);
+    }
+    setMapSaveError("");
+    setSectionSaveError("");
+    setActive(nextSection);
+  };
+
   const saveMap = async () => {
+    setMapSaving(true);
+    setMapSaveError("");
     try {
       await api(`/api/maps/${mapId}`, {
         method: "PATCH",
@@ -715,10 +794,14 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
       await refreshMap();
       toast("地图基础信息已保存");
     } catch (error) {
-      toast(error.message, "danger");
+      setMapSaveError(error.message);
+    } finally {
+      setMapSaving(false);
     }
   };
   const saveSection = async () => {
+    setSectionSaving(true);
+    setSectionSaveError("");
     try {
       const value = active === "preloadCode" ? editor : JSON.parse(editor);
       const next = await api(`/api/maps/${mapId}/config`, {
@@ -728,10 +811,11 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
       setConfig(next);
       toast("配置已保存");
     } catch (error) {
-      toast(
+      setSectionSaveError(
         error instanceof SyntaxError ? "JSON 格式不正确" : error.message,
-        "danger",
       );
+    } finally {
+      setSectionSaving(false);
     }
   };
   const exportConfig = () => {
@@ -746,6 +830,8 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
     URL.revokeObjectURL(url);
   };
   const clearRuntime = async () => {
+    setClearSaving(true);
+    setClearError("");
     try {
       const counts = await api(`/api/maps/${mapId}/runtime/clear`, {
         method: "POST",
@@ -757,24 +843,36 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
         `运行数据已清理：${Object.values(counts).reduce((sum, value) => sum + value, 0)} 条`,
       );
     } catch (error) {
-      toast(error.message, "danger");
+      setClearError(error.message);
+    } finally {
+      setClearSaving(false);
     }
   };
   const archiveMap = async () => {
     if (
-      !window.confirm(`确认归档地图“${map.name}”？归档后普通列表将不再显示。`)
+      !(await confirmAction({
+        title: "归档地图",
+        description: `确认归档地图“${map.name}”？`,
+        detail: "归档后会退出普通地图列表，但关联业务数据仍会保留。",
+        confirmLabel: "确认归档",
+      }))
     )
       return;
+    setArchiving(true);
+    setArchiveError("");
     try {
       await api(`/api/maps/${mapId}`, { method: "DELETE" });
       toast("地图已归档");
       navigate("/maps");
     } catch (error) {
-      toast(error.message, "danger");
+      setArchiveError(error.message);
+    } finally {
+      setArchiving(false);
     }
   };
   const deleteMapPermanently = async () => {
     setDeleting(true);
+    setDeleteError("");
     try {
       await api(`/api/maps/${mapId}/permanent`, {
         method: "DELETE",
@@ -785,7 +883,7 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
       toast("地图及服务器数据已永久删除");
       navigate("/maps");
     } catch (error) {
-      toast(error.message, "danger");
+      setDeleteError(error.message);
     } finally {
       setDeleting(false);
     }
@@ -797,7 +895,7 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
         <span className="nav-label">配置板块</span>
         <button
           className={active === "basic" ? "active" : ""}
-          onClick={() => setActive("basic")}
+          onClick={() => selectSection("basic")}
         >
           <Edit3 size={16} />
           基础信息
@@ -806,7 +904,7 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
           <button
             key={key}
             className={active === key ? "active" : ""}
-            onClick={() => setActive(key)}
+            onClick={() => selectSection(key)}
           >
             <Settings2 size={16} />
             {label}
@@ -823,11 +921,42 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
                 <p>地图名称全局唯一，运行数据仅归属于当前地图。</p>
               </div>
               {editable && (
-                <Button variant="primary" icon={Save} onClick={saveMap}>
-                  保存地图
+                <Button
+                  variant="primary"
+                  icon={Save}
+                  onClick={saveMap}
+                  disabled={!mapChanged || mapSaving}
+                >
+                  {mapSaving
+                    ? "正在保存…"
+                    : mapChanged
+                      ? "保存地图"
+                      : "地图已保存"}
                 </Button>
               )}
             </div>
+            {mapChanged && (
+              <InlineAlert
+                title="有未保存修改"
+                description="切换配置板块前，请先保存或明确放弃当前修改。"
+              />
+            )}
+            {configError && (
+              <InlineAlert
+                tone="danger"
+                title="完整配置读取失败"
+                description={configError}
+                action={<Button onClick={load}>重新尝试</Button>}
+              />
+            )}
+            {mapSaveError && (
+              <InlineAlert
+                tone="danger"
+                title="地图基础信息保存失败"
+                description={mapSaveError}
+                action={<Button onClick={saveMap}>重新保存</Button>}
+              />
+            )}
             <div className="form-grid">
               <Field label="地图名称">
                 <input
@@ -871,16 +1000,32 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
                   <Button
                     variant="danger"
                     icon={ShieldAlert}
-                    onClick={() => setClearOpen(true)}
+                    onClick={() => {
+                      setClearError("");
+                      setClearOpen(true);
+                    }}
                   >
                     清理运行数据
                   </Button>
-                  <Button variant="danger" icon={Trash2} onClick={archiveMap}>
-                    归档地图
+                  <Button
+                    variant="danger"
+                    icon={Trash2}
+                    onClick={archiveMap}
+                    disabled={archiving}
+                  >
+                    {archiving ? "正在归档…" : "归档地图"}
                   </Button>
                 </>
               )}
             </div>
+            {archiveError && (
+              <InlineAlert
+                tone="danger"
+                title="地图归档失败"
+                description={archiveError}
+                action={<Button onClick={archiveMap}>重新归档</Button>}
+              />
+            )}
             {isAdmin && (
               <div className="danger-zone map-delete-zone">
                 <div>
@@ -896,7 +1041,10 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
                 <Button
                   variant="danger"
                   icon={Trash2}
-                  onClick={() => setDeleteStep(1)}
+                  onClick={() => {
+                    setDeleteError("");
+                    setDeleteStep(1);
+                  }}
                 >
                   永久删除
                 </Button>
@@ -916,40 +1064,83 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
                 </p>
               </div>
               {editable && (
-                <Button variant="primary" icon={Save} onClick={saveSection}>
-                  保存配置
+                <Button
+                  variant="primary"
+                  icon={Save}
+                  onClick={saveSection}
+                  disabled={
+                    !sectionChanged || sectionSaving || Boolean(configError)
+                  }
+                >
+                  {sectionSaving
+                    ? "正在保存…"
+                    : sectionChanged
+                      ? "保存配置"
+                      : "配置已保存"}
                 </Button>
               )}
             </div>
-            <textarea
-              className="code-editor config-editor"
-              spellCheck="false"
-              value={editor}
-              onChange={(event) => setEditor(event.target.value)}
-              readOnly={!editable}
-            />
+            {configError ? (
+              <ErrorState description={configError} onRetry={load} />
+            ) : (
+              <>
+                {sectionChanged && (
+                  <InlineAlert
+                    title="有未保存修改"
+                    description="保存前会校验当前配置格式。"
+                  />
+                )}
+                {sectionSaveError && (
+                  <InlineAlert
+                    tone="danger"
+                    title="配置保存失败"
+                    description={sectionSaveError}
+                    action={<Button onClick={saveSection}>重新保存</Button>}
+                  />
+                )}
+                <textarea
+                  className="code-editor config-editor"
+                  spellCheck="false"
+                  value={editor}
+                  onChange={(event) => setEditor(event.target.value)}
+                  readOnly={!editable}
+                />
+              </>
+            )}
           </>
         )}
       </section>
       <Modal
         open={clearOpen}
-        onClose={() => setClearOpen(false)}
+        onClose={() => {
+          if (!clearSaving) setClearOpen(false);
+        }}
         danger
         title="清理运行数据"
         eyebrow="DANGEROUS OPERATION"
         footer={
           <>
-            <Button onClick={() => setClearOpen(false)}>取消</Button>
+            <Button onClick={() => setClearOpen(false)} disabled={clearSaving}>
+              取消
+            </Button>
             <Button
               variant="danger"
               onClick={clearRuntime}
-              disabled={confirmName !== map.name}
+              disabled={confirmName !== map.name || clearSaving}
             >
-              确认清理
+              {clearSaving ? "正在清理…" : "确认清理"}
             </Button>
           </>
         }
       >
+        {clearError && (
+          <InlineAlert
+            tone="danger"
+            title="运行数据清理失败"
+            description={clearError}
+            action={<Button onClick={clearRuntime}>重新清理</Button>}
+          />
+        )}
         <p className="warning-note">
           将删除当前地图的玩家、礼包资格、消息、日志、指标、排行榜实时数据与快照、风控事件，并把埋点次数归零。排行榜定义、风控规则、地图配置和文件不会删除，操作会写入审计日志。
         </p>
@@ -992,7 +1183,9 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
       </Modal>
       <Modal
         open={deleteStep === 2}
-        onClose={() => !deleting && setDeleteStep(0)}
+        onClose={() => {
+          if (!deleting) setDeleteStep(0);
+        }}
         danger
         title={`最终确认：永久删除“${map.name}”`}
         eyebrow="PERMANENT DELETION · 第二次确认"
@@ -1012,6 +1205,13 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
           </>
         }
       >
+        {deleteError && (
+          <InlineAlert
+            tone="danger"
+            title="地图永久删除失败"
+            description={deleteError}
+          />
+        )}
         <div className="permanent-delete-target">
           <span>即将永久删除</span>
           <strong>{map.name}</strong>
@@ -1026,25 +1226,37 @@ function ConfigPanel({ map, mapId, isAdmin, can, refreshMap, refreshMaps }) {
 }
 
 function PlayersPanel({ mapId, can }) {
+  const [viewParams, setViewParams] = useSearchParams();
   const [players, setPlayers] = useState([]),
     [messages, setMessages] = useState([]),
-    [query, setQuery] = useState(""),
+    [query, setQuery] = useState(() => viewParams.get("q") || ""),
     [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(() => {
+    const value = Number.parseInt(viewParams.get("page") || "1", 10);
+    return Number.isFinite(value) && value > 0 ? value : 1;
+  });
   const [playerPagination, setPlayerPagination] = useState({
     page: 1,
     limit: 20,
     total: 0,
   });
-  const [sortBy, setSortBy] = useState("lastActiveAt");
-  const [sortDirection, setSortDirection] = useState("desc");
+  const [sortBy, setSortBy] = useState(() =>
+    ["level", "lastActiveAt"].includes(viewParams.get("sort"))
+      ? viewParams.get("sort")
+      : "lastActiveAt",
+  );
+  const [sortDirection, setSortDirection] = useState(() =>
+    viewParams.get("direction") === "asc" ? "asc" : "desc",
+  );
   const [selected, setSelected] = useState([]),
     [editing, setEditing] = useState(null),
     [mailOpen, setMailOpen] = useState(false);
   const [mail, setMail] = useState({ subject: "", content: "" });
   const playerRequestId = useRef(0);
   const messageRequestId = useRef(0);
-  const toast = useToast(),
+  const previousPlayersMapId = useRef(mapId);
+  const confirmAction = useConfirm(),
+    toast = useToast(),
     manageable = can("players.manage");
   const loadPlayers = useCallback(async () => {
     const requestId = ++playerRequestId.current;
@@ -1086,15 +1298,30 @@ function PlayersPanel({ mapId, can }) {
     }
   }, [mapId, toast]);
   useEffect(() => {
+    const mapChanged = previousPlayersMapId.current !== mapId;
+    previousPlayersMapId.current = mapId;
     playerRequestId.current += 1;
     messageRequestId.current += 1;
     setPlayers([]);
     setMessages([]);
     setSelected([]);
-    setPage(1);
+    if (mapChanged) {
+      setQuery("");
+      setPage(1);
+      setSortBy("lastActiveAt");
+      setSortDirection("desc");
+    }
     setPlayerPagination({ page: 1, limit: 20, total: 0 });
     setLoading(true);
   }, [mapId]);
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (query.trim()) next.set("q", query.trim());
+    if (page > 1) next.set("page", String(page));
+    if (sortBy !== "lastActiveAt") next.set("sort", sortBy);
+    if (sortDirection !== "desc") next.set("direction", sortDirection);
+    setViewParams(next, { replace: true });
+  }, [page, query, setViewParams, sortBy, sortDirection]);
   useEffect(() => {
     const timer = setTimeout(loadPlayers, 200);
     return () => {
@@ -1135,7 +1362,16 @@ function PlayersPanel({ mapId, can }) {
     }
   };
   const remove = async (player) => {
-    if (!window.confirm(`确认删除玩家“${player.name}”？`)) return;
+    if (
+      !(await confirmAction({
+        title: "删除玩家",
+        description: `确认删除玩家“${player.name}”？`,
+        detail:
+          "该操作会按服务端规则处理玩家及关联业务记录，请确认目标玩家无误。",
+        confirmLabel: "确认删除",
+      }))
+    )
+      return;
     try {
       await api(`/api/maps/${mapId}/players/${player.id}`, {
         method: "DELETE",
@@ -1220,6 +1456,32 @@ function PlayersPanel({ mapId, can }) {
           )}
         </div>
       </div>
+      <FilterSummary
+        items={[
+          ...(query.trim() ? [`搜索：${query.trim()}`] : []),
+          `排序：${sortBy === "level" ? "等级" : "最后活跃"} · ${sortDirection === "asc" ? "升序" : "降序"}`,
+          ...(selected.length ? [`已选 ${selected.length} 位`] : []),
+        ]}
+        resultText={
+          loading
+            ? "正在更新…"
+            : `共 ${formatNumber(playerPagination.total)} 位玩家`
+        }
+        onClear={
+          query.trim() ||
+          selected.length ||
+          sortBy !== "lastActiveAt" ||
+          sortDirection !== "desc"
+            ? () => {
+                setQuery("");
+                setPage(1);
+                setSortBy("lastActiveAt");
+                setSortDirection("desc");
+                setSelected([]);
+              }
+            : undefined
+        }
+      />
       {loading ? (
         <div className="loading-state">正在读取玩家…</div>
       ) : players.length ? (
@@ -1577,8 +1839,10 @@ function LeaderboardsPanel({ mapId, can }) {
   const [snapshotId, setSnapshotId] = useState("");
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [blockingEntryId, setBlockingEntryId] = useState(null);
   const leaderboardRequestId = useRef(0);
   const entriesRequestId = useRef(0);
+  const confirmAction = useConfirm();
   const toast = useToast();
 
   const loadLeaderboards = useCallback(async () => {
@@ -1690,7 +1954,16 @@ function LeaderboardsPanel({ mapId, can }) {
 
   const publish = async () => {
     const current = leaderboards.find((item) => item.id === selectedId);
-    if (!current || !window.confirm(`确认发布“${current.name}”当前前 100 名？`))
+    if (
+      !current ||
+      !(await confirmAction({
+        title: "发布排行榜快照",
+        description: `确认发布“${current.name}”当前前 100 名？`,
+        detail: "发布后会生成可追溯快照，游戏客户端将读取新的已发布榜单。",
+        confirmLabel: "确认发布",
+        tone: "primary",
+      }))
+    )
       return;
     try {
       const snapshot = await api(
@@ -1709,7 +1982,12 @@ function LeaderboardsPanel({ mapId, can }) {
     const current = leaderboards.find((item) => item.id === selectedId);
     if (
       !current ||
-      !window.confirm(`确认删除排行榜“${current.name}”及全部快照？`)
+      !(await confirmAction({
+        title: "删除排行榜",
+        description: `确认删除排行榜“${current.name}”及全部快照？`,
+        detail: "排行榜定义、实时条目和历史发布快照将一并删除，无法撤销。",
+        confirmLabel: "确认删除",
+      }))
     )
       return;
     try {
@@ -1726,7 +2004,15 @@ function LeaderboardsPanel({ mapId, can }) {
   };
 
   const removeEntry = async (entry) => {
-    if (!window.confirm(`确认从实时榜移除“${entry.name}”？`)) return;
+    if (
+      !(await confirmAction({
+        title: "移除实时榜条目",
+        description: `确认从实时榜移除“${entry.name}”？`,
+        detail: "只影响当前实时候选，已经发布的历史快照不会被回写。",
+        confirmLabel: "确认移除",
+      }))
+    )
+      return;
     try {
       await api(
         `/api/maps/${mapId}/leaderboards/${selectedId}/entries/${entry.id}`,
@@ -1737,6 +2023,32 @@ function LeaderboardsPanel({ mapId, can }) {
       loadLeaderboards();
     } catch (error) {
       toast(error.message, "danger");
+    }
+  };
+
+  const blockEntryPlayer = async (entry) => {
+    if (
+      !(await confirmAction({
+        title: "拉黑排行榜玩家",
+        description: `确认将“${entry.name}”（${entry.uid}）设为排行榜封禁？`,
+        detail:
+          "该玩家将从当前地图的所有实时榜及后续发布中排除；已发布历史快照不会被回写，可在玩家管理中取消封禁。",
+        confirmLabel: "确认拉黑",
+      }))
+    )
+      return;
+    setBlockingEntryId(entry.id);
+    try {
+      await api(
+        `/api/maps/${mapId}/leaderboards/${selectedId}/entries/${entry.id}/rank-ban`,
+        { method: "POST" },
+      );
+      toast(`“${entry.name}”已设为排行榜封禁`);
+      await Promise.all([loadEntries(), loadLeaderboards()]);
+    } catch (error) {
+      toast(error.message, "danger");
+    } finally {
+      setBlockingEntryId(null);
     }
   };
 
@@ -1898,6 +2210,24 @@ function LeaderboardsPanel({ mapId, can }) {
                 )}
               </div>
 
+              <FilterSummary
+                items={[
+                  ...(query.trim() ? [`搜索：${query.trim()}`] : []),
+                  snapshotId ? "数据源：已发布快照" : "数据源：实时候选榜",
+                ]}
+                resultText={
+                  loading ? "正在更新…" : `当前显示 ${entries.length} 条排名`
+                }
+                onClear={
+                  query.trim() || snapshotId
+                    ? () => {
+                        setQuery("");
+                        setSnapshotId("");
+                      }
+                    : undefined
+                }
+              />
+
               {loading ? (
                 <div className="loading-state">正在计算排名…</div>
               ) : entries.length ? (
@@ -1945,13 +2275,26 @@ function LeaderboardsPanel({ mapId, can }) {
                           </td>
                           {manageable && !snapshotId && (
                             <td className="align-right">
-                              <button
-                                className="table-action danger"
-                                onClick={() => removeEntry(entry)}
-                              >
-                                <Trash2 size={14} />
-                                移除
-                              </button>
+                              <span className="table-action-group">
+                                <button
+                                  className="table-action danger"
+                                  disabled={blockingEntryId === entry.id}
+                                  onClick={() => removeEntry(entry)}
+                                >
+                                  <Trash2 size={14} />
+                                  移除
+                                </button>
+                                <button
+                                  className="table-action danger"
+                                  disabled={blockingEntryId === entry.id}
+                                  onClick={() => blockEntryPlayer(entry)}
+                                >
+                                  <Ban size={14} />
+                                  {blockingEntryId === entry.id
+                                    ? "处理中…"
+                                    : "拉黑"}
+                                </button>
+                              </span>
                             </td>
                           )}
                         </tr>
@@ -2133,6 +2476,7 @@ const riskStatusTone = (status) =>
         : "neutral";
 
 function RiskPanel({ mapId, can }) {
+  const [viewParams, setViewParams] = useSearchParams();
   const manageable = can("risk.manage");
   const [rules, setRules] = useState([]);
   const [events, setEvents] = useState([]);
@@ -2142,11 +2486,17 @@ function RiskPanel({ mapId, can }) {
     blocked: 0,
     total: 0,
   });
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("open");
+  const [query, setQuery] = useState(() => viewParams.get("q") || "");
+  const [status, setStatus] = useState(() => {
+    const value = viewParams.get("status");
+    if (value === "all") return "";
+    return Object.hasOwn(riskStatusLabels, value) ? value : "open";
+  });
   const [editingRule, setEditingRule] = useState(null);
   const [resolving, setResolving] = useState(null);
   const [loading, setLoading] = useState(true);
+  const previousRiskMapId = useRef(mapId);
+  const confirmAction = useConfirm();
   const toast = useToast();
 
   const loadRules = useCallback(async () => {
@@ -2177,6 +2527,18 @@ function RiskPanel({ mapId, can }) {
     loadRules();
   }, [loadRules]);
   useEffect(() => {
+    if (previousRiskMapId.current === mapId) return;
+    previousRiskMapId.current = mapId;
+    setQuery("");
+    setStatus("open");
+  }, [mapId]);
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (query.trim()) next.set("q", query.trim());
+    next.set("status", status || "all");
+    setViewParams(next, { replace: true });
+  }, [query, setViewParams, status]);
+  useEffect(() => {
     const timer = setTimeout(loadEvents, 180);
     return () => clearTimeout(timer);
   }, [loadEvents]);
@@ -2202,7 +2564,14 @@ function RiskPanel({ mapId, can }) {
   };
 
   const removeRule = async (rule) => {
-    if (!window.confirm(`确认删除规则“${rule.name}”？历史事件会保留规则快照。`))
+    if (
+      !(await confirmAction({
+        title: "删除风控规则",
+        description: `确认删除规则“${rule.name}”？`,
+        detail: "规则会被删除，历史事件仍会保留当时的规则快照。",
+        confirmLabel: "确认删除",
+      }))
+    )
       return;
     try {
       await api(`/api/maps/${mapId}/risk/rules/${rule.id}`, {
@@ -2295,6 +2664,18 @@ function RiskPanel({ mapId, can }) {
           {loading ? "刷新中…" : "刷新事件"}
         </Button>
       </div>
+
+      <FilterSummary
+        items={[
+          ...(query.trim() ? [`搜索：${query.trim()}`] : []),
+          `状态：${status ? riskStatusLabels[status] : "全部状态"}`,
+        ]}
+        resultText={loading ? "正在更新…" : `当前返回 ${events.length} 条事件`}
+        onClear={() => {
+          setQuery("");
+          setStatus("");
+        }}
+      />
 
       <div className="operations-workspace risk-workspace">
         <section className="operations-main risk-events-main">
@@ -2616,6 +2997,7 @@ function GiftsPanel({ mapId }) {
       winnerCount: 1,
     });
   const giftPlayerRequestId = useRef(0);
+  const confirmAction = useConfirm();
   const toast = useToast();
   const load = useCallback(async () => {
     try {
@@ -2737,7 +3119,15 @@ function GiftsPanel({ mapId }) {
     }
   };
   const removeGift = async (gift) => {
-    if (!window.confirm(`确认删除礼包“${gift.name}”？`)) return;
+    if (
+      !(await confirmAction({
+        title: "删除礼包",
+        description: `确认删除礼包“${gift.name}”？`,
+        detail: "礼包定义及玩家对应资格将按服务端规则处理，请确认不再使用。",
+        confirmLabel: "确认删除",
+      }))
+    )
+      return;
     try {
       await api(`/api/maps/${mapId}/gifts/${gift.id}`, { method: "DELETE" });
       setSelectedGifts((current) => current.filter((id) => id !== gift.id));
@@ -2822,7 +3212,16 @@ function GiftsPanel({ mapId }) {
     }
   };
   const draw = async (item) => {
-    if (!window.confirm(`确认立即为“${item.title}”开奖？`)) return;
+    if (
+      !(await confirmAction({
+        title: "立即开奖",
+        description: `确认立即为“${item.title}”开奖？`,
+        detail: "系统会按当前报名名单和中奖人数生成开奖结果。",
+        confirmLabel: "确认开奖",
+        tone: "primary",
+      }))
+    )
+      return;
     try {
       await api(`/api/maps/${mapId}/lotteries/${item.id}/draw`, {
         method: "POST",
@@ -2834,7 +3233,15 @@ function GiftsPanel({ mapId }) {
     }
   };
   const cancelLottery = async (item) => {
-    if (!window.confirm(`确认取消群抽“${item.title}”？`)) return;
+    if (
+      !(await confirmAction({
+        title: "取消群抽",
+        description: `确认取消群抽“${item.title}”？`,
+        detail: "取消后活动不再接受报名，也不能继续开奖。",
+        confirmLabel: "确认取消",
+      }))
+    )
+      return;
     try {
       await api(`/api/maps/${mapId}/lotteries/${item.id}`, {
         method: "DELETE",
@@ -3536,6 +3943,7 @@ function ResourcePanel({ mapId, resource }) {
     label = isAnchor ? "主播" : "埋点";
   const [items, setItems] = useState([]),
     [editing, setEditing] = useState(null);
+  const confirmAction = useConfirm();
   const toast = useToast();
   const load = useCallback(async () => {
     try {
@@ -3585,7 +3993,17 @@ function ResourcePanel({ mapId, resource }) {
     }
   };
   const remove = async (item) => {
-    if (!window.confirm(`确认删除“${item.name}”？`)) return;
+    if (
+      !(await confirmAction({
+        title: `删除${label}`,
+        description: `确认删除“${item.name}”？`,
+        detail: isAnchor
+          ? "主播名单及其专属配置将被删除。"
+          : "埋点定义将被删除，既有累计数据按服务端规则处理。",
+        confirmLabel: "确认删除",
+      }))
+    )
+      return;
     try {
       await api(`/api/maps/${mapId}/${resource}/${item.id}`, {
         method: "DELETE",
@@ -3770,7 +4188,8 @@ function ResourcePanel({ mapId, resource }) {
 function LogsPanel({ mapId, can }) {
   const [logs, setLogs] = useState([]),
     [detail, setDetail] = useState(null);
-  const toast = useToast(),
+  const confirmAction = useConfirm(),
+    toast = useToast(),
     canDelete = can("map.edit");
   const load = useCallback(async () => {
     try {
@@ -3782,9 +4201,18 @@ function LogsPanel({ mapId, can }) {
   useEffect(() => {
     load();
   }, [load]);
-  const remove = async (id) => {
+  const remove = async (item) => {
+    if (
+      !(await confirmAction({
+        title: "删除运行日志",
+        description: "确认删除这条聚合日志？",
+        detail: `该日志累计上传 ${formatNumber(item.uploadCount)} 次，删除后无法恢复。`,
+        confirmLabel: "确认删除",
+      }))
+    )
+      return;
     try {
-      await api(`/api/maps/${mapId}/logs/${id}`, {
+      await api(`/api/maps/${mapId}/logs/${item.id}`, {
         method: "DELETE",
       });
       toast("日志已删除");
@@ -3837,7 +4265,7 @@ function LogsPanel({ mapId, can }) {
                     {canDelete && (
                       <button
                         className="table-action danger"
-                        onClick={() => remove(item.id)}
+                        onClick={() => remove(item)}
                       >
                         <Trash2 size={14} />
                         删除
@@ -3876,6 +4304,7 @@ function FilesPanel({ mapId }) {
     [folderName, setFolderName] = useState(""),
     [uploading, setUploading] = useState(false);
   const inputRef = useRef(null),
+    confirmAction = useConfirm(),
     toast = useToast();
   const load = useCallback(async () => {
     try {
@@ -3926,9 +4355,15 @@ function FilesPanel({ mapId }) {
   };
   const remove = async (item) => {
     if (
-      !window.confirm(
-        `确认删除“${item.name}”${item.kind === "folder" ? "及其全部内容" : ""}？`,
-      )
+      !(await confirmAction({
+        title: item.kind === "folder" ? "删除文件夹" : "删除文件",
+        description: `确认删除“${item.name}”${item.kind === "folder" ? "及其全部内容" : ""}？`,
+        detail:
+          item.kind === "folder"
+            ? "文件夹内的全部文件和子目录都会一并删除，无法撤销。"
+            : "文件删除后无法从后台恢复。",
+        confirmLabel: "确认删除",
+      }))
     )
       return;
     try {
@@ -4099,6 +4534,7 @@ function ApiKeysPanel({ mapId }) {
     [loadingKeyId, setLoadingKeyId] = useState(null),
     [copyingKeyId, setCopyingKeyId] = useState(null);
   const [form, setForm] = useState({ name: "", permissions: [] }),
+    confirmAction = useConfirm(),
     toast = useToast();
   const load = useCallback(async () => {
     try {
@@ -4156,7 +4592,15 @@ function ApiKeysPanel({ mapId }) {
     }
   };
   const disable = async (key) => {
-    if (!window.confirm(`确认停用 API Key“${key.name}”？`)) return;
+    if (
+      !(await confirmAction({
+        title: "停用 API Key",
+        description: `确认停用 API Key“${key.name}”？`,
+        detail: "使用该 Token 的游戏客户端会立即失去接口访问权限。",
+        confirmLabel: "确认停用",
+      }))
+    )
+      return;
     try {
       await api(`/api/maps/${mapId}/api-keys/${key.id}`, { method: "DELETE" });
       toast("API Key 已停用");

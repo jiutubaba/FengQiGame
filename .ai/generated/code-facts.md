@@ -4,7 +4,7 @@
 
 - 项目：`fengqi-game-admin`
 - 版本：`1.0.0`
-- API 路由：97
+- API 路由：98
 - 地图权限：15
 - 客户端权限：11
 - 数据库迁移：2
@@ -112,6 +112,7 @@
 | PATCH | `/api/maps/:mapId/leaderboards/:leaderboardId` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
 | GET | `/api/maps/:mapId/leaderboards/:leaderboardId/entries` | map:LEADERBOARDS_VIEW | `server/routes/maps.js` |
 | DELETE | `/api/maps/:mapId/leaderboards/:leaderboardId/entries/:entryId` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
+| POST | `/api/maps/:mapId/leaderboards/:leaderboardId/entries/:entryId/rank-ban` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
 | POST | `/api/maps/:mapId/leaderboards/:leaderboardId/publish` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
 | GET | `/api/maps/:mapId/logs` | map:LOGS_VIEW | `server/routes/maps.js` |
 | DELETE | `/api/maps/:mapId/logs/:logId` | map:MAP_EDIT | `server/routes/maps.js` |
@@ -239,6 +240,7 @@
 - `leaderboard.create`
 - `leaderboard.delete`
 - `leaderboard.entry.delete`
+- `leaderboard.player.ban`
 - `leaderboard.publish`
 - `leaderboard.update`
 - `log.delete`
