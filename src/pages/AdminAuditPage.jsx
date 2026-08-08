@@ -5,25 +5,27 @@ import {
   Badge,
   Button,
   EmptyState,
+  ErrorState,
+  InlineAlert,
   SectionHead,
-  useToast,
 } from "../components/ui";
 import { formatDate } from "../utils/format";
 
 export default function AdminAuditPage() {
   const [rows, setRows] = useState([]),
     [loading, setLoading] = useState(true);
-  const toast = useToast();
+  const [loadError, setLoadError] = useState("");
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
       setRows(await api("/api/system/audit?limit=100"));
     } catch (error) {
-      toast(error.message, "danger");
+      setLoadError(error.message);
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
   useEffect(() => {
     load();
   }, [load]);
@@ -39,8 +41,18 @@ export default function AdminAuditPage() {
           </Button>
         }
       />
-      {loading ? (
+      {loadError && rows.length > 0 && (
+        <InlineAlert
+          tone="danger"
+          title="审计日志刷新失败"
+          description={loadError}
+          action={<Button onClick={load}>重新尝试</Button>}
+        />
+      )}
+      {loading && !rows.length ? (
         <div className="loading-state">正在读取审计日志…</div>
+      ) : loadError && !rows.length ? (
+        <ErrorState description={loadError} onRetry={load} />
       ) : rows.length ? (
         <div className="table-shell">
           <table className="data-table">

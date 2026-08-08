@@ -570,6 +570,14 @@
     },
     {
       "method": "POST",
+      "path": "/api/maps/:mapId/leaderboards/:leaderboardId/entries/:entryId/rank-ban",
+      "source": "server/routes/maps.js",
+      "guards": [
+        "map:LEADERBOARDS_MANAGE"
+      ]
+    },
+    {
+      "method": "POST",
       "path": "/api/maps/:mapId/leaderboards/:leaderboardId/publish",
       "source": "server/routes/maps.js",
       "guards": [
@@ -931,6 +939,7 @@
     "leaderboard.create",
     "leaderboard.delete",
     "leaderboard.entry.delete",
+    "leaderboard.player.ban",
     "leaderboard.publish",
     "leaderboard.update",
     "log.delete",
@@ -1172,7 +1181,7 @@
     },
     {
       "file": "server/routes/maps.js",
-      "lines": 2762
+      "lines": 2814
     },
     {
       "file": "server/routes/public.js",
@@ -1208,7 +1217,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 2110
+      "lines": 2158
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1240,31 +1249,31 @@
     },
     {
       "file": "src/components/AppShell.jsx",
-      "lines": 320
+      "lines": 384
     },
     {
       "file": "src/components/ui.jsx",
-      "lines": 185
+      "lines": 390
     },
     {
       "file": "src/main.jsx",
-      "lines": 22
+      "lines": 24
     },
     {
       "file": "src/pages/AdminAuditPage.jsx",
-      "lines": 99
+      "lines": 111
     },
     {
       "file": "src/pages/AdminSettingsPage.jsx",
-      "lines": 133
+      "lines": 191
     },
     {
       "file": "src/pages/AdminUsersPage.jsx",
-      "lines": 534
+      "lines": 664
     },
     {
       "file": "src/pages/AuthPage.jsx",
-      "lines": 151
+      "lines": 162
     },
     {
       "file": "src/pages/LotteryPage.jsx",
@@ -1272,15 +1281,15 @@
     },
     {
       "file": "src/pages/MapCenter.jsx",
-      "lines": 235
+      "lines": 261
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 4388
+      "lines": 4832
     },
     {
       "file": "src/pages/ProfilePage.jsx",
-      "lines": 240
+      "lines": 301
     },
     {
       "file": "src/pages/PublicHome.jsx",
@@ -1288,7 +1297,7 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 4854
+      "lines": 5194
     },
     {
       "file": "src/utils/format.js",

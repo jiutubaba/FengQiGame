@@ -12,6 +12,7 @@ import {
   Badge,
   Button,
   Field,
+  InlineAlert,
   Modal,
   SectionHead,
   useToast,
@@ -31,6 +32,10 @@ export default function ProfilePage() {
     newPassword: "",
     confirmation: "",
   });
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
   const toast = useToast();
   useEffect(() => {
     setForm({
@@ -40,6 +45,8 @@ export default function ProfilePage() {
     });
   }, [user]);
   const save = async () => {
+    setSaving(true);
+    setSaveError("");
     try {
       await api("/api/auth/profile", {
         method: "PATCH",
@@ -52,12 +59,16 @@ export default function ProfilePage() {
       await refresh();
       toast("账号资料已保存");
     } catch (error) {
-      toast(error.message, "danger");
+      setSaveError(error.message);
+    } finally {
+      setSaving(false);
     }
   };
   const changePassword = async () => {
     if (password.newPassword !== password.confirmation)
-      return toast("两次输入的新密码不一致", "danger");
+      return setPasswordError("两次输入的新密码不一致");
+    setPasswordSaving(true);
+    setPasswordError("");
     try {
       await api("/api/auth/password", {
         method: "POST",
@@ -70,9 +81,25 @@ export default function ProfilePage() {
       setPassword({ currentPassword: "", newPassword: "", confirmation: "" });
       toast("密码已更新，其它设备的会话已退出");
     } catch (error) {
-      toast(error.message, "danger");
+      setPasswordError(error.message);
+    } finally {
+      setPasswordSaving(false);
     }
   };
+  const closePasswordModal = () => {
+    if (passwordSaving) return;
+    setPasswordOpen(false);
+    setPasswordError("");
+    setPassword({ currentPassword: "", newPassword: "", confirmation: "" });
+  };
+  const dirty =
+    form.displayName !== (user?.displayName || "") ||
+    form.phone !== (user?.phone || "") ||
+    form.description !== (user?.profile?.description || "");
+  const confirmationError =
+    password.confirmation && password.newPassword !== password.confirmation
+      ? "两次输入的新密码不一致"
+      : "";
   return (
     <div className="page-stack page-enter">
       <SectionHead
@@ -173,33 +200,65 @@ export default function ProfilePage() {
           <Button icon={KeyRound} onClick={() => setPasswordOpen(true)}>
             修改密码
           </Button>
-          <Button variant="primary" icon={Save} onClick={save}>
-            保存资料
+          <Button
+            variant="primary"
+            icon={Save}
+            onClick={save}
+            disabled={!dirty || saving}
+          >
+            {saving ? "正在保存…" : dirty ? "保存资料" : "资料已保存"}
           </Button>
         </div>
+        {dirty && (
+          <InlineAlert
+            title="有未保存修改"
+            description="保存成功后，新的账号资料才会生效。"
+          />
+        )}
+        {saveError && (
+          <InlineAlert
+            tone="danger"
+            title="账号资料保存失败"
+            description={saveError}
+            action={<Button onClick={save}>重新保存</Button>}
+          />
+        )}
       </section>
       <Modal
         open={passwordOpen}
-        onClose={() => setPasswordOpen(false)}
+        onClose={closePasswordModal}
         title="修改密码"
         eyebrow="SECURITY"
+        closeOnBackdrop={!passwordSaving}
+        closeOnEscape={!passwordSaving}
         footer={
           <>
-            <Button onClick={() => setPasswordOpen(false)}>取消</Button>
+            <Button onClick={closePasswordModal} disabled={passwordSaving}>
+              取消
+            </Button>
             <Button
               variant="primary"
               onClick={changePassword}
               disabled={
+                passwordSaving ||
                 !password.currentPassword ||
                 password.newPassword.length < 6 ||
-                !password.confirmation
+                !password.confirmation ||
+                Boolean(confirmationError)
               }
             >
-              确认修改
+              {passwordSaving ? "正在修改…" : "确认修改"}
             </Button>
           </>
         }
       >
+        {passwordError && (
+          <InlineAlert
+            tone="danger"
+            title="密码修改失败"
+            description={passwordError}
+          />
+        )}
         <Field label="当前密码">
           <input
             type="password"
@@ -222,15 +281,17 @@ export default function ProfilePage() {
             }
           />
         </Field>
-        <Field label="确认新密码">
+        <Field label="确认新密码" error={confirmationError}>
           <input
             type="password"
             className="input"
             autoComplete="new-password"
             value={password.confirmation}
-            onChange={(event) =>
-              setPassword({ ...password, confirmation: event.target.value })
-            }
+            aria-invalid={Boolean(confirmationError)}
+            onChange={(event) => {
+              setPassword({ ...password, confirmation: event.target.value });
+              setPasswordError("");
+            }}
           />
         </Field>
       </Modal>

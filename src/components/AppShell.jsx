@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Link,
   NavLink,
   Outlet,
   useLocation,
@@ -10,6 +11,7 @@ import {
   Activity,
   Boxes,
   ChevronDown,
+  ChevronRight,
   FileArchive,
   FileKey2,
   Gift,
@@ -125,7 +127,28 @@ export default function AppShell() {
     (item) => isAdmin || permissions.includes(item.permission),
   );
   const inWorkspace = Boolean(mapId);
+  const currentWorkspaceItem = visibleWorkspaceNavigation.find((item) =>
+    location.pathname.endsWith(`/${item.id}`),
+  );
   const closeMobile = () => setMobileOpen(false);
+
+  useEffect(() => {
+    setMobileOpen(false);
+    setProfileOpen(false);
+  }, [location.pathname]);
+  useEffect(() => {
+    if (!mobileOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setMobileOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [mobileOpen]);
 
   const signOut = async () => {
     await logout();
@@ -261,10 +284,36 @@ export default function AppShell() {
             >
               <Menu size={19} />
             </button>
-            <div className="breadcrumb">
+            <nav className="breadcrumb" aria-label="当前位置">
               <Map size={15} />
-              <span>{pageTitle}</span>
-            </div>
+              {inWorkspace && selectedMap ? (
+                <>
+                  <Link className="breadcrumb-home" to="/maps">
+                    地图中心
+                  </Link>
+                  <ChevronRight className="breadcrumb-separator" size={14} />
+                  <Link
+                    className="breadcrumb-map"
+                    to={`/maps/${selectedMap.id}`}
+                  >
+                    {selectedMap.name}
+                  </Link>
+                  {currentWorkspaceItem && (
+                    <>
+                      <ChevronRight
+                        className="breadcrumb-separator"
+                        size={14}
+                      />
+                      <strong aria-current="page">
+                        {currentWorkspaceItem.label}
+                      </strong>
+                    </>
+                  )}
+                </>
+              ) : (
+                <strong aria-current="page">{pageTitle}</strong>
+              )}
+            </nav>
           </div>
           <div className="topbar-right">
             <div className="profile-menu-wrap">
@@ -302,6 +351,21 @@ export default function AppShell() {
             </div>
           </div>
         </header>
+        {inWorkspace && selectedMap && (
+          <nav className="mobile-workspace-nav" aria-label="当前地图功能">
+            <span className="mobile-workspace-label">{selectedMap.name}</span>
+            {visibleWorkspaceNavigation.map(({ id, label, icon: Icon }) => (
+              <NavLink
+                key={id}
+                to={`/maps/${selectedMap.id}/${id}`}
+                className={({ isActive }) => (isActive ? "active" : "")}
+              >
+                <Icon size={15} />
+                {label}
+              </NavLink>
+            ))}
+          </nav>
+        )}
         <main className="page-content">
           <Outlet context={{ maps, selectedMap, refreshMaps }} />
         </main>
