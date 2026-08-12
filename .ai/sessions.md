@@ -2,6 +2,13 @@
 
 只保留最近 5 次重要开发任务。新增一条时删除最旧一条；稳定事实必须同步到系统文档。
 
+## 2026-08-12 [Codex] 后台模块化更新正式发布
+
+- 代码门禁：前端信息架构、按需加载与地图路由领域化改动由 PR #32 合并为 `main@10f453c`。PR 首轮隔离 PostgreSQL 测试发现 `files.js` 拆分时漏迁移上传扩展名黑名单和内联图片类型集合，文件上传返回 500；原常量原样补回后 PR 与 `main` CI 均通过，最终运行 `31612077849` 的质量/审计与隔离 PostgreSQL 两项检查成功，集成测试 17/17 通过。
+- 载荷与备份：从干净合并提交重新执行 `npm ci`、`npm run check` 和 `npm run audit:prod`，13 项单测、生产构建与 0 生产漏洞审计通过。GitHub 非正式发布 `deploy-10f453c` 保存源码包和正式构建包，SHA-256 分别为 `e2e16d1c48670bcdc09e0f44d911548aa5950f5845fde750a2d6b61e9ab231d4`、`4c94ed5dff7dfb5ae7a4bd228ed37a9b0941aaf595cff399be7dd6e84de3d846`。发布前数据库备份 `fengqi-20260812-232707.dump` 与上传卷备份 `fengqi-uploads-20260812-232708.tar.gz` 均为非空并完成私有 OSS CRC64 校验。
+- 正式发布：服务器下载载荷并复核 SHA-256，以旧正式镜像为基底替换 `server` 与新鲜 `dist`，只重建 app。正式 `.release-commit` 为 `10f453c`，镜像为 `sha256:ee86044631f1c7ff7aee8226907772d9a4102be5caf5e7ceb8e18d23dd9b801a`；旧镜像标签 `pre-ce7cec1-20260812-232910` 和源码备份 `source-pre-ce7cec1-20260812-232910.tar.gz` 已保留，未改变 PostgreSQL、上传卷、Caddy、`.env` 或网络。
+- 生产验收：app/db healthy、Caddy running、三容器 0 重启，容器内健康 200，`001`、`002` 迁移与目标表/字段存在，备份 timer active/enabled，近 15 分钟 app error/fatal 为 0。公网 HTTP 308、HTTPS 200、`www` 保留 URI 301、安全头、缺 Key 401 和 `FQ_MISSING_API_KEY` 均通过；首页、主 JS、主 CSS 哈希与本次本机构建一致。Chrome 扩展侧连续两次超时，正式页面的真实浏览器可见状态与控制台未完成，未将 HTTP 与哈希验收冒充浏览器交互验收。
+
 ## 2026-08-12 [Codex] 地图后台路由领域化代码治理
 
 - 模块边界：`server/routes/maps.js` 从 2813 行业务混合文件收口为 31 行组合入口；原有实现按地图生命周期、玩家与消息、排行榜、风控、礼包与群抽、运营资源、文件、API Key 拆入 `server/routes/maps/` 的 9 个领域模块，仅将跨领域复用的 ID 校验与分页解析保留在 `shared.js`。没有新增依赖、兼容层、API 或业务行为。
@@ -32,10 +39,3 @@
 - 访问边界：只为本机当前真实公网 IPv4 在正式 ECS 安全组和 UFW 增加 TCP 22 的单地址 `/32` 规则；网页代理出口的误判规则已在验证后从两层防火墙撤销。`sshd`、SFTP 子系统、主机指纹和现有 `ecs-user` 身份文件均已通过真实连接验证，没有开放网段、密码登录、root 直登或数据库端口。
 - 本机挂载：安装 WinFsp 2.1.25156 与 rclone 1.75.0，通过 SFTP 将正式 `/opt/fengqigame` 映射为网络驱动器 `S:`，卷名为“FQ服务器”；挂载固定使用 `--read-only`、`--network-mode` 和 `known_hosts` 校验，不保存密码或私钥内容。当前用户登录启动项 `FQServerSDrive` 已建立，用于登录后自动恢复盘符。
 - 验收：真实桌面 Session 1 中的 rclone 进程和 `S:` 均已建立，Windows 报告约 98.1 GiB 总容量、6.4 GiB 已用、91.6 GiB 可用；服务器侧文件系统显示 99G、已用 6.5G、可用 88G、使用率 7%。`/opt/fengqigame` 为 `root:root` 且 `ecs-user` 无写权限，客户端与服务器权限形成双层只读边界。当前公网 IP 变化后需同步更新安全组与 UFW 的 `/32` 白名单。
-
-## 2026-08-08 [Codex] 云助手免 SSH 发布通道、生产发布与技能固化
-
-- 访问通道：本机安装阿里云 CLI 3.4.11 与 ECS 插件 0.7.6，使用 OAuth 配置 `fq-production` 和 RAM 用户 `fq-codex-deployer`；最小权限策略只绑定广州正式实例 `i-7xvdufe80gxzqw3oowvo` 的云助手命令、结果查询和文件投递，不持有长期 AccessKey。新增通用调用脚本，已通过真实 Agent 状态和只读远程命令验证。
-- 正式发布：PR #27 已合并为 `main@bc344155`。发布载荷通过 GitHub 非正式发布传输并完成 SHA-256 校验；发布前数据库与上传卷备份 `fengqi-20260808-021720.dump`、`fengqi-uploads-20260808-021720.tar.gz` 均完成私有 OSS CRC64 校验。仅替换 app，未改变 PostgreSQL、上传卷、Caddy 或 `.env`。
-- 回滚与验收：新镜像为 `sha256:5d497141e5df59a8a2e0b5081a6079e29fe26be4076a3961255e303b1584de2f`，旧镜像标签 `pre-bc344155-20260807-181921` 与源码备份 `source-pre-bc344155-20260807-181921.tar.gz` 已保留。迁移 `002_leaderboard_daily_collections.sql`、排行榜每日采集表、app/db healthy、备份 timer、新前端资源、公网 HTTP 308/HTTPS 200/WWW 301、安全响应头和缺 Key 401 均已验证。
-- 技能固化：新增仓库级 `$publish-fq-admin`，覆盖“发布 FQ 后台”及同义生产部署请求；强制执行 `main`/required checks、双备份与 OSS 校验、载荷 SHA-256、app-only 更新、失败回滚、生产验收和五条会话归档，并明确排除凭据读取、地图包、数据库恢复、数据删除和基础设施变更。官方校验器在 UTF-8 模式下验证通过。
