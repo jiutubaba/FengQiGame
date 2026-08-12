@@ -6,7 +6,6 @@
   --font-ui:
     "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei UI",
     "Microsoft YaHei", system-ui, sans-serif;
-  --serif: "Noto Serif SC Variable", "Songti SC", "STSong", "SimSun", serif;
   --font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   --bg: #f7f7f5;
   --surface: #ffffff;
@@ -58,7 +57,7 @@
   gap: 18px;
   background: var(--bg);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.12em;
 }
 .boot-screen img {
@@ -74,7 +73,7 @@
   border-radius: 10px;
   background: var(--surface);
   color: var(--muted-2);
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.08em;
 }
 .pulse-dot.is-danger {
@@ -95,7 +94,7 @@
 .form-success {
   margin: 0;
   padding: 10px 12px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .form-error {
   border: 1px solid rgba(212, 72, 72, 0.22);
@@ -452,7 +451,7 @@
 }
 .system-stat-grid small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .system-stat-grid strong {
   margin-top: 4px;
@@ -471,12 +470,12 @@
   color: var(--green);
 }
 .security-notice strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 .security-notice p {
   margin: 5px 0 0;
   color: #5f7066;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.7;
 }
 
@@ -541,7 +540,7 @@
 .lottery-hero p {
   margin: 12px auto;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.8;
 }
 .lottery-hero > div {
@@ -566,7 +565,7 @@
   color: var(--gold);
 }
 .lottery-winners h2 {
-  font: 500 22px var(--serif);
+  font: 650 22px var(--font-ui);
 }
 .lottery-winners > div {
   display: flex;
@@ -586,7 +585,7 @@
   border-top: 1px solid var(--line);
   background: #fafaf9;
   color: var(--muted-2);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 @media (max-width: 680px) {
@@ -911,7 +910,7 @@ textarea::placeholder {
 }
 .field small {
   color: var(--muted-2);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.55;
 }
 .form-grid {
@@ -1265,7 +1264,7 @@ textarea::placeholder {
   border-top: 1px solid var(--line-soft);
   background: #fff;
   color: var(--muted-2);
-  font-size: 11px;
+  font-size: 12px;
 }
 .landing-footer-records {
   display: flex;
@@ -1323,6 +1322,9 @@ textarea::placeholder {
   color: #65686e;
   font-size: 12px;
 }
+.auth-mobile-back {
+  display: none;
+}
 .auth-back:hover {
   color: #202124;
 }
@@ -1362,7 +1364,7 @@ textarea::placeholder {
   gap: 3px;
 }
 .auth-system-state strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 .auth-system-state small {
   color: var(--muted-2);
@@ -1519,7 +1521,7 @@ textarea::placeholder {
   text-align: center;
   margin: 17px 0 0;
   color: var(--muted-2);
-  font-size: 11px;
+  font-size: 12px;
 }
 .sms-input {
   display: grid;
@@ -1605,6 +1607,17 @@ textarea::placeholder {
 .nav-label-spaced {
   margin-top: 24px;
 }
+.workspace-nav-group + .workspace-nav-group {
+  margin-top: 15px;
+}
+.workspace-group-label {
+  display: block;
+  margin: 0 11px 5px;
+  color: #9a9ca1;
+  font-size: 11px;
+  font-weight: 720;
+  letter-spacing: 0.1em;
+}
 .side-link {
   min-height: 42px;
   display: flex;
@@ -1689,7 +1702,7 @@ textarea::placeholder {
 }
 .system-health small {
   color: #81848a;
-  font-size: 11px;
+  font-size: 12px;
 }
 .build-number {
   display: block;
@@ -1809,7 +1822,7 @@ textarea::placeholder {
 }
 .profile-copy small {
   color: #8b8d92;
-  font-size: 11px;
+  font-size: 12px;
 }
 .profile-trigger > svg {
   color: #575d64;
@@ -1889,6 +1902,14 @@ textarea::placeholder {
   display: none;
 }
 .mobile-workspace-nav {
+  display: none;
+}
+.mobile-workspace-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.mobile-workspace-group > span {
   display: none;
 }
 
@@ -2102,7 +2123,7 @@ textarea::placeholder {
   overflow: hidden;
   width: 100%;
   color: #898c91;
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2117,7 +2138,7 @@ textarea::placeholder {
   gap: 10px;
   margin-top: 9px;
   color: #999b9f;
-  font-size: 11px;
+  font-size: 12px;
 }
 .map-list-list {
   display: flex;
@@ -2185,11 +2206,11 @@ textarea::placeholder {
   gap: 3px;
 }
 .coin-strip strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 .coin-strip small {
   color: #5e72a8;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* workspace */
@@ -2258,13 +2279,39 @@ textarea::placeholder {
   color: #6f7278;
   font-size: 12px;
 }
+.metric-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.metric-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+.metric-group-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 680;
+}
+.metric-group-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   border: 1px solid var(--line);
-  border-bottom: 0;
   overflow: visible;
-  border-radius: 10px 10px 0 0;
+  border-radius: 10px;
+}
+.metric-grid-flow {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.metric-grid-flow .metric-cell:last-child {
+  border-right: 0;
 }
 .metric-cell {
   position: relative;
@@ -2285,7 +2332,7 @@ textarea::placeholder {
   background: var(--accent-soft);
   box-shadow: inset 0 2px 0 var(--accent);
 }
-.metric-cell:nth-child(6n) {
+.metric-cell:nth-child(4n) {
   border-right: 0;
 }
 .metric-cell-top {
@@ -2579,7 +2626,7 @@ textarea::placeholder {
 .subsection-head p {
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 .config-command-list {
@@ -2647,11 +2694,11 @@ textarea::placeholder {
   gap: 3px;
 }
 .danger-zone strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 .danger-zone small {
   color: #916060;
-  font-size: 11px;
+  font-size: 12px;
 }
 .map-delete-zone {
   gap: 18px;
@@ -2699,14 +2746,14 @@ textarea::placeholder {
 .cover-editor p {
   max-width: 520px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 .inline-table-head {
   align-items: center;
   padding-bottom: 11px;
   color: #6f757c;
-  font-size: 11px;
+  font-size: 12px;
 }
 .table-shell,
 .config-table-wrap {
@@ -2729,7 +2776,7 @@ textarea::placeholder {
   border-bottom: 1px solid var(--line);
   background: #f7f7f5;
   color: #6d7076;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 750;
   letter-spacing: 0.06em;
   white-space: nowrap;
@@ -2859,11 +2906,11 @@ textarea::placeholder {
   gap: 4px;
 }
 .gift-toggle-list strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 .gift-toggle-list small {
   color: #8a8d92;
-  font-size: 11px;
+  font-size: 12px;
 }
 .compact-input {
   width: 74px;
@@ -2877,7 +2924,7 @@ textarea::placeholder {
   border: 1px solid rgba(123, 169, 239, 0.16);
   background: rgba(123, 169, 239, 0.04);
   color: #6f7e92;
-  font-size: 11px;
+  font-size: 12px;
 }
 .api-note code {
   color: #91b9f2;
@@ -2894,7 +2941,7 @@ textarea::placeholder {
   border: 0;
   background: none;
   color: #666970;
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 .code-toolbar button:hover {
@@ -2940,7 +2987,7 @@ textarea::placeholder {
 .select-compact {
   width: 125px;
   height: 38px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .table-footer {
   display: flex;
@@ -2950,7 +2997,7 @@ textarea::placeholder {
   border-top: 1px solid var(--line);
   background: #fafaf9;
   color: #7e8187;
-  font-size: 11px;
+  font-size: 12px;
 }
 .pagination {
   display: flex;
@@ -2966,7 +3013,7 @@ textarea::placeholder {
   border-radius: 5px;
   background: #fff;
   color: #666970;
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -3004,7 +3051,7 @@ textarea::placeholder {
   border: 0;
   background: none;
   color: var(--gold);
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 .status-control-list {
@@ -3024,11 +3071,11 @@ textarea::placeholder {
   gap: 4px;
 }
 .status-control-list strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 .status-control-list small {
   color: #8a8d92;
-  font-size: 11px;
+  font-size: 12px;
 }
 .gift-workspace {
   display: grid;
@@ -3164,7 +3211,7 @@ textarea::placeholder {
   gap: 4px;
 }
 .recipient-list strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 .recipient-list small {
   color: #8d8f94;
@@ -3559,7 +3606,7 @@ textarea::placeholder {
 }
 .api-inline small {
   color: #8d8f94;
-  font-size: 11px;
+  font-size: 12px;
 }
 .log-code {
   color: #55585e !important;
@@ -3595,7 +3642,7 @@ textarea::placeholder {
   font-size: 12px;
 }
 .dropzone span {
-  font-size: 11px;
+  font-size: 12px;
 }
 .file-drop-banner {
   display: flex;
@@ -3615,11 +3662,11 @@ textarea::placeholder {
   gap: 4px;
 }
 .file-drop-banner strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 .file-drop-banner small {
   color: #6577a7;
-  font-size: 11px;
+  font-size: 12px;
 }
 .file-drop-banner .btn {
   margin-left: auto;
@@ -3629,7 +3676,7 @@ textarea::placeholder {
   align-items: center;
   gap: 7px;
   color: #75787e;
-  font-size: 11px;
+  font-size: 12px;
 }
 .folder-crumb svg:first-child {
   color: var(--gold);
@@ -3691,11 +3738,11 @@ textarea::placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 13px;
 }
 .file-copy span {
   color: #8d8f94;
-  font-size: 11px;
+  font-size: 12px;
 }
 .file-item > button {
   border: 0;
@@ -3763,7 +3810,7 @@ textarea::placeholder {
 }
 .profile-identity p {
   color: #777a80;
-  font-size: 11px;
+  font-size: 13px;
 }
 .profile-identity > div {
   display: flex;
@@ -3803,7 +3850,7 @@ textarea::placeholder {
 }
 .profile-stats small {
   color: #929499;
-  font-size: 11px;
+  font-size: 12px;
 }
 .profile-stats strong {
   color: #35383d;
@@ -3849,11 +3896,11 @@ textarea::placeholder {
   gap: 4px;
 }
 .login-records strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 .login-records small {
   color: #909297;
-  font-size: 11px;
+  font-size: 12px;
 }
 .login-records code {
   color: #666970;
@@ -4177,6 +4224,39 @@ textarea::placeholder {
 .operations-rail-list > button.active {
   box-shadow: 3px 0 0 var(--accent) inset;
 }
+.rail-error,
+.gift-inline-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px;
+  background: #fffafa;
+  color: #9d3f3f;
+  font-size: 12px;
+}
+.rail-error {
+  justify-content: space-between;
+  border-top: 1px solid rgba(212, 72, 72, 0.16);
+}
+.rail-error button,
+.gift-inline-error button {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid rgba(212, 72, 72, 0.24);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: inherit;
+  cursor: pointer;
+}
+.gift-inline-error {
+  flex-wrap: wrap;
+  border: 1px solid rgba(212, 72, 72, 0.2);
+  border-radius: var(--radius-sm);
+}
+.gift-inline-error span {
+  min-width: 120px;
+  flex: 1;
+}
 .rail-rank-mark {
   width: 29px;
   height: 29px;
@@ -4204,11 +4284,11 @@ textarea::placeholder {
   white-space: nowrap;
 }
 .operations-rail-list strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 .operations-rail-list small {
   color: #898c91;
-  font-size: 11px;
+  font-size: 12px;
 }
 .operations-rail-list i,
 .risk-rule-list i {
@@ -4226,7 +4306,7 @@ textarea::placeholder {
   margin: 0;
   padding: 22px 15px;
   color: #636a71;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.7;
 }
 .operations-main {
@@ -4244,7 +4324,7 @@ textarea::placeholder {
 }
 .publish-action > small {
   color: #85888e;
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .operations-context-line {
@@ -4268,14 +4348,14 @@ textarea::placeholder {
 }
 .operations-context-line span {
   color: #85888e;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.05em;
 }
 .operations-context-line strong,
 .operations-context-line code {
   overflow: hidden;
   color: #3f4248;
-  font-size: 11px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4301,7 +4381,7 @@ textarea::placeholder {
 .snapshot-select {
   width: 230px;
   height: 34px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .leaderboard-table-shell {
   border-width: 0;
@@ -4349,7 +4429,7 @@ textarea::placeholder {
 .status-filter {
   width: 130px;
   height: 38px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .risk-workspace {
   grid-template-columns: minmax(0, 1fr) 280px;
@@ -4393,7 +4473,7 @@ textarea::placeholder {
 }
 .risk-rule-list strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4454,7 +4534,7 @@ textarea::placeholder {
 }
 .event-evidence > small {
   color: #85888e;
-  font-size: 11px;
+  font-size: 12px;
 }
 .event-evidence pre {
   max-height: 255px;
@@ -4590,6 +4670,11 @@ textarea::placeholder {
   .mobile-workspace-nav a.active {
     background: #e7e7e4;
     color: #202124;
+  }
+  .mobile-workspace-group + .mobile-workspace-group {
+    margin-left: 7px;
+    padding-left: 7px;
+    border-left: 1px solid var(--line);
   }
   .modal-backdrop {
     padding: calc(var(--topbar) + 16px) 16px 16px;
@@ -4855,9 +4940,21 @@ textarea::placeholder {
     display: none;
   }
   .auth-panel {
+    position: relative;
     min-height: 100svh;
     place-items: start center;
     padding: clamp(84px, 13svh, 112px) 22px 44px;
+  }
+  .auth-mobile-back {
+    position: absolute;
+    top: 18px;
+    left: 22px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: #676a70;
+    font-size: 13px;
   }
   .input-with-icon {
     height: 48px;
@@ -4948,6 +5045,14 @@ textarea::placeholder {
   }
   .metric-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .metric-grid-flow .metric-cell:last-child {
+    border-right: 1px solid var(--line);
+  }
+  .metric-group-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
   }
   .metric-cell:nth-child(3n) {
     border-right: 1px solid var(--line);

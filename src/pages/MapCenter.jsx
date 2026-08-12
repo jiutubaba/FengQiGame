@@ -7,7 +7,12 @@ import {
   Search,
   ShieldCheck,
 } from "lucide-react";
-import { useNavigate } from "react-router";
+import {
+  Link,
+  useNavigate,
+  useOutletContext,
+  useSearchParams,
+} from "react-router";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import {
@@ -23,8 +28,11 @@ import {
 import { formatDate, formatNumber } from "../utils/format";
 
 export default function MapCenter() {
-  const [view, setView] = useState("grid");
-  const [search, setSearch] = useState("");
+  const [viewParams, setViewParams] = useSearchParams();
+  const [view, setView] = useState(() =>
+    viewParams.get("view") === "list" ? "list" : "grid",
+  );
+  const [search, setSearch] = useState(() => viewParams.get("q") || "");
   const [maps, setMaps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -35,22 +43,31 @@ export default function MapCenter() {
   const navigate = useNavigate();
   const toast = useToast();
   const { isAdmin } = useAuth();
+  const { syncMaps } = useOutletContext();
 
   const loadMaps = useCallback(async () => {
     setLoading(true);
     setLoadError("");
     try {
-      setMaps(await api("/api/maps"));
+      const rows = await api("/api/maps");
+      setMaps(rows);
+      syncMaps(rows);
     } catch (error) {
       setLoadError(error.message);
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [syncMaps]);
 
   useEffect(() => {
     loadMaps();
   }, [loadMaps]);
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (search.trim()) next.set("q", search.trim());
+    if (view !== "grid") next.set("view", view);
+    setViewParams(next, { replace: true });
+  }, [search, setViewParams, view]);
 
   const filtered = useMemo(
     () =>
@@ -111,19 +128,24 @@ export default function MapCenter() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="搜索地图名称或 ID"
+            aria-label="搜索地图名称或 ID"
           />
         </div>
         <div className="view-toggle">
           <button
+            type="button"
             className={view === "list" ? "active" : ""}
             onClick={() => setView("list")}
+            aria-pressed={view === "list"}
           >
             <List size={16} />
             列表视图
           </button>
           <button
+            type="button"
             className={view === "grid" ? "active" : ""}
             onClick={() => setView("grid")}
+            aria-pressed={view === "grid"}
           >
             <Grid2X2 size={16} />
             卡片视图
@@ -132,6 +154,15 @@ export default function MapCenter() {
         <span className="result-count">共 {filtered.length} 张地图</span>
       </div>
 
+      {loadError && maps.length > 0 && (
+        <InlineAlert
+          tone="danger"
+          title="地图列表刷新失败"
+          description={loadError}
+          action={<Button onClick={loadMaps}>重新尝试</Button>}
+        />
+      )}
+
       {loading && !maps.length ? (
         <div className="loading-state">正在读取地图数据…</div>
       ) : loadError && !maps.length ? (
@@ -139,18 +170,11 @@ export default function MapCenter() {
       ) : filtered.length ? (
         <div className={`map-list map-list-${view}`}>
           {filtered.map((map) => (
-            <article
+            <Link
               className="map-card"
               key={map.id}
-              role="link"
-              tabIndex={0}
+              to={`/maps/${map.id}/metrics`}
               aria-label={`打开地图 ${map.name}`}
-              onClick={() => navigate(`/maps/${map.id}/metrics`)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  navigate(`/maps/${map.id}/metrics`);
-                }
-              }}
             >
               <div
                 className={`map-cover ${map.coverPath ? "has-cover" : "is-placeholder"}`}
@@ -191,7 +215,7 @@ export default function MapCenter() {
                   <span>更新 {formatDate(map.updatedAt)}</span>
                 </div>
               </div>
-            </article>
+            </Link>
           ))}
         </div>
       ) : (

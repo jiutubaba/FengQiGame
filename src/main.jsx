@@ -2,7 +2,6 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import "@fontsource-variable/noto-sans-sc/wght.css";
-import "@fontsource-variable/noto-serif-sc/wght.css";
 import App from "./App";
 import { AuthProvider } from "./auth/AuthContext";
 import { ConfirmProvider, ToastProvider } from "./components/ui";

@@ -71,6 +71,10 @@ export default function AuthPage() {
         </div>
       </div>
       <div className="auth-panel">
+        <Link className="auth-mobile-back" to="/">
+          <ArrowLeft size={16} />
+          返回首页
+        </Link>
         <form className="auth-form" onSubmit={submit}>
           <div className="auth-brand">
             <span className="brand-mark">

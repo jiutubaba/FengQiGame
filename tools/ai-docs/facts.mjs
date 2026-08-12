@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import {
   absolutePath,
   lineCount,
+  pathExists,
   readUtf8,
   sha256,
   stableUnique,
@@ -51,46 +52,71 @@ async function collectApiRoutes() {
 
   const routes = [];
   for (const [routerName, file] of imports) {
-    const source = await readUtf8(file);
-    const routeMatches = [
-      ...source.matchAll(
-        /router\.(get|post|put|patch|delete)\(\s*["'`]([^"'`]+)["'`]/g,
-      ),
-    ];
-    const fileGuardMatch = source.match(/router\.use\(([^;]+)\);/);
-    const fileGuards = fileGuardMatch
-      ? collectGuardNames(fileGuardMatch[1])
+    const entrySource = await readUtf8(file);
+    const entryGuardMatch = entrySource.match(/router\.use\(([^;]+)\);/);
+    const entryGuards = entryGuardMatch
+      ? collectGuardNames(entryGuardMatch[1])
       : [];
-    for (let index = 0; index < routeMatches.length; index += 1) {
-      const match = routeMatches[index];
-      const end = routeMatches[index + 1]?.index ?? source.length;
-      const routeSource = source.slice(match.index, end);
-      const prefix = mounts.get(routerName) || "";
-      routes.push({
-        method: match[1].toUpperCase(),
-        path: `${prefix}${match[2]}`,
-        source: file,
-        guards: stableUnique([
-          ...fileGuards,
-          ...collectGuardNames(routeSource),
-        ]),
-      });
+    const routeFiles = [file];
+    const moduleDirectory = file.replace(/\.js$/, "");
+    if (await pathExists(moduleDirectory)) {
+      routeFiles.push(
+        ...(await walkFiles(moduleDirectory, {
+          filter: (candidate) => candidate.endsWith(".js"),
+        })),
+      );
     }
-    for (const resource of collectSimpleResources(source)) {
-      for (const method of ["GET", "POST"])
+
+    for (const routeFile of routeFiles) {
+      const source =
+        routeFile === file ? entrySource : await readUtf8(routeFile);
+      const routeMatches = [
+        ...source.matchAll(
+          /router\.(get|post|put|patch|delete)\(\s*["'`]([^"'`]+)["'`]/g,
+        ),
+      ];
+      const fileGuardMatch = source.match(/router\.use\(([^;]+)\);/);
+      const fileGuards = fileGuardMatch
+        ? collectGuardNames(fileGuardMatch[1])
+        : [];
+      for (let index = 0; index < routeMatches.length; index += 1) {
+        const match = routeMatches[index];
+        const end = routeMatches[index + 1]?.index ?? source.length;
+        const routeSource = source.slice(match.index, end);
+        const prefix = mounts.get(routerName) || "";
         routes.push({
-          method,
-          path: `${mounts.get(routerName) || ""}/:mapId/${resource.pathName}`,
-          source: file,
-          guards: [`map:${resource.permission}`],
+          method: match[1].toUpperCase(),
+          path: `${prefix}${match[2]}`,
+          source: routeFile,
+          guards: stableUnique([
+            ...entryGuards,
+            ...fileGuards,
+            ...collectGuardNames(routeSource),
+          ]),
         });
-      for (const method of ["PATCH", "DELETE"])
-        routes.push({
-          method,
-          path: `${mounts.get(routerName) || ""}/:mapId/${resource.pathName}/:resourceId`,
-          source: file,
-          guards: [`map:${resource.permission}`],
-        });
+      }
+      for (const resource of collectSimpleResources(source)) {
+        for (const method of ["GET", "POST"])
+          routes.push({
+            method,
+            path: `${mounts.get(routerName) || ""}/:mapId/${resource.pathName}`,
+            source: routeFile,
+            guards: stableUnique([
+              ...entryGuards,
+              `map:${resource.permission}`,
+            ]),
+          });
+        for (const method of ["PATCH", "DELETE"])
+          routes.push({
+            method,
+            path: `${mounts.get(routerName) || ""}/:mapId/${resource.pathName}/:resourceId`,
+            source: routeFile,
+            guards: stableUnique([
+              ...entryGuards,
+              `map:${resource.permission}`,
+            ]),
+          });
+      }
     }
   }
   return routes.sort(
