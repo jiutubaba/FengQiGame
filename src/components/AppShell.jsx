@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -78,6 +78,24 @@ const workspaceNavigation = [
   },
 ];
 
+const workspaceGroups = [
+  {
+    id: "insights",
+    label: "数据监控",
+    items: ["metrics", "leaderboards", "risk", "logs"],
+  },
+  {
+    id: "operations",
+    label: "玩家运营",
+    items: ["players", "gifts", "anchors", "points"],
+  },
+  {
+    id: "delivery",
+    label: "地图管理",
+    items: ["config", "files", "api-keys"],
+  },
+];
+
 function SideLink({ to, icon: Icon, label, end = false, onClick }) {
   return (
     <NavLink
@@ -101,22 +119,25 @@ export default function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [healthy, setHealthy] = useState(null);
+  const sidebarRef = useRef(null);
+  const profileMenuRef = useRef(null);
+  const profileTriggerRef = useRef(null);
 
   const refreshMaps = useCallback(
     () =>
       api("/api/maps")
         .then(setMaps)
-        .catch(() => setMaps([])),
+        .catch(() => null),
     [],
   );
   useEffect(() => {
     refreshMaps();
-  }, [refreshMaps, location.pathname]);
+  }, [refreshMaps]);
   useEffect(() => {
     api("/api/system/health")
       .then(() => setHealthy(true))
       .catch(() => setHealthy(false));
-  }, [location.pathname]);
+  }, []);
 
   const selectedMap = useMemo(
     () => maps.find((item) => item.id === Number(mapId)),
@@ -126,6 +147,14 @@ export default function AppShell() {
   const visibleWorkspaceNavigation = workspaceNavigation.filter(
     (item) => isAdmin || permissions.includes(item.permission),
   );
+  const visibleWorkspaceGroups = workspaceGroups
+    .map((group) => ({
+      ...group,
+      items: group.items
+        .map((id) => visibleWorkspaceNavigation.find((item) => item.id === id))
+        .filter(Boolean),
+    }))
+    .filter((group) => group.items.length);
   const inWorkspace = Boolean(mapId);
   const currentWorkspaceItem = visibleWorkspaceNavigation.find((item) =>
     location.pathname.endsWith(`/${item.id}`),
@@ -139,20 +168,85 @@ export default function AppShell() {
   useEffect(() => {
     if (!mobileOpen) return undefined;
     const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement;
     document.body.style.overflow = "hidden";
     const closeOnEscape = (event) => {
-      if (event.key === "Escape") setMobileOpen(false);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMobileOpen(false);
+        return;
+      }
+      if (event.key !== "Tab" || !sidebarRef.current) return;
+      const controls = [
+        ...sidebarRef.current.querySelectorAll(
+          "button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])",
+        ),
+      ].filter((element) => element.offsetParent !== null);
+      if (!controls.length) return;
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", closeOnEscape);
+    window.requestAnimationFrame(() =>
+      sidebarRef.current?.querySelector(".mobile-close")?.focus(),
+    );
     return () => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", closeOnEscape);
+      if (previousFocus?.isConnected) previousFocus.focus();
     };
   }, [mobileOpen]);
+
+  useEffect(() => {
+    if (!profileOpen) return undefined;
+    const closeOnOutside = (event) => {
+      if (!profileMenuRef.current?.contains(event.target)) {
+        setProfileOpen(false);
+      }
+    };
+    const closeOnEscape = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setProfileOpen(false);
+      profileTriggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [profileOpen]);
 
   const signOut = async () => {
     await logout();
     navigate("/login", { replace: true });
+  };
+
+  const navigateProfileMenu = (event) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const items = [
+      ...(profileMenuRef.current?.querySelectorAll("[role='menuitem']") || []),
+    ];
+    if (!items.length) return;
+    event.preventDefault();
+    const currentIndex = items.indexOf(document.activeElement);
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? items.length - 1
+          : event.key === "ArrowUp"
+            ? (currentIndex - 1 + items.length) % items.length
+            : (currentIndex + 1) % items.length;
+    items[nextIndex].focus();
   };
 
   const pageTitle =
@@ -167,9 +261,20 @@ export default function AppShell() {
             ? "个人中心"
             : "地图中心");
 
+  useEffect(() => {
+    const currentTitle = currentWorkspaceItem?.label || pageTitle;
+    document.title = selectedMap
+      ? `${currentTitle} · ${selectedMap.name} · 风起游戏`
+      : `${currentTitle} · 风起游戏`;
+  }, [currentWorkspaceItem?.label, pageTitle, selectedMap]);
+
   return (
     <div className="app-frame">
-      <aside className={`sidebar ${mobileOpen ? "is-open" : ""}`}>
+      <aside
+        ref={sidebarRef}
+        className={`sidebar ${mobileOpen ? "is-open" : ""}`}
+        aria-label="主导航"
+      >
         <div className="sidebar-brand">
           <div className="brand-mark">
             <img src="/assets/fengqi-mark.svg?v=attio" alt="风起游戏" />
@@ -210,14 +315,19 @@ export default function AppShell() {
                   <span>ID {selectedMap.id}</span>
                 </div>
               </div>
-              {visibleWorkspaceNavigation.map((item) => (
-                <SideLink
-                  key={item.id}
-                  to={`/maps/${selectedMap.id}/${item.id}`}
-                  icon={item.icon}
-                  label={item.label}
-                  onClick={closeMobile}
-                />
+              {visibleWorkspaceGroups.map((group) => (
+                <div className="workspace-nav-group" key={group.id}>
+                  <span className="workspace-group-label">{group.label}</span>
+                  {group.items.map((item) => (
+                    <SideLink
+                      key={item.id}
+                      to={`/maps/${selectedMap.id}/${item.id}`}
+                      icon={item.icon}
+                      label={item.label}
+                      onClick={closeMobile}
+                    />
+                  ))}
+                </div>
               ))}
             </>
           )}
@@ -272,7 +382,7 @@ export default function AppShell() {
         </div>
       </aside>
 
-      <div className="app-main">
+      <div className="app-main" inert={mobileOpen ? true : undefined}>
         <header className="topbar">
           <div className="topbar-left">
             <button
@@ -316,13 +426,29 @@ export default function AppShell() {
             </nav>
           </div>
           <div className="topbar-right">
-            <div className="profile-menu-wrap">
+            <div className="profile-menu-wrap" ref={profileMenuRef}>
               <button
+                ref={profileTriggerRef}
                 type="button"
                 className="profile-trigger"
                 onClick={() => setProfileOpen((value) => !value)}
+                onKeyDown={(event) => {
+                  if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
+                  event.preventDefault();
+                  setProfileOpen(true);
+                  window.requestAnimationFrame(() => {
+                    const items =
+                      profileMenuRef.current?.querySelectorAll(
+                        "[role='menuitem']",
+                      );
+                    items?.[
+                      event.key === "ArrowUp" ? items.length - 1 : 0
+                    ]?.focus();
+                  });
+                }}
                 aria-haspopup="menu"
                 aria-expanded={profileOpen}
+                aria-controls="profile-menu"
               >
                 <span className="avatar">{user?.displayName?.[0] || "用"}</span>
                 <span className="profile-copy">
@@ -332,8 +458,14 @@ export default function AppShell() {
                 <ChevronDown size={14} />
               </button>
               {profileOpen && (
-                <div className="profile-popover">
+                <div
+                  className="profile-popover"
+                  id="profile-menu"
+                  role="menu"
+                  onKeyDown={navigateProfileMenu}
+                >
                   <button
+                    role="menuitem"
                     onClick={() => {
                       navigate("/profile");
                       setProfileOpen(false);
@@ -342,7 +474,7 @@ export default function AppShell() {
                     <UserRound size={16} />
                     个人中心
                   </button>
-                  <button onClick={signOut}>
+                  <button role="menuitem" onClick={signOut}>
                     <LogOut size={16} />
                     退出登录
                   </button>
@@ -354,20 +486,27 @@ export default function AppShell() {
         {inWorkspace && selectedMap && (
           <nav className="mobile-workspace-nav" aria-label="当前地图功能">
             <span className="mobile-workspace-label">{selectedMap.name}</span>
-            {visibleWorkspaceNavigation.map(({ id, label, icon: Icon }) => (
-              <NavLink
-                key={id}
-                to={`/maps/${selectedMap.id}/${id}`}
-                className={({ isActive }) => (isActive ? "active" : "")}
-              >
-                <Icon size={15} />
-                {label}
-              </NavLink>
+            {visibleWorkspaceGroups.map((group) => (
+              <div className="mobile-workspace-group" key={group.id}>
+                <span>{group.label}</span>
+                {group.items.map(({ id, label, icon: Icon }) => (
+                  <NavLink
+                    key={id}
+                    to={`/maps/${selectedMap.id}/${id}`}
+                    className={({ isActive }) => (isActive ? "active" : "")}
+                  >
+                    <Icon size={15} />
+                    {label}
+                  </NavLink>
+                ))}
+              </div>
             ))}
           </nav>
         )}
         <main className="page-content">
-          <Outlet context={{ maps, selectedMap, refreshMaps }} />
+          <Outlet
+            context={{ maps, selectedMap, refreshMaps, syncMaps: setMaps }}
+          />
         </main>
       </div>
       {mobileOpen && (

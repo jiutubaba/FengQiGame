@@ -23,7 +23,6 @@
   },
   "dependencies": {
     "@fontsource-variable/noto-sans-sc": "5.2.10",
-    "@fontsource-variable/noto-serif-sc": "5.2.10",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.4.2",

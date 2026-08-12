@@ -79,67 +79,67 @@
 | POST | `/api/fq/players/upsert` | api:game.players.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/points/:pointKey/increment` | api:game.points.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/risk/events` | api:game.risk.write, loadApiKey | `server/routes/game.js` |
-| GET | `/api/maps/` | requireAuth | `server/routes/maps.js` |
-| POST | `/api/maps/` | requireAdmin, requireAuth | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId` | requireAdmin, requireAuth | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId` | map:MAP_VIEW | `server/routes/maps.js` |
-| PATCH | `/api/maps/:mapId` | map:MAP_EDIT | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/anchors` | map:ANCHORS_MANAGE | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/anchors` | map:ANCHORS_MANAGE | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId/anchors/:resourceId` | map:ANCHORS_MANAGE | `server/routes/maps.js` |
-| PATCH | `/api/maps/:mapId/anchors/:resourceId` | map:ANCHORS_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/api-keys` | map:API_KEYS_MANAGE | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/api-keys` | map:API_KEYS_MANAGE | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId/api-keys/:keyId` | map:API_KEYS_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/api-keys/:keyId` | map:API_KEYS_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/config` | map:MAP_VIEW | `server/routes/maps.js` |
-| PUT | `/api/maps/:mapId/config` | map:MAP_EDIT | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/files` | map:FILES_MANAGE | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId/files/:fileId` | map:FILES_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/files/:fileId/download` | map:FILES_MANAGE | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/files/folder` | map:FILES_MANAGE | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/files/upload` | map:FILES_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/gifts` | map:GIFTS_MANAGE | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/gifts` | map:GIFTS_MANAGE | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId/gifts/:giftId` | map:GIFTS_MANAGE | `server/routes/maps.js` |
-| PATCH | `/api/maps/:mapId/gifts/:giftId` | map:GIFTS_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/gifts/entitlements` | map:GIFTS_MANAGE | `server/routes/maps.js` |
-| PUT | `/api/maps/:mapId/gifts/entitlements` | map:GIFTS_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/gifts/entitlements/players` | map:GIFTS_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/leaderboards` | map:LEADERBOARDS_VIEW | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/leaderboards` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId/leaderboards/:leaderboardId` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
-| PATCH | `/api/maps/:mapId/leaderboards/:leaderboardId` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/leaderboards/:leaderboardId/entries` | map:LEADERBOARDS_VIEW | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId/leaderboards/:leaderboardId/entries/:entryId` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/leaderboards/:leaderboardId/entries/:entryId/rank-ban` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/leaderboards/:leaderboardId/publish` | map:LEADERBOARDS_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/logs` | map:LOGS_VIEW | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId/logs/:logId` | map:MAP_EDIT | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/lotteries` | map:GIFTS_MANAGE | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/lotteries` | map:GIFTS_MANAGE | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId/lotteries/:campaignId` | map:GIFTS_MANAGE | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/lotteries/:campaignId/draw` | map:GIFTS_MANAGE | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId/lotteries/:campaignId/permanent` | map:GIFTS_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/messages` | map:PLAYERS_VIEW | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/messages` | map:PLAYERS_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/metrics` | map:METRICS_VIEW | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId/permanent` | requireAdmin, requireAuth | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/players` | map:PLAYERS_VIEW | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/players` | map:PLAYERS_MANAGE | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId/players/:playerId` | map:PLAYERS_MANAGE | `server/routes/maps.js` |
-| PATCH | `/api/maps/:mapId/players/:playerId` | map:PLAYERS_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/points` | map:POINTS_MANAGE | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/points` | map:POINTS_MANAGE | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId/points/:resourceId` | map:POINTS_MANAGE | `server/routes/maps.js` |
-| PATCH | `/api/maps/:mapId/points/:resourceId` | map:POINTS_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/risk/events` | map:RISK_VIEW | `server/routes/maps.js` |
-| PATCH | `/api/maps/:mapId/risk/events/:eventId` | map:RISK_MANAGE | `server/routes/maps.js` |
-| GET | `/api/maps/:mapId/risk/rules` | map:RISK_VIEW | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/risk/rules` | map:RISK_MANAGE | `server/routes/maps.js` |
-| DELETE | `/api/maps/:mapId/risk/rules/:ruleId` | map:RISK_MANAGE | `server/routes/maps.js` |
-| PATCH | `/api/maps/:mapId/risk/rules/:ruleId` | map:RISK_MANAGE | `server/routes/maps.js` |
-| POST | `/api/maps/:mapId/runtime/clear` | requireAdmin, requireAuth | `server/routes/maps.js` |
+| GET | `/api/maps/` | requireAuth | `server/routes/maps/map-lifecycle.js` |
+| POST | `/api/maps/` | requireAdmin, requireAuth | `server/routes/maps/map-lifecycle.js` |
+| DELETE | `/api/maps/:mapId` | requireAdmin, requireAuth | `server/routes/maps/map-lifecycle.js` |
+| GET | `/api/maps/:mapId` | map:MAP_VIEW | `server/routes/maps/map-lifecycle.js` |
+| PATCH | `/api/maps/:mapId` | map:MAP_EDIT | `server/routes/maps/map-lifecycle.js` |
+| GET | `/api/maps/:mapId/anchors` | map:ANCHORS_MANAGE | `server/routes/maps/resources.js` |
+| POST | `/api/maps/:mapId/anchors` | map:ANCHORS_MANAGE | `server/routes/maps/resources.js` |
+| DELETE | `/api/maps/:mapId/anchors/:resourceId` | map:ANCHORS_MANAGE | `server/routes/maps/resources.js` |
+| PATCH | `/api/maps/:mapId/anchors/:resourceId` | map:ANCHORS_MANAGE | `server/routes/maps/resources.js` |
+| GET | `/api/maps/:mapId/api-keys` | map:API_KEYS_MANAGE | `server/routes/maps/api-keys.js` |
+| POST | `/api/maps/:mapId/api-keys` | map:API_KEYS_MANAGE | `server/routes/maps/api-keys.js` |
+| DELETE | `/api/maps/:mapId/api-keys/:keyId` | map:API_KEYS_MANAGE | `server/routes/maps/api-keys.js` |
+| GET | `/api/maps/:mapId/api-keys/:keyId` | map:API_KEYS_MANAGE | `server/routes/maps/api-keys.js` |
+| GET | `/api/maps/:mapId/config` | map:MAP_VIEW | `server/routes/maps/map-lifecycle.js` |
+| PUT | `/api/maps/:mapId/config` | map:MAP_EDIT | `server/routes/maps/map-lifecycle.js` |
+| GET | `/api/maps/:mapId/files` | map:FILES_MANAGE | `server/routes/maps/files.js` |
+| DELETE | `/api/maps/:mapId/files/:fileId` | map:FILES_MANAGE | `server/routes/maps/files.js` |
+| GET | `/api/maps/:mapId/files/:fileId/download` | map:FILES_MANAGE | `server/routes/maps/files.js` |
+| POST | `/api/maps/:mapId/files/folder` | map:FILES_MANAGE | `server/routes/maps/files.js` |
+| POST | `/api/maps/:mapId/files/upload` | map:FILES_MANAGE | `server/routes/maps/files.js` |
+| GET | `/api/maps/:mapId/gifts` | map:GIFTS_MANAGE | `server/routes/maps/gifts.js` |
+| POST | `/api/maps/:mapId/gifts` | map:GIFTS_MANAGE | `server/routes/maps/gifts.js` |
+| DELETE | `/api/maps/:mapId/gifts/:giftId` | map:GIFTS_MANAGE | `server/routes/maps/gifts.js` |
+| PATCH | `/api/maps/:mapId/gifts/:giftId` | map:GIFTS_MANAGE | `server/routes/maps/gifts.js` |
+| GET | `/api/maps/:mapId/gifts/entitlements` | map:GIFTS_MANAGE | `server/routes/maps/gifts.js` |
+| PUT | `/api/maps/:mapId/gifts/entitlements` | map:GIFTS_MANAGE | `server/routes/maps/gifts.js` |
+| GET | `/api/maps/:mapId/gifts/entitlements/players` | map:GIFTS_MANAGE | `server/routes/maps/gifts.js` |
+| GET | `/api/maps/:mapId/leaderboards` | map:LEADERBOARDS_VIEW | `server/routes/maps/leaderboards.js` |
+| POST | `/api/maps/:mapId/leaderboards` | map:LEADERBOARDS_MANAGE | `server/routes/maps/leaderboards.js` |
+| DELETE | `/api/maps/:mapId/leaderboards/:leaderboardId` | map:LEADERBOARDS_MANAGE | `server/routes/maps/leaderboards.js` |
+| PATCH | `/api/maps/:mapId/leaderboards/:leaderboardId` | map:LEADERBOARDS_MANAGE | `server/routes/maps/leaderboards.js` |
+| GET | `/api/maps/:mapId/leaderboards/:leaderboardId/entries` | map:LEADERBOARDS_VIEW | `server/routes/maps/leaderboards.js` |
+| DELETE | `/api/maps/:mapId/leaderboards/:leaderboardId/entries/:entryId` | map:LEADERBOARDS_MANAGE | `server/routes/maps/leaderboards.js` |
+| POST | `/api/maps/:mapId/leaderboards/:leaderboardId/entries/:entryId/rank-ban` | map:LEADERBOARDS_MANAGE | `server/routes/maps/leaderboards.js` |
+| POST | `/api/maps/:mapId/leaderboards/:leaderboardId/publish` | map:LEADERBOARDS_MANAGE | `server/routes/maps/leaderboards.js` |
+| GET | `/api/maps/:mapId/logs` | map:LOGS_VIEW | `server/routes/maps/resources.js` |
+| DELETE | `/api/maps/:mapId/logs/:logId` | map:MAP_EDIT | `server/routes/maps/resources.js` |
+| GET | `/api/maps/:mapId/lotteries` | map:GIFTS_MANAGE | `server/routes/maps/gifts.js` |
+| POST | `/api/maps/:mapId/lotteries` | map:GIFTS_MANAGE | `server/routes/maps/gifts.js` |
+| DELETE | `/api/maps/:mapId/lotteries/:campaignId` | map:GIFTS_MANAGE | `server/routes/maps/gifts.js` |
+| POST | `/api/maps/:mapId/lotteries/:campaignId/draw` | map:GIFTS_MANAGE | `server/routes/maps/gifts.js` |
+| DELETE | `/api/maps/:mapId/lotteries/:campaignId/permanent` | map:GIFTS_MANAGE | `server/routes/maps/gifts.js` |
+| GET | `/api/maps/:mapId/messages` | map:PLAYERS_VIEW | `server/routes/maps/players.js` |
+| POST | `/api/maps/:mapId/messages` | map:PLAYERS_MANAGE | `server/routes/maps/players.js` |
+| GET | `/api/maps/:mapId/metrics` | map:METRICS_VIEW | `server/routes/maps/map-lifecycle.js` |
+| DELETE | `/api/maps/:mapId/permanent` | requireAdmin, requireAuth | `server/routes/maps/map-lifecycle.js` |
+| GET | `/api/maps/:mapId/players` | map:PLAYERS_VIEW | `server/routes/maps/players.js` |
+| POST | `/api/maps/:mapId/players` | map:PLAYERS_MANAGE | `server/routes/maps/players.js` |
+| DELETE | `/api/maps/:mapId/players/:playerId` | map:PLAYERS_MANAGE | `server/routes/maps/players.js` |
+| PATCH | `/api/maps/:mapId/players/:playerId` | map:PLAYERS_MANAGE | `server/routes/maps/players.js` |
+| GET | `/api/maps/:mapId/points` | map:POINTS_MANAGE | `server/routes/maps/resources.js` |
+| POST | `/api/maps/:mapId/points` | map:POINTS_MANAGE | `server/routes/maps/resources.js` |
+| DELETE | `/api/maps/:mapId/points/:resourceId` | map:POINTS_MANAGE | `server/routes/maps/resources.js` |
+| PATCH | `/api/maps/:mapId/points/:resourceId` | map:POINTS_MANAGE | `server/routes/maps/resources.js` |
+| GET | `/api/maps/:mapId/risk/events` | map:RISK_VIEW | `server/routes/maps/risk.js` |
+| PATCH | `/api/maps/:mapId/risk/events/:eventId` | map:RISK_MANAGE | `server/routes/maps/risk.js` |
+| GET | `/api/maps/:mapId/risk/rules` | map:RISK_VIEW | `server/routes/maps/risk.js` |
+| POST | `/api/maps/:mapId/risk/rules` | map:RISK_MANAGE | `server/routes/maps/risk.js` |
+| DELETE | `/api/maps/:mapId/risk/rules/:ruleId` | map:RISK_MANAGE | `server/routes/maps/risk.js` |
+| PATCH | `/api/maps/:mapId/risk/rules/:ruleId` | map:RISK_MANAGE | `server/routes/maps/risk.js` |
+| POST | `/api/maps/:mapId/runtime/clear` | requireAdmin, requireAuth | `server/routes/maps/map-lifecycle.js` |
 | GET | `/api/public/lotteries/:token` | public | `server/routes/public.js` |
 | POST | `/api/public/lotteries/:token/entries` | public | `server/routes/public.js` |
 | GET | `/api/system/audit` | requireAdmin, requireAuth | `server/routes/system.js` |

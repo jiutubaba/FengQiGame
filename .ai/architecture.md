@@ -1,6 +1,6 @@
 # 系统架构
 
-更新时间：2026-07-14
+更新时间：2026-08-12
 
 ## 组件边界
 
@@ -31,8 +31,9 @@
 
 ## 关键实现入口
 
-- 前端路由：`src/App.jsx`；后台壳层和功能权限菜单：`src/components/AppShell.jsx`。
-- 地图工作台：`src/pages/MapWorkspace.jsx`；地图管理和大部分运营接口：`server/routes/maps.js`。
+- 前端路由：`src/App.jsx`；页面路由使用 React 懒加载，后台壳层和功能权限菜单位于 `src/components/AppShell.jsx`。
+- 地图工作台壳层与权限门禁：`src/pages/MapWorkspace.jsx`；指标、配置、玩家、排行榜、风控、礼包和资源管理面板按业务域拆分在 `src/pages/map-workspace/` 并按当前功能懒加载。
+- 地图后台 API 组合入口：`server/routes/maps.js`；具体路由按地图生命周期、玩家、排行榜、风控、礼包与群抽、运营资源、文件和 API Key 拆分在 `server/routes/maps/`，组合入口保持原有注册顺序和 `/api/maps` 对外挂载点。
 - 游戏客户端协议：`server/routes/game.js`；认证授权：`server/middleware/auth.js`。
 - 迁移：`server/db/migrations/`；启动装配：`server/app.js`、`server/index.js`。
 

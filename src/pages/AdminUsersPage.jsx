@@ -155,6 +155,7 @@ export default function AdminUsersPage() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="用户名、姓名或手机号"
+            aria-label="搜索用户名、姓名或手机号"
           />
         </div>
         <span className="result-count">{users.length} 个账号</span>

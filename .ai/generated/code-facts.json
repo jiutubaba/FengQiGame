@@ -305,7 +305,7 @@
     {
       "method": "GET",
       "path": "/api/maps/",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/map-lifecycle.js",
       "guards": [
         "requireAuth"
       ]
@@ -313,7 +313,7 @@
     {
       "method": "POST",
       "path": "/api/maps/",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/map-lifecycle.js",
       "guards": [
         "requireAdmin",
         "requireAuth"
@@ -322,7 +322,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/map-lifecycle.js",
       "guards": [
         "requireAdmin",
         "requireAuth"
@@ -331,7 +331,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/map-lifecycle.js",
       "guards": [
         "map:MAP_VIEW"
       ]
@@ -339,7 +339,7 @@
     {
       "method": "PATCH",
       "path": "/api/maps/:mapId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/map-lifecycle.js",
       "guards": [
         "map:MAP_EDIT"
       ]
@@ -347,7 +347,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/anchors",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/resources.js",
       "guards": [
         "map:ANCHORS_MANAGE"
       ]
@@ -355,7 +355,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/anchors",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/resources.js",
       "guards": [
         "map:ANCHORS_MANAGE"
       ]
@@ -363,7 +363,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId/anchors/:resourceId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/resources.js",
       "guards": [
         "map:ANCHORS_MANAGE"
       ]
@@ -371,7 +371,7 @@
     {
       "method": "PATCH",
       "path": "/api/maps/:mapId/anchors/:resourceId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/resources.js",
       "guards": [
         "map:ANCHORS_MANAGE"
       ]
@@ -379,7 +379,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/api-keys",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/api-keys.js",
       "guards": [
         "map:API_KEYS_MANAGE"
       ]
@@ -387,7 +387,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/api-keys",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/api-keys.js",
       "guards": [
         "map:API_KEYS_MANAGE"
       ]
@@ -395,7 +395,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId/api-keys/:keyId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/api-keys.js",
       "guards": [
         "map:API_KEYS_MANAGE"
       ]
@@ -403,7 +403,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/api-keys/:keyId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/api-keys.js",
       "guards": [
         "map:API_KEYS_MANAGE"
       ]
@@ -411,7 +411,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/config",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/map-lifecycle.js",
       "guards": [
         "map:MAP_VIEW"
       ]
@@ -419,7 +419,7 @@
     {
       "method": "PUT",
       "path": "/api/maps/:mapId/config",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/map-lifecycle.js",
       "guards": [
         "map:MAP_EDIT"
       ]
@@ -427,7 +427,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/files",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/files.js",
       "guards": [
         "map:FILES_MANAGE"
       ]
@@ -435,7 +435,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId/files/:fileId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/files.js",
       "guards": [
         "map:FILES_MANAGE"
       ]
@@ -443,7 +443,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/files/:fileId/download",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/files.js",
       "guards": [
         "map:FILES_MANAGE"
       ]
@@ -451,7 +451,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/files/folder",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/files.js",
       "guards": [
         "map:FILES_MANAGE"
       ]
@@ -459,7 +459,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/files/upload",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/files.js",
       "guards": [
         "map:FILES_MANAGE"
       ]
@@ -467,7 +467,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/gifts",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/gifts.js",
       "guards": [
         "map:GIFTS_MANAGE"
       ]
@@ -475,7 +475,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/gifts",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/gifts.js",
       "guards": [
         "map:GIFTS_MANAGE"
       ]
@@ -483,7 +483,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId/gifts/:giftId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/gifts.js",
       "guards": [
         "map:GIFTS_MANAGE"
       ]
@@ -491,7 +491,7 @@
     {
       "method": "PATCH",
       "path": "/api/maps/:mapId/gifts/:giftId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/gifts.js",
       "guards": [
         "map:GIFTS_MANAGE"
       ]
@@ -499,7 +499,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/gifts/entitlements",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/gifts.js",
       "guards": [
         "map:GIFTS_MANAGE"
       ]
@@ -507,7 +507,7 @@
     {
       "method": "PUT",
       "path": "/api/maps/:mapId/gifts/entitlements",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/gifts.js",
       "guards": [
         "map:GIFTS_MANAGE"
       ]
@@ -515,7 +515,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/gifts/entitlements/players",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/gifts.js",
       "guards": [
         "map:GIFTS_MANAGE"
       ]
@@ -523,7 +523,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/leaderboards",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/leaderboards.js",
       "guards": [
         "map:LEADERBOARDS_VIEW"
       ]
@@ -531,7 +531,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/leaderboards",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/leaderboards.js",
       "guards": [
         "map:LEADERBOARDS_MANAGE"
       ]
@@ -539,7 +539,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId/leaderboards/:leaderboardId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/leaderboards.js",
       "guards": [
         "map:LEADERBOARDS_MANAGE"
       ]
@@ -547,7 +547,7 @@
     {
       "method": "PATCH",
       "path": "/api/maps/:mapId/leaderboards/:leaderboardId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/leaderboards.js",
       "guards": [
         "map:LEADERBOARDS_MANAGE"
       ]
@@ -555,7 +555,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/leaderboards/:leaderboardId/entries",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/leaderboards.js",
       "guards": [
         "map:LEADERBOARDS_VIEW"
       ]
@@ -563,7 +563,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId/leaderboards/:leaderboardId/entries/:entryId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/leaderboards.js",
       "guards": [
         "map:LEADERBOARDS_MANAGE"
       ]
@@ -571,7 +571,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/leaderboards/:leaderboardId/entries/:entryId/rank-ban",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/leaderboards.js",
       "guards": [
         "map:LEADERBOARDS_MANAGE"
       ]
@@ -579,7 +579,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/leaderboards/:leaderboardId/publish",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/leaderboards.js",
       "guards": [
         "map:LEADERBOARDS_MANAGE"
       ]
@@ -587,7 +587,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/logs",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/resources.js",
       "guards": [
         "map:LOGS_VIEW"
       ]
@@ -595,7 +595,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId/logs/:logId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/resources.js",
       "guards": [
         "map:MAP_EDIT"
       ]
@@ -603,7 +603,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/lotteries",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/gifts.js",
       "guards": [
         "map:GIFTS_MANAGE"
       ]
@@ -611,7 +611,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/lotteries",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/gifts.js",
       "guards": [
         "map:GIFTS_MANAGE"
       ]
@@ -619,7 +619,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId/lotteries/:campaignId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/gifts.js",
       "guards": [
         "map:GIFTS_MANAGE"
       ]
@@ -627,7 +627,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/lotteries/:campaignId/draw",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/gifts.js",
       "guards": [
         "map:GIFTS_MANAGE"
       ]
@@ -635,7 +635,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId/lotteries/:campaignId/permanent",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/gifts.js",
       "guards": [
         "map:GIFTS_MANAGE"
       ]
@@ -643,7 +643,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/messages",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/players.js",
       "guards": [
         "map:PLAYERS_VIEW"
       ]
@@ -651,7 +651,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/messages",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/players.js",
       "guards": [
         "map:PLAYERS_MANAGE"
       ]
@@ -659,7 +659,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/metrics",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/map-lifecycle.js",
       "guards": [
         "map:METRICS_VIEW"
       ]
@@ -667,7 +667,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId/permanent",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/map-lifecycle.js",
       "guards": [
         "requireAdmin",
         "requireAuth"
@@ -676,7 +676,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/players",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/players.js",
       "guards": [
         "map:PLAYERS_VIEW"
       ]
@@ -684,7 +684,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/players",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/players.js",
       "guards": [
         "map:PLAYERS_MANAGE"
       ]
@@ -692,7 +692,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId/players/:playerId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/players.js",
       "guards": [
         "map:PLAYERS_MANAGE"
       ]
@@ -700,7 +700,7 @@
     {
       "method": "PATCH",
       "path": "/api/maps/:mapId/players/:playerId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/players.js",
       "guards": [
         "map:PLAYERS_MANAGE"
       ]
@@ -708,7 +708,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/points",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/resources.js",
       "guards": [
         "map:POINTS_MANAGE"
       ]
@@ -716,7 +716,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/points",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/resources.js",
       "guards": [
         "map:POINTS_MANAGE"
       ]
@@ -724,7 +724,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId/points/:resourceId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/resources.js",
       "guards": [
         "map:POINTS_MANAGE"
       ]
@@ -732,7 +732,7 @@
     {
       "method": "PATCH",
       "path": "/api/maps/:mapId/points/:resourceId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/resources.js",
       "guards": [
         "map:POINTS_MANAGE"
       ]
@@ -740,7 +740,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/risk/events",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/risk.js",
       "guards": [
         "map:RISK_VIEW"
       ]
@@ -748,7 +748,7 @@
     {
       "method": "PATCH",
       "path": "/api/maps/:mapId/risk/events/:eventId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/risk.js",
       "guards": [
         "map:RISK_MANAGE"
       ]
@@ -756,7 +756,7 @@
     {
       "method": "GET",
       "path": "/api/maps/:mapId/risk/rules",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/risk.js",
       "guards": [
         "map:RISK_VIEW"
       ]
@@ -764,7 +764,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/risk/rules",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/risk.js",
       "guards": [
         "map:RISK_MANAGE"
       ]
@@ -772,7 +772,7 @@
     {
       "method": "DELETE",
       "path": "/api/maps/:mapId/risk/rules/:ruleId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/risk.js",
       "guards": [
         "map:RISK_MANAGE"
       ]
@@ -780,7 +780,7 @@
     {
       "method": "PATCH",
       "path": "/api/maps/:mapId/risk/rules/:ruleId",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/risk.js",
       "guards": [
         "map:RISK_MANAGE"
       ]
@@ -788,7 +788,7 @@
     {
       "method": "POST",
       "path": "/api/maps/:mapId/runtime/clear",
-      "source": "server/routes/maps.js",
+      "source": "server/routes/maps/map-lifecycle.js",
       "guards": [
         "requireAdmin",
         "requireAuth"
@@ -1181,7 +1181,43 @@
     },
     {
       "file": "server/routes/maps.js",
-      "lines": 2814
+      "lines": 29
+    },
+    {
+      "file": "server/routes/maps/api-keys.js",
+      "lines": 173
+    },
+    {
+      "file": "server/routes/maps/files.js",
+      "lines": 286
+    },
+    {
+      "file": "server/routes/maps/gifts.js",
+      "lines": 557
+    },
+    {
+      "file": "server/routes/maps/leaderboards.js",
+      "lines": 407
+    },
+    {
+      "file": "server/routes/maps/map-lifecycle.js",
+      "lines": 654
+    },
+    {
+      "file": "server/routes/maps/players.js",
+      "lines": 333
+    },
+    {
+      "file": "server/routes/maps/resources.js",
+      "lines": 219
+    },
+    {
+      "file": "server/routes/maps/risk.js",
+      "lines": 297
+    },
+    {
+      "file": "server/routes/maps/shared.js",
+      "lines": 10
     },
     {
       "file": "server/routes/public.js",
@@ -1241,7 +1277,7 @@
     },
     {
       "file": "src/App.jsx",
-      "lines": 85
+      "lines": 156
     },
     {
       "file": "src/auth/AuthContext.jsx",
@@ -1249,7 +1285,7 @@
     },
     {
       "file": "src/components/AppShell.jsx",
-      "lines": 384
+      "lines": 523
     },
     {
       "file": "src/components/ui.jsx",
@@ -1257,7 +1293,7 @@
     },
     {
       "file": "src/main.jsx",
-      "lines": 24
+      "lines": 23
     },
     {
       "file": "src/pages/AdminAuditPage.jsx",
@@ -1269,23 +1305,55 @@
     },
     {
       "file": "src/pages/AdminUsersPage.jsx",
-      "lines": 664
+      "lines": 665
     },
     {
       "file": "src/pages/AuthPage.jsx",
-      "lines": 162
+      "lines": 166
     },
     {
       "file": "src/pages/LotteryPage.jsx",
       "lines": 176
     },
     {
+      "file": "src/pages/map-workspace/ConfigPanel.jsx",
+      "lines": 567
+    },
+    {
+      "file": "src/pages/map-workspace/GiftsPanel.jsx",
+      "lines": 1081
+    },
+    {
+      "file": "src/pages/map-workspace/LeaderboardsPanel.jsx",
+      "lines": 696
+    },
+    {
+      "file": "src/pages/map-workspace/MetricsPanel.jsx",
+      "lines": 503
+    },
+    {
+      "file": "src/pages/map-workspace/PaginationControls.jsx",
+      "lines": 56
+    },
+    {
+      "file": "src/pages/map-workspace/PlayersPanel.jsx",
+      "lines": 663
+    },
+    {
+      "file": "src/pages/map-workspace/ResourcePanels.jsx",
+      "lines": 1038
+    },
+    {
+      "file": "src/pages/map-workspace/RiskPanel.jsx",
+      "lines": 575
+    },
+    {
       "file": "src/pages/MapCenter.jsx",
-      "lines": 261
+      "lines": 285
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 4832
+      "lines": 185
     },
     {
       "file": "src/pages/ProfilePage.jsx",
@@ -1297,7 +1365,7 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 5194
+      "lines": 5299
     },
     {
       "file": "src/utils/format.js",
