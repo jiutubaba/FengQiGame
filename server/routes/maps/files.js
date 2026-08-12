@@ -13,6 +13,35 @@ import { PERMISSIONS, requireMapPermission } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validation.js";
 import { idSchema } from "./shared.js";
 
+const forbiddenUploadExtensions = new Set([
+  ".bat",
+  ".cmd",
+  ".com",
+  ".cpl",
+  ".exe",
+  ".hta",
+  ".jar",
+  ".js",
+  ".jse",
+  ".lnk",
+  ".mjs",
+  ".msi",
+  ".ps1",
+  ".psm1",
+  ".reg",
+  ".scr",
+  ".sh",
+  ".vbs",
+  ".wsf",
+]);
+const inlineImageTypes = new Set([
+  "image/avif",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
 export function registerFileRoutes(router) {
   const upload = multer({
     storage: multer.diskStorage({
