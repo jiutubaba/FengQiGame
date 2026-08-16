@@ -10,7 +10,11 @@ import {
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useAuth } from "../auth/AuthContext";
+import Galaxy from "../components/Galaxy";
 import { Button, Field, InlineAlert, useToast } from "../components/ui";
+
+const LOGIN_GALAXY_FOCAL = [0.72, 0.34];
+const LOGIN_GALAXY_ROTATION = [0.98, 0.18];
 
 export default function AuthPage() {
   const [visible, setVisible] = useState(false);
@@ -46,7 +50,20 @@ export default function AuthPage() {
   return (
     <div className="auth-page">
       <div className="auth-art">
-        <div className="auth-grid" />
+        <Galaxy
+          className="auth-galaxy"
+          focal={LOGIN_GALAXY_FOCAL}
+          rotation={LOGIN_GALAXY_ROTATION}
+          density={0.8}
+          glowIntensity={0.22}
+          saturation={0.12}
+          hueShift={210}
+          starSpeed={0.32}
+          speed={0.55}
+          twinkleIntensity={0.2}
+          rotationSpeed={0.035}
+          repulsionStrength={0.8}
+        />
         <Link className="auth-back" to="/">
           <ArrowLeft size={16} />
           返回首页
