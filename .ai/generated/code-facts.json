@@ -1288,6 +1288,10 @@
       "lines": 523
     },
     {
+      "file": "src/components/Galaxy.jsx",
+      "lines": 418
+    },
+    {
       "file": "src/components/ui.jsx",
       "lines": 390
     },
@@ -1309,7 +1313,7 @@
     },
     {
       "file": "src/pages/AuthPage.jsx",
-      "lines": 166
+      "lines": 183
     },
     {
       "file": "src/pages/LotteryPage.jsx",
@@ -1365,7 +1369,7 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 5299
+      "lines": 5359
     },
     {
       "file": "src/utils/format.js",
