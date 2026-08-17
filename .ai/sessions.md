@@ -7,6 +7,9 @@
 - 视觉与边界：登录页左侧由浅色网格升级为深石墨动态星海，保留品牌主标题、地图隔离说明、返回首页与安全会话状态；右侧暖白登录表单、账号密码交互、错误反馈、跳转和认证接口均未改变。视觉规范明确该深色画布只属于登录品牌入口，不扩散到登录后业务工作区。
 - 组件与性能：新增基于 React Bits Galaxy 思路和 `ogl` 的 WebGL 组件，使用稳定的标量依赖避免表单重渲染反复创建上下文；通过 `ResizeObserver`、`IntersectionObserver`、页面可见性、`prefers-reduced-motion` 与 680px 移动断点控制渲染，隐藏的窄屏画布缩至 1×1，鼠标交互由父级承接且不拦截链接或表单。WebGL 不可用时保留静态星点背景。
 - 验证：`npm run check` 通过（18 个必需入口、23 份文档、2 份生成事实、13 项单元测试与生产构建），`npm run audit:prod` 为 0，`git diff --check` 通过。本地浏览器完成 1440×900 桌面与 390×844 窄屏验收：桌面 Galaxy 状态为 ready 且仅有一个 755×900 画布；窄屏左侧隐藏、画布为 1×1、页面无横向溢出，控制台无警告或错误；媒体仿真确认减少动态偏好生效。预览使用 Vite 静态构建，真实 API 未启动，未提交真实账号或执行登录。
+- 合并与载荷：PR #34 合并为 `main@82f614b`，PR 与 `main` CI 运行 `31979948451` 的质量/审计和隔离 PostgreSQL 两项 required checks 均通过。GitHub 非正式发布 `deploy-82f614b` 的源码包 SHA-256 为 `1e1da887430ccd08dcdf99ac3bef93bc67d437b354e61c7034cca119e419cc2d`；发现本机既有 `dist` 混有历史未引用哈希文件后，没有沿用该目录，而是改在全新隔离目录构建 145 个当前文件，正式构建包 SHA-256 为 `741917453dc0500df9b387712b740678354c9ce745a61c582f74b6a14d6df1a3`。
+- 正式发布：发布前数据库备份 `fengqi-20260817-074840.dump` 与上传卷备份 `fengqi-uploads-20260817-074841.tar.gz` 均非空并完成私有 OSS CRC64 校验。云助手 app-only 发布后，正式 `.release-commit` 为 `82f614b`，镜像为 `sha256:77862f1739b56316190463a0f672ffeab3e9cfca3d45800a97e02ff65e88ce24`；旧镜像标签 `pre-10f453c-20260817-075112`、校正前健康镜像标签 `pre-dist-cleanup-82f614b-20260817-075356` 与源码备份 `source-pre-10f453c-20260817-075112.tar.gz` 已保留，未改变 PostgreSQL、上传卷、Caddy、`.env` 或网络。
+- 生产验收：`001`、`002` 迁移登记与关键表/字段存在，app/db healthy、Caddy running、备份 timer active/enabled，容器内与公网健康接口 200；公网 HTTP 308、`www` 保留 URI 301、四项安全头、缺 Key 401、新前端四个入口资源哈希和近 15 分钟 app error/fatal 为 0 均通过。内置浏览器能导航至 `https://fengqigame.com/login` 并读取标题“风起游戏”，但 DOM/Canvas 与控制台读取连续超时；正式 WebGL 可见状态和控制台未完成，未将 HTTP、哈希或本地视觉验收冒充为正式浏览器交互验收。
 
 ## 2026-08-12 [Codex] 后台模块化更新正式发布
 
