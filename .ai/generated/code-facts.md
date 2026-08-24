@@ -67,7 +67,7 @@
 | GET | `/api/fq/archives/players/:uid` | api:game.archives.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/archives/players/:uid/save` | api:game.archives.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/bootstrap` | api:game.archives.read, loadApiKey | `server/routes/game.js` |
-| POST | `/api/fq/deliveries/query` | api:game.gifts.read, api:game.messages.read, loadApiKey | `server/routes/game.js` |
+| POST | `/api/fq/deliveries/query` | api:game.gifts.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/leaderboards/:leaderboardKey/entries` | api:game.leaderboards.write, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/leaderboards/:leaderboardKey/query` | api:game.leaderboards.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/logs` | api:game.logs.write, loadApiKey | `server/routes/game.js` |

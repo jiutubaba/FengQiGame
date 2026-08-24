@@ -245,7 +245,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(viewAudit.rows[0].details).toContain('"tokenAvailable": true');
     expect(viewAudit.rows[0].details).not.toContain(gameToken);
 
-    await request(app)
+    const upsertedPlayers = await request(app)
       .post("/api/fq/players/upsert")
       .set("fq-map-key", gameToken)
       .send({
@@ -277,6 +277,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
         ],
       })
       .expect(200);
+    expect(upsertedPlayers.body).toEqual({ success: true });
     const players = await admin.get(`/api/maps/${mapId}/players`).expect(200);
     const playersByLevel = await admin
       .get(
@@ -499,12 +500,17 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       })
       .expect(200);
     expect(deliveries.body.data.players[0].gifts).toHaveLength(1);
-    expect(deliveries.body.data.players[0].gifts[0]).toMatchObject({
+    expect(deliveries.body.data.players[0].gifts[0]).toEqual({
       gift_key: "chain_gift",
-      name: "链路礼包",
       value: 5,
     });
     expect(deliveries.body.data.players[0].messages).toHaveLength(1);
+    expect(deliveries.body.data.players[0].messages[0]).toEqual({
+      id: expect.anything(),
+      subject: "链路消息",
+      content: "这是一条集成测试消息",
+      attachments: [],
+    });
     expect(deliveries.body.data.players[1].gifts).toHaveLength(1);
     expect(deliveries.body.data.players[1].gifts[0].value).toBe(2);
     expect(deliveries.body.data.players[2].gifts).toEqual([
@@ -512,13 +518,40 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     ]);
     expect(deliveries.body.data.players[2].messages).toHaveLength(0);
     expect(deliveries.body.data.players[3].gifts).toHaveLength(0);
+    const giftsOnly = await request(app)
+      .post("/api/fq/deliveries/query")
+      .set("fq-map-key", gameToken)
+      .send({ uids: ["player-001"], includeMessages: false })
+      .expect(200);
+    expect(giftsOnly.body.data.players[0]).toEqual({
+      uid: "player-001",
+      gifts: [{ gift_key: "chain_gift", value: 5 }],
+    });
+    const giftsOnlyKey = await admin
+      .post(`/api/maps/${mapId}/api-keys`)
+      .send({
+        name: "仅礼包读取客户端",
+        permissions: ["game.gifts.read"],
+      })
+      .expect(201);
     await request(app)
+      .post("/api/fq/deliveries/query")
+      .set("fq-map-key", giftsOnlyKey.body.data.token)
+      .send({ uids: ["player-001"], includeMessages: false })
+      .expect(200);
+    await request(app)
+      .post("/api/fq/deliveries/query")
+      .set("fq-map-key", giftsOnlyKey.body.data.token)
+      .send({ uids: ["player-001"] })
+      .expect(403);
+    const acknowledged = await request(app)
       .post(
         `/api/fq/messages/${deliveries.body.data.players[0].messages[0].id}/ack`,
       )
       .set("fq-map-key", gameToken)
       .send({ uid: "player-001" })
       .expect(200);
+    expect(acknowledged.body).toEqual({ success: true });
     const clearedDeliveries = await request(app)
       .post("/api/fq/deliveries/query")
       .set("fq-map-key", gameToken)
@@ -562,14 +595,15 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .send({ uids: ["player-001"] })
       .expect(200);
     expect(empty.body.data.mapId).toBe(mapId);
+    expect(empty.body.data.preloadCode).toBe("");
     expectNoEnvironmentFields(empty.body);
-    expect(empty.body.data.players[0]).toMatchObject({
+    expect(empty.body.data.players[0]).toEqual({
       uid: "player-001",
       dataBanned: false,
       revision: 0,
       values: {},
     });
-    expect(empty.body.data.global).toMatchObject({ revision: 0, values: {} });
+    expect(empty.body.data.global).toEqual({ revision: 0, values: {} });
 
     const firstSaveBody = {
       requestId: "FQ-player-001-save-1",
@@ -581,11 +615,9 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .set("fq-map-key", gameToken)
       .send(firstSaveBody)
       .expect(200);
-    expect(firstSave.body.data.replayed).toBe(false);
-    expect(firstSave.body.data.archive).toMatchObject({
-      uid: "player-001",
-      revision: 1,
-      values: firstSaveBody.values,
+    expect(firstSave.body).toEqual({
+      success: true,
+      data: { archive: { revision: 1 } },
     });
 
     const replayed = await request(app)
@@ -593,8 +625,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .set("fq-map-key", gameToken)
       .send(firstSaveBody)
       .expect(200);
-    expect(replayed.body.data.replayed).toBe(true);
-    expect(replayed.body.data.archive.revision).toBe(1);
+    expect(replayed.body).toEqual(firstSave.body);
 
     const concurrentBody = {
       requestId: "FQ-player-002-concurrent",
@@ -613,9 +644,6 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
         .send(concurrentBody)
         .expect(200),
     ]);
-    expect(
-      concurrent.map((response) => response.body.data.replayed).sort(),
-    ).toEqual([false, true]);
     expect(
       concurrent.every((response) => response.body.data.archive.revision === 1),
     ).toBe(true);
@@ -641,7 +669,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       details: { currentRevision: 1 },
     });
 
-    await request(app)
+    const globalSave = await request(app)
       .post("/api/fq/archives/global/save")
       .set("fq-map-key", gameToken)
       .send({
@@ -650,6 +678,10 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
         values: { season: 1, serverOpen: true },
       })
       .expect(200);
+    expect(globalSave.body).toEqual({
+      success: true,
+      data: { archive: { revision: 1 } },
+    });
     const loaded = await request(app)
       .post("/api/fq/bootstrap")
       .set("fq-map-key", gameToken)
@@ -714,7 +746,10 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .get("/api/fq/archives/players/player-001")
       .set("fq-map-key", gameToken)
       .expect(200);
-    expect(preservedArchive.body.data.values.gold).toBe(100);
+    expect(preservedArchive.body.data).toEqual({
+      revision: 1,
+      values: firstSaveBody.values,
+    });
 
     await request(app)
       .post("/api/fq/bootstrap")
@@ -777,11 +812,12 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       sessionId: "metric-room-1",
       uids: ["same-uid", "same-uid"],
     };
-    await request(app)
+    const firstMetricStart = await request(app)
       .post("/api/fq/metrics/sessions/start")
       .set("fq-map-key", metricToken)
       .send(sessionStart)
       .expect(200);
+    expect(firstMetricStart.body).toEqual({ success: true });
     await request(app)
       .post("/api/fq/metrics/sessions/start")
       .set("fq-map-key", metricToken)
@@ -1073,6 +1109,20 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(patched.body.data.description).toBe("integration");
     expectNoEnvironmentFields(patched.body);
 
+    await admin
+      .put(`/api/admin/users/${userId}/maps/${mapId}`)
+      .send({ permissions: ["map.view", "metrics.view", "map.edit"] })
+      .expect(200);
+    const deniedPreload = await normalUser
+      .put(`/api/maps/${mapId}/config`)
+      .send({ preloadCode: "return false" })
+      .expect(403);
+    expect(deniedPreload.body.error.code).toBe("FORBIDDEN");
+    await admin
+      .put(`/api/admin/users/${userId}/maps/${mapId}`)
+      .send({ permissions: ["map.view", "metrics.view"] })
+      .expect(200);
+
     const configResponse = await admin
       .put(`/api/maps/${mapId}/config`)
       .send({
@@ -1086,6 +1136,20 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .get(`/api/maps/${mapId}/config`)
       .expect(200);
     expect(loadedConfig.body.data.preloadCode).toBe("return true");
+    const preloadBootstrap = await request(app)
+      .post("/api/fq/bootstrap")
+      .set("fq-map-key", gameToken)
+      .send({ uids: ["player-001"] })
+      .expect(200);
+    expect(preloadBootstrap.body.data.preloadCode).toBe("return true");
+    await admin
+      .put(`/api/maps/${mapId}/config`)
+      .send({ preloadCode: "x".repeat(256 * 1024) })
+      .expect(200);
+    await admin
+      .put(`/api/maps/${mapId}/config`)
+      .send({ preloadCode: "x".repeat(256 * 1024 + 1) })
+      .expect(400);
 
     await admin
       .put("/api/admin/settings")
@@ -1157,10 +1221,9 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .set("fq-map-key", gameToken)
       .send({ uids: ["player-001"] })
       .expect(200);
-    expect(unpublished.body.data).toMatchObject({
+    expect(unpublished.body.data).toEqual({
       published: false,
-      snapshotId: null,
-      totalEntries: 0,
+      publishedAtText: "",
       entries: [],
       playerRanks: [],
       submittedTodayUids: [],
@@ -1189,10 +1252,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
         ],
       })
       .expect(200);
-    expect(firstUpload.body.data.acceptedUids).toEqual([
-      "player-001",
-      "player-002",
-    ]);
+    expect(firstUpload.body).toEqual({ success: true });
     const stillUnpublished = await request(app)
       .post("/api/fq/leaderboards/landing_power_v1/query")
       .set("fq-map-key", gameToken)
@@ -1224,9 +1284,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
         ],
       })
       .expect(200);
-    expect(deletionProbe.body.data.acceptedUids).toEqual([
-      "daily-delete-probe",
-    ]);
+    expect(deletionProbe.body).toEqual({ success: true });
     const liveWithProbe = await admin
       .get(`/api/maps/${mapId}/leaderboards/${leaderboardId}/entries`)
       .expect(200);
@@ -1251,10 +1309,15 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
         ],
       })
       .expect(200);
-    expect(retryAfterDeletion.body.data).toMatchObject({
-      acceptedUids: [],
-      skippedUids: ["daily-delete-probe"],
-    });
+    expect(retryAfterDeletion.body).toEqual({ success: true });
+    const liveAfterRetry = await admin
+      .get(`/api/maps/${mapId}/leaderboards/${leaderboardId}/entries`)
+      .expect(200);
+    expect(
+      liveAfterRetry.body.data.entries.some(
+        (entry) => entry.uid === "daily-delete-probe",
+      ),
+    ).toBe(false);
     const snapshot = await admin
       .post(`/api/maps/${mapId}/leaderboards/${leaderboardId}/publish`)
       .send({ limit: 100 })
@@ -1267,13 +1330,12 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .send({ uids: ["player-001", "missing-player"], limit: 100 })
       .expect(200);
     expect(firstPublished.body.data.published).toBe(true);
-    expect(firstPublished.body.data.snapshotId).toBe(snapshot.body.data.id);
-    expect(firstPublished.body.data.entries.map((item) => item.uid)).toEqual([
-      "player-001",
-      "player-002",
+    expect(firstPublished.body.data.entries.map((item) => item.name)).toEqual([
+      "链路玩家",
+      "候补玩家",
     ]);
-    expect(firstPublished.body.data.playerRanks).toMatchObject([
-      { rank: 1, uid: "player-001", name: "链路玩家", score: 9900 },
+    expect(firstPublished.body.data.playerRanks).toEqual([
+      { rank: 1, uid: "player-001" },
     ]);
     expect(firstPublished.body.data.entries[0].achievedAtText).toMatch(
       /^\d{2}-\d{2} \d{2}:\d{2}$/,
@@ -1295,10 +1357,15 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
         ],
       })
       .expect(200);
-    expect(skippedSameDay.body.data).toMatchObject({
-      acceptedUids: [],
-      skippedUids: ["player-001"],
-    });
+    expect(skippedSameDay.body).toEqual({ success: true });
+    const liveAfterSameDayRetry = await admin
+      .get(`/api/maps/${mapId}/leaderboards/${leaderboardId}/entries`)
+      .expect(200);
+    expect(
+      liveAfterSameDayRetry.body.data.entries.find(
+        (entry) => entry.uid === "player-001",
+      ),
+    ).toMatchObject({ name: "链路玩家", score: 9900 });
 
     await query(
       `UPDATE leaderboard_entries SET last_submitted_on=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date-1
@@ -1336,22 +1403,34 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
         .expect(200),
     ]);
     expect(
-      concurrentDailyUploads
-        .map((response) => response.body.data.acceptedUids.length)
-        .sort(),
-    ).toEqual([0, 1]);
+      concurrentDailyUploads.every(
+        (response) =>
+          response.body.success === true && response.body.data === undefined,
+      ),
+    ).toBe(true);
+    const currentDailyCollections = await query(
+      `SELECT COUNT(*)::int AS count
+         FROM leaderboard_daily_collections
+        WHERE leaderboard_id=$1 AND player_uid='player-001'
+          AND collection_date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date`,
+      [leaderboardId],
+    );
+    expect(currentDailyCollections.rows[0].count).toBe(1);
 
     const beforeRepublish = await request(app)
       .post("/api/fq/leaderboards/landing_power_v1/query")
       .set("fq-map-key", gameToken)
       .send({ uids: ["player-001"] })
       .expect(200);
-    expect(beforeRepublish.body.data.playerRanks[0]).toMatchObject({
-      gameLevel: "N2",
+    expect(beforeRepublish.body.data.entries[0]).toMatchObject({
+      name: "链路玩家",
       score: 9900,
-      metadata: { season: 3 },
     });
-    const latestSnapshot = await admin
+    expect(beforeRepublish.body.data.playerRanks[0]).toEqual({
+      rank: 1,
+      uid: "player-001",
+    });
+    await admin
       .post(`/api/maps/${mapId}/leaderboards/${leaderboardId}/publish`)
       .send({ limit: 100 })
       .expect(201);
@@ -1360,16 +1439,13 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .set("fq-map-key", gameToken)
       .send({ uids: ["player-001"] })
       .expect(200);
-    expect(afterRepublish.body.data.snapshotId).toBe(
-      latestSnapshot.body.data.id,
-    );
-    expect(afterRepublish.body.data.playerRanks[0]).toMatchObject({
+    expect(afterRepublish.body.data.entries[0]).toMatchObject({
+      name: "链路玩家新名",
+      score: 12000,
+    });
+    expect(afterRepublish.body.data.playerRanks[0]).toEqual({
       rank: 1,
       uid: "player-001",
-      gameLevel: "N3",
-      score: 12000,
-      gameCount: 10,
-      metadata: { formulaVersion: "landing_power_v1" },
     });
 
     const writeOnlyKey = await admin

@@ -199,7 +199,6 @@
       "source": "server/routes/game.js",
       "guards": [
         "api:game.gifts.read",
-        "api:game.messages.read",
         "loadApiKey"
       ]
     },
@@ -1177,7 +1176,7 @@
     },
     {
       "file": "server/routes/game.js",
-      "lines": 929
+      "lines": 916
     },
     {
       "file": "server/routes/maps.js",
@@ -1201,7 +1200,7 @@
     },
     {
       "file": "server/routes/maps/map-lifecycle.js",
-      "lines": 654
+      "lines": 663
     },
     {
       "file": "server/routes/maps/players.js",
@@ -1253,7 +1252,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 2158
+      "lines": 2234
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1321,7 +1320,7 @@
     },
     {
       "file": "src/pages/map-workspace/ConfigPanel.jsx",
-      "lines": 567
+      "lines": 597
     },
     {
       "file": "src/pages/map-workspace/GiftsPanel.jsx",
@@ -1369,7 +1368,7 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 5359
+      "lines": 5377
     },
     {
       "file": "src/utils/format.js",

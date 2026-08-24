@@ -444,12 +444,21 @@ export function registerMapLifecycleRoutes(router) {
             .array(z.record(z.string(), z.unknown()))
             .max(1000)
             .optional(),
-          preloadCode: z.string().max(2_000_000).optional(),
+          preloadCode: z
+            .string()
+            .refine(
+              (value) => Buffer.byteLength(value, "utf8") <= 256 * 1024,
+              "预加载代码不能超过 256 KiB",
+            )
+            .optional(),
         })
         .strict(),
     ),
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
+      if (Object.hasOwn(req.body, "preloadCode") && req.user.role !== "admin") {
+        throw new HttpError(403, "仅管理员可以修改预加载代码", "FORBIDDEN");
+      }
       const result = await query(
         `UPDATE map_configs SET config=config || $1::jsonb,updated_by=$2,updated_at=NOW()
         WHERE map_id=$3 RETURNING config,updated_at`,
