@@ -70,30 +70,32 @@ function archiveRequestHash(operation, target, body) {
   );
 }
 
-function playerArchiveRow(row, uid, dataBanned = false) {
+function archiveRow(row) {
+  return {
+    revision: Number(row?.revision || 0),
+    values: row?.archive_data || {},
+  };
+}
+
+function bootstrapPlayerArchiveRow(row, uid, dataBanned = false) {
   if (dataBanned) {
     return {
       uid,
       dataBanned: true,
       revision: 0,
       values: {},
-      updatedAt: null,
     };
   }
   return {
     uid,
     dataBanned: false,
-    revision: Number(row?.revision || 0),
-    values: row?.archive_data || {},
-    updatedAt: row?.updated_at || null,
+    ...archiveRow(row),
   };
 }
 
-function globalArchiveRow(row) {
+function archiveRevisionRow(row) {
   return {
     revision: Number(row?.revision || 0),
-    values: row?.archive_data || {},
-    updatedAt: row?.updated_at || null,
   };
 }
 
@@ -133,27 +135,34 @@ router.post(
     }),
   ),
   async (req, res) => {
-    const [archives, bannedPlayers, globalArchive] = await Promise.all([
-      query(
-        `SELECT player_uid,archive_data,revision,updated_at
+    const [archives, bannedPlayers, globalArchive, mapConfig] =
+      await Promise.all([
+        query(
+          `SELECT player_uid,archive_data,revision
            FROM fq_player_archives
           WHERE map_id=$1 AND player_uid=ANY($2::text[])`,
-        [req.apiKey.map_id, req.body.uids],
-      ),
-      query(
-        `SELECT uid FROM players
+          [req.apiKey.map_id, req.body.uids],
+        ),
+        query(
+          `SELECT uid FROM players
           WHERE map_id=$1 AND uid=ANY($2::text[]) AND data_ban=TRUE`,
-        [req.apiKey.map_id, req.body.uids],
-      ),
-      req.body.includeGlobal
-        ? query(
-            `SELECT archive_data,revision,updated_at
+          [req.apiKey.map_id, req.body.uids],
+        ),
+        req.body.includeGlobal
+          ? query(
+              `SELECT archive_data,revision
                FROM fq_global_archives
               WHERE map_id=$1`,
-            [req.apiKey.map_id],
-          )
-        : Promise.resolve({ rows: [] }),
-    ]);
+              [req.apiKey.map_id],
+            )
+          : Promise.resolve({ rows: [] }),
+        query(
+          `SELECT COALESCE(config->>'preloadCode','') AS preload_code
+           FROM map_configs
+          WHERE map_id=$1`,
+          [req.apiKey.map_id],
+        ),
+      ]);
     const archiveByUid = new Map(
       archives.rows.map((row) => [row.player_uid, row]),
     );
@@ -162,11 +171,16 @@ router.post(
       success: true,
       data: {
         mapId: Number(req.apiKey.map_id),
+        preloadCode: mapConfig.rows[0]?.preload_code || "",
         players: req.body.uids.map((uid) =>
-          playerArchiveRow(archiveByUid.get(uid), uid, bannedUids.has(uid)),
+          bootstrapPlayerArchiveRow(
+            archiveByUid.get(uid),
+            uid,
+            bannedUids.has(uid),
+          ),
         ),
         ...(req.body.includeGlobal
-          ? { global: globalArchiveRow(globalArchive.rows[0]) }
+          ? { global: archiveRow(globalArchive.rows[0]) }
           : {}),
       },
     });
@@ -180,7 +194,7 @@ router.get(
   async (req, res) => {
     const [archive, player] = await Promise.all([
       query(
-        `SELECT archive_data,revision,updated_at
+        `SELECT archive_data,revision
            FROM fq_player_archives
           WHERE map_id=$1 AND player_uid=$2`,
         [req.apiKey.map_id, req.params.uid],
@@ -196,7 +210,7 @@ router.get(
     }
     res.json({
       success: true,
-      data: playerArchiveRow(archive.rows[0], req.params.uid),
+      data: archiveRow(archive.rows[0]),
     });
   },
 );
@@ -228,7 +242,7 @@ router.post(
         [req.apiKey.map_id, req.params.uid],
       );
       const currentResult = await client.query(
-        `SELECT archive_data,revision,last_request_id,last_request_hash,updated_at
+        `SELECT revision,last_request_id,last_request_hash
            FROM fq_player_archives
           WHERE map_id=$1 AND player_uid=$2
           FOR UPDATE`,
@@ -236,10 +250,7 @@ router.post(
       );
       const current = currentResult.rows[0];
       if (assertMatchingRequest(current, req.body.requestId, requestHash)) {
-        return {
-          replayed: true,
-          archive: playerArchiveRow(current, req.params.uid),
-        };
+        return archiveRevisionRow(current);
       }
       const currentRevision = Number(current.revision);
       assertExpectedRevision(req.body.expectedRevision, currentRevision);
@@ -251,7 +262,7 @@ router.post(
                 last_request_hash=$5,
                 updated_at=NOW()
           WHERE map_id=$1 AND player_uid=$2
-          RETURNING archive_data,revision,updated_at`,
+          RETURNING revision`,
         [
           req.apiKey.map_id,
           req.params.uid,
@@ -260,14 +271,11 @@ router.post(
           requestHash,
         ],
       );
-      return {
-        replayed: false,
-        archive: playerArchiveRow(saved.rows[0], req.params.uid),
-      };
+      return archiveRevisionRow(saved.rows[0]);
     });
     res.json({
       success: true,
-      data: { requestId: req.body.requestId, ...result },
+      data: { archive: result },
     });
   },
 );
@@ -277,12 +285,12 @@ router.get(
   requireApiPermission("game.archives.read"),
   async (req, res) => {
     const result = await query(
-      `SELECT archive_data,revision,updated_at
+      `SELECT archive_data,revision
          FROM fq_global_archives
         WHERE map_id=$1`,
       [req.apiKey.map_id],
     );
-    res.json({ success: true, data: globalArchiveRow(result.rows[0]) });
+    res.json({ success: true, data: archiveRow(result.rows[0]) });
   },
 );
 
@@ -300,7 +308,7 @@ router.post(
         [req.apiKey.map_id],
       );
       const currentResult = await client.query(
-        `SELECT archive_data,revision,last_request_id,last_request_hash,updated_at
+        `SELECT revision,last_request_id,last_request_hash
            FROM fq_global_archives
           WHERE map_id=$1
           FOR UPDATE`,
@@ -308,7 +316,7 @@ router.post(
       );
       const current = currentResult.rows[0];
       if (assertMatchingRequest(current, req.body.requestId, requestHash)) {
-        return { replayed: true, archive: globalArchiveRow(current) };
+        return archiveRevisionRow(current);
       }
       const currentRevision = Number(current.revision);
       assertExpectedRevision(req.body.expectedRevision, currentRevision);
@@ -320,7 +328,7 @@ router.post(
                 last_request_hash=$4,
                 updated_at=NOW()
           WHERE map_id=$1
-          RETURNING archive_data,revision,updated_at`,
+          RETURNING revision`,
         [
           req.apiKey.map_id,
           JSON.stringify(req.body.values),
@@ -328,14 +336,11 @@ router.post(
           requestHash,
         ],
       );
-      return {
-        replayed: false,
-        archive: globalArchiveRow(saved.rows[0]),
-      };
+      return archiveRevisionRow(saved.rows[0]);
     });
     res.json({
       success: true,
-      data: { requestId: req.body.requestId, ...result },
+      data: { archive: result },
     });
   },
 );
@@ -380,14 +385,12 @@ router.post(
       }),
   ),
   async (req, res) => {
-    const players = await transaction(async (client) => {
-      const rows = [];
+    await transaction(async (client) => {
       for (const player of req.body.players) {
-        const result = await client.query(
+        await client.query(
           `INSERT INTO players(map_id,uid,name,level,game_level,profile,last_active_at)
            VALUES($1,$2,$3,$4,$5,$6::jsonb,NOW())
-           ON CONFLICT(map_id,uid) DO UPDATE SET name=EXCLUDED.name,level=EXCLUDED.level,game_level=EXCLUDED.game_level,profile=EXCLUDED.profile,last_active_at=NOW(),updated_at=NOW()
-           RETURNING id,uid,name,last_active_at`,
+           ON CONFLICT(map_id,uid) DO UPDATE SET name=EXCLUDED.name,level=EXCLUDED.level,game_level=EXCLUDED.game_level,profile=EXCLUDED.profile,last_active_at=NOW(),updated_at=NOW()`,
           [
             req.apiKey.map_id,
             player.uid,
@@ -397,11 +400,9 @@ router.post(
             JSON.stringify(player.profile),
           ],
         );
-        rows.push(result.rows[0]);
       }
-      return rows;
     });
-    res.json({ success: true, data: { players } });
+    res.json({ success: true });
   },
 );
 
@@ -476,22 +477,13 @@ router.post(
 
 function metricSessionHandler(event) {
   return async (req, res) => {
-    const session = await recordMetricSessionEvent({
+    await recordMetricSessionEvent({
       mapId: req.apiKey.map_id,
       sessionId: req.body.sessionId,
       uids: req.body.uids,
       event,
     });
-    res.json({
-      success: true,
-      data: {
-        sessionId: session.session_id,
-        event,
-        startedAt: session.started_at,
-        lastHeartbeatAt: session.last_heartbeat_at,
-        endedAt: session.ended_at,
-      },
-    });
+    res.json({ success: true });
   };
 }
 
@@ -576,15 +568,16 @@ function fqChinaTime(value) {
 
 function gameLeaderboardEntryRow(row) {
   return {
+    name: row.player_name,
+    score: Number(row.score),
+    achievedAtText: fqChinaTime(row.updated_at),
+  };
+}
+
+function gameLeaderboardPlayerRankRow(row) {
+  return {
     rank: Number(row.rank),
     uid: row.player_uid,
-    name: row.player_name,
-    gameLevel: row.game_level,
-    score: Number(row.score),
-    gameCount: Number(row.game_count),
-    metadata: row.metadata,
-    achievedAt: row.updated_at,
-    achievedAtText: fqChinaTime(row.updated_at),
   };
 }
 
@@ -597,12 +590,11 @@ router.post(
       req.params.leaderboardKey,
     );
     const leaderboardResult = await query(
-      `SELECT l.id,l.name,l.value_label,
-              latest.id AS snapshot_id,latest.entry_count,latest.published_at,
+      `SELECT l.id,latest.id AS snapshot_id,latest.published_at,
               (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date::text AS collection_date
          FROM leaderboards l
          LEFT JOIN LATERAL (
-           SELECT id,entry_count,published_at
+           SELECT id,published_at
              FROM leaderboard_snapshots
             WHERE leaderboard_id=l.id
             ORDER BY published_at DESC,id DESC LIMIT 1
@@ -631,37 +623,28 @@ router.post(
     if (leaderboard.snapshot_id) {
       const [entriesResult, playerRanksResult] = await Promise.all([
         query(
-          `SELECT rank,player_uid,player_name,game_level,score,game_count,metadata,achieved_at AS updated_at
+          `SELECT player_name,score,achieved_at AS updated_at
              FROM leaderboard_snapshot_entries
             WHERE snapshot_id=$1 ORDER BY rank LIMIT $2`,
           [leaderboard.snapshot_id, req.body.limit],
         ),
         query(
-          `SELECT rank,player_uid,player_name,game_level,score,game_count,metadata,achieved_at AS updated_at
+          `SELECT rank,player_uid
              FROM leaderboard_snapshot_entries
             WHERE snapshot_id=$1 AND rank<=100 AND player_uid=ANY($2::text[]) ORDER BY rank`,
           [leaderboard.snapshot_id, req.body.uids],
         ),
       ]);
       entries = entriesResult.rows.map(gameLeaderboardEntryRow);
-      playerRanks = playerRanksResult.rows.map(gameLeaderboardEntryRow);
+      playerRanks = playerRanksResult.rows.map(gameLeaderboardPlayerRankRow);
     }
     res.json({
       success: true,
       data: {
-        leaderboardKey,
-        name: leaderboard.name,
-        valueLabel: leaderboard.value_label,
         published: Boolean(leaderboard.snapshot_id),
-        snapshotId: leaderboard.snapshot_id
-          ? Number(leaderboard.snapshot_id)
-          : null,
-        publishedAt: leaderboard.published_at || null,
         publishedAtText: fqChinaTime(leaderboard.published_at),
-        totalEntries: Number(leaderboard.entry_count || 0),
         entries,
         playerRanks,
-        collectionDate: leaderboard.collection_date,
         submittedTodayUids: submittedToday.rows.map((row) => row.player_uid),
       },
     });
@@ -711,8 +694,7 @@ router.post(
         },
       });
 
-    const acceptedUids = await transaction(async (client) => {
-      const accepted = [];
+    await transaction(async (client) => {
       for (const entry of req.body.entries) {
         const collection = await client.query(
           `INSERT INTO leaderboard_daily_collections(
@@ -723,7 +705,7 @@ router.post(
           [leaderboard.id, entry.uid, leaderboard.collection_date],
         );
         if (!collection.rows[0]) continue;
-        const result = await client.query(
+        await client.query(
           `INSERT INTO leaderboard_entries(leaderboard_id,player_uid,player_name,game_level,score,game_count,metadata,last_submitted_on)
            VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$10::date)
            ON CONFLICT(leaderboard_id,player_uid) DO UPDATE SET
@@ -743,8 +725,7 @@ router.post(
               updated_at=CASE
                 WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
                 THEN NOW() ELSE leaderboard_entries.updated_at END,
-              last_submitted_on=EXCLUDED.last_submitted_on
-           RETURNING player_uid`,
+              last_submitted_on=EXCLUDED.last_submitted_on`,
           [
             leaderboard.id,
             entry.uid,
@@ -758,22 +739,9 @@ router.post(
             leaderboard.collection_date,
           ],
         );
-        accepted.push(result.rows[0].player_uid);
       }
-      return accepted;
     });
-    const accepted = new Set(acceptedUids);
-    res.json({
-      success: true,
-      data: {
-        leaderboardKey,
-        collectionDate: leaderboard.collection_date,
-        acceptedUids,
-        skippedUids: req.body.entries
-          .filter((entry) => !accepted.has(entry.uid))
-          .map((entry) => entry.uid),
-      },
-    });
+    res.json({ success: true });
   },
 );
 
@@ -845,7 +813,6 @@ router.post(
 
 router.post(
   "/deliveries/query",
-  requireApiPermission("game.messages.read"),
   requireApiPermission("game.gifts.read"),
   validate(
     z.object({
@@ -854,27 +821,40 @@ router.post(
         .min(1)
         .max(24)
         .transform((uids) => [...new Set(uids)]),
+      includeMessages: z.boolean().optional().default(true),
     }),
   ),
   async (req, res) => {
+    if (
+      req.body.includeMessages &&
+      !req.apiKey.permissions.includes("game.messages.read")
+    ) {
+      throw new HttpError(
+        403,
+        "API Key 没有玩家消息读取权限",
+        "FORBIDDEN",
+      );
+    }
     const [messages, gifts] = await Promise.all([
-      query(
-        `SELECT * FROM (
-           SELECT p.uid,pm.id,pm.subject,pm.content,pm.attachments,pm.created_at,
+      req.body.includeMessages
+        ? query(
+            `SELECT * FROM (
+             SELECT p.uid,pm.id,pm.subject,pm.content,pm.attachments,
                   ROW_NUMBER() OVER (PARTITION BY p.uid ORDER BY pm.created_at) AS item_order
-             FROM player_messages pm JOIN players p ON p.id=pm.player_id
-            WHERE pm.map_id=$1 AND p.map_id=$1 AND p.uid=ANY($2::text[])
-              AND p.data_ban IS DISTINCT FROM TRUE AND pm.status='pending'
-         ) pending WHERE item_order<=100 ORDER BY uid,item_order`,
-        [req.apiKey.map_id, req.body.uids],
-      ),
+               FROM player_messages pm JOIN players p ON p.id=pm.player_id
+              WHERE pm.map_id=$1 AND p.map_id=$1 AND p.uid=ANY($2::text[])
+                AND p.data_ban IS DISTINCT FROM TRUE AND pm.status='pending'
+           ) pending WHERE item_order<=100 ORDER BY uid,item_order`,
+            [req.apiKey.map_id, req.body.uids],
+          )
+        : Promise.resolve({ rows: [] }),
       query(
         `WITH current_players AS (
            SELECT uid,name
              FROM players
             WHERE map_id=$1 AND uid=ANY($2::text[])
          )
-         SELECT current_players.uid,g.gift_key,g.name,MAX(ge.value)::float8 AS value
+         SELECT current_players.uid,g.gift_key,MAX(ge.value)::float8 AS value
            FROM current_players
            JOIN players entitled_players
              ON entitled_players.map_id=$1
@@ -884,13 +864,20 @@ router.post(
             AND ge.player_id=entitled_players.id
            JOIN gifts g ON g.id=ge.gift_id AND g.map_id=$1
           WHERE ge.value>0
-          GROUP BY current_players.uid,g.id,g.gift_key,g.name
+          GROUP BY current_players.uid,g.id,g.gift_key
           ORDER BY current_players.uid,g.id`,
         [req.apiKey.map_id, req.body.uids],
       ),
     ]);
     const byUid = new Map(
-      req.body.uids.map((uid) => [uid, { uid, messages: [], gifts: [] }]),
+      req.body.uids.map((uid) => [
+        uid,
+        {
+          uid,
+          ...(req.body.includeMessages ? { messages: [] } : {}),
+          gifts: [],
+        },
+      ]),
     );
     for (const message of messages.rows) {
       const { uid, item_order: _itemOrder, ...data } = message;
@@ -913,7 +900,7 @@ router.post(
       `UPDATE player_messages pm SET status='delivered',delivered_at=NOW()
       FROM players p WHERE pm.id=$1 AND pm.player_id=p.id AND pm.map_id=$2
         AND p.map_id=$2 AND p.uid=$3 AND pm.status='pending'
-      RETURNING pm.id,pm.delivered_at`,
+      RETURNING pm.id`,
       [req.params.messageId, req.apiKey.map_id, req.body.uid],
     );
     if (!result.rows[0])
@@ -921,7 +908,7 @@ router.post(
         success: false,
         error: { code: "MESSAGE_NOT_FOUND", message: "消息不存在或已经确认" },
       });
-    res.json({ success: true, data: result.rows[0] });
+    res.json({ success: true });
   },
 );
 

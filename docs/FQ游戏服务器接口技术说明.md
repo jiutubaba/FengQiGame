@@ -57,7 +57,7 @@ War3 地图包可能被反编译或提取字符串，因此必须把 Key 的破�
 
 ### 2.2 成功响应
 
-通常返回：
+需要返回业务数据时：
 
 ```json
 {
@@ -73,6 +73,8 @@ War3 地图包可能被反编译或提取字符串，因此必须把 Key 的破�
   "success": true
 }
 ```
+
+这类接口不会回显已提交正文、服务端时间或其他客户端不消费的字段。
 
 ### 2.3 失败响应
 
@@ -104,7 +106,7 @@ War3 地图包可能被反编译或提取字符串，因此必须把 Key 的破�
 
 | 权限                                     | 方法 | 路径                                           | 说明                             |
 | ---------------------------------------- | ---- | ---------------------------------------------- | -------------------------------- |
-| `game.archives.read`                     | POST | `/api/fq/bootstrap`                            | 批量读取玩家与全局存档           |
+| `game.archives.read`                     | POST | `/api/fq/bootstrap`                            | 读取预加载代码、玩家与全局存档   |
 | `game.archives.read`                     | GET  | `/api/fq/archives/players/:uid`                | 读取单个玩家存档                 |
 | `game.archives.read`                     | GET  | `/api/fq/archives/global`                      | 读取当前地图的全局存档           |
 | `game.archives.write`                    | POST | `/api/fq/archives/players/:uid/save`           | 保存完整玩家存档                 |
@@ -119,7 +121,8 @@ War3 地图包可能被反编译或提取字符串，因此必须把 Key 的破�
 | `game.leaderboards.read`                 | POST | `/api/fq/leaderboards/:leaderboardKey/query`   | 读取最新发布快照与采集状态       |
 | `game.leaderboards.write`                | POST | `/api/fq/leaderboards/:leaderboardKey/entries` | 批量提交每日首次样本             |
 | `game.risk.write`                        | POST | `/api/fq/risk/events`                          | 幂等上报风险事件                 |
-| `game.messages.read` + `game.gifts.read` | POST | `/api/fq/deliveries/query`                     | 批量拉取待送达消息与当前礼包资格 |
+| `game.gifts.read`                        | POST | `/api/fq/deliveries/query`                     | 批量拉取当前礼包资格             |
+| `game.messages.read`                     | POST | `/api/fq/deliveries/query`                     | `includeMessages=true` 时拉取消息 |
 | `game.messages.read`                     | POST | `/api/fq/messages/:messageId/ack`              | 确认消息已写入游戏               |
 
 每张地图至少创建一把只授予实际调用端点的 Key；同地图可以为权限拆分或轮换创建多把 Key，但它们共享同一地图运行数据，不代表不同环境。地图发布配置只保存当前使用的一把 Key，不应为了方便默认勾选全部权限。
@@ -149,7 +152,7 @@ game.archives.read
 
 约束：
 
-- `uids` 至少 1 个、最多 24 个；
+- `uids` 至少 1 个、最多 24 个；24 是通用接口防滥用上限，不代表每张地图固定读取 24 份，客户端只应提交本局实际参与者；
 - 每个 UID 长度 1–128；
 - 重复 UID 会自动去重；
 - `includeGlobal` 可省略，默认 `true`。
@@ -161,6 +164,7 @@ game.archives.read
   "success": true,
   "data": {
     "mapId": 1,
+    "preloadCode": "return true",
     "players": [
       {
         "uid": "player-001",
@@ -169,15 +173,13 @@ game.archives.read
         "values": {
           "gold": 100,
           "inventory": ["sword"]
-        },
-        "updatedAt": "2026-07-16T09:45:02.951Z"
+        }
       },
       {
         "uid": "player-002",
         "dataBanned": false,
         "revision": 0,
-        "values": {},
-        "updatedAt": null
+        "values": {}
       }
     ],
     "global": {
@@ -185,20 +187,20 @@ game.archives.read
       "values": {
         "season": 1,
         "serverOpen": true
-      },
-      "updatedAt": "2026-07-16T09:40:00.000Z"
+      }
     }
   }
 }
 ```
+
+`preloadCode` 始终返回字符串，空字符串表示无预加载操作。该字段具备游戏端代码执行能力，仅管理员可以修改，后台只接受不超过 256 KiB 的文本 Lua；游戏端必须在共享业务加载前以文本模式编译并执行一次，编译或运行失败时不得进入 FQ 在线态。多人地图还必须把代码摘要纳入全员启动状态校验。预加载代码只用于定义或覆盖开局所需的 Lua 数据与函数，不得创建世界对象、启动计时器、发送同步消息，也不得依赖本地玩家、客户端时间或其他会造成各端结果不同的输入。
 
 未保存过的存档返回：
 
 ```json
 {
   "revision": 0,
-  "values": {},
-  "updatedAt": null
+  "values": {}
 }
 ```
 
@@ -209,8 +211,7 @@ game.archives.read
   "uid": "player-001",
   "dataBanned": true,
   "revision": 0,
-  "values": {},
-  "updatedAt": null
+  "values": {}
 }
 ```
 
@@ -232,13 +233,10 @@ game.archives.read
 {
   "success": true,
   "data": {
-    "uid": "player-001",
-    "dataBanned": false,
     "revision": 3,
     "values": {
       "gold": 100
-    },
-    "updatedAt": "2026-07-16T09:45:02.951Z"
+    }
   }
 }
 ```
@@ -270,8 +268,7 @@ game.archives.read
     "revision": 2,
     "values": {
       "season": 1
-    },
-    "updatedAt": "2026-07-16T09:40:00.000Z"
+    }
   }
 }
 ```
@@ -310,41 +307,21 @@ game.archives.write
 {
   "success": true,
   "data": {
-    "requestId": "FQ-map1-player-001-20260716-000001",
-    "replayed": false,
     "archive": {
-      "uid": "player-001",
-      "dataBanned": false,
-      "revision": 4,
-      "values": {
-        "gold": 120,
-        "inventory": ["sword", "shield"],
-        "progress": {
-          "chapter": 2
-        }
-      },
-      "updatedAt": "2026-07-16T09:50:00.000Z"
+      "revision": 4
     }
   }
 }
 ```
 
-相同请求的安全重放：
+相同请求的安全重放返回相同的新 revision，不重复回传存档正文：
 
 ```json
 {
   "success": true,
   "data": {
-    "requestId": "FQ-map1-player-001-20260716-000001",
-    "replayed": true,
     "archive": {
-      "uid": "player-001",
-      "dataBanned": false,
-      "revision": 4,
-      "values": {
-        "gold": 120
-      },
-      "updatedAt": "2026-07-16T09:50:00.000Z"
+      "revision": 4
     }
   }
 }
@@ -375,21 +352,14 @@ game.archives.write
 }
 ```
 
-响应中的 `archive` 不包含 `uid` 和 `dataBanned`：
+保存响应只返回客户端继续写入所需的新 revision：
 
 ```json
 {
   "success": true,
   "data": {
-    "requestId": "FQ-map1-global-20260716-000001",
-    "replayed": false,
     "archive": {
-      "revision": 3,
-      "values": {
-        "season": 2,
-        "serverOpen": true
-      },
-      "updatedAt": "2026-07-16T09:50:00.000Z"
+      "revision": 3
     }
   }
 }
@@ -498,17 +468,7 @@ game.players.write
 
 ```json
 {
-  "success": true,
-  "data": {
-    "players": [
-      {
-        "id": "123",
-        "uid": "player-001",
-        "name": "玩家名称",
-        "last_active_at": "2026-07-16T09:55:00.000Z"
-      }
-    ]
-  }
+  "success": true
 }
 ```
 
@@ -607,14 +567,7 @@ game.metrics.write
 
 ```json
 {
-  "success": true,
-  "data": {
-    "sessionId": "完整且稳定的本局会话标识",
-    "event": "heartbeat",
-    "startedAt": "2026-08-05T02:00:00.000Z",
-    "lastHeartbeatAt": "2026-08-05T02:01:00.000Z",
-    "endedAt": null
-  }
+  "success": true
 }
 ```
 
@@ -760,9 +713,10 @@ game.leaderboards.read
 - `limit` 可省略，范围 1–100，默认 100；
 - 只返回最新人工发布快照；`published=false` 时 `entries/playerRanks` 为空，不回退实时候选池；
 - `playerRanks` 只包含指定 UID 中位于已发布前 100 名的玩家，榜外玩家不返回实时名次；
-- `publishedAt/publishedAtText` 是游戏展示的更新时间，`collectionDate` 是当前北京时间日期；
+- `publishedAtText` 是游戏展示的北京时间更新时间；
 - `submittedTodayUids` 返回请求 UID 中今日已经成功采集的玩家，供客户端跳过写请求；
-- 条目包含 `rank`、`uid`、`name`、`gameLevel`、`score`、`gameCount`、`metadata`、`achievedAt` 与北京时间展示字段 `achievedAtText`；
+- `entries` 按名次顺序返回，只包含游戏界面使用的 `name`、`score`、`achievedAtText`；
+- `playerRanks` 只包含 `rank` 与 `uid`；
 - 当前封禁只影响候选池和后续新快照，已经发布的历史快照不被回写。
 
 ### 8.2 上报条目
@@ -809,19 +763,13 @@ game.leaderboards.write
 - `gameCount`：0–1e12 的整数；
 - `metadata`：JSON 对象。
 
-同一个榜单中的同一 UID 每个北京时间自然日只接受首次提交。数据库使用独立每日采集记录原子判定日期，并发房间同日提交时也只有一个请求生效；后台移除实时候选条目不会删除当天采集事实。失败或结果不确定时可以重试，已经采集的 UID 会进入 `skippedUids`。被后台标记为排行榜封禁的玩家不会进入候选排名和后续新快照；已经发布的历史快照不会被改写。
+同一个榜单中的同一 UID 每个北京时间自然日只接受首次提交。数据库使用独立每日采集记录原子判定日期，并发房间同日提交时也只有一个请求生效；后台移除实时候选条目不会删除当天采集事实。失败或结果不确定时可以重试，已采集 UID 会被原子跳过。被后台标记为排行榜封禁的玩家不会进入候选排名和后续新快照；已经发布的历史快照不会被改写。
 
 响应：
 
 ```json
 {
-  "success": true,
-  "data": {
-    "leaderboardKey": "game_power",
-    "collectionDate": "2026-07-21",
-    "acceptedUids": ["player-001"],
-    "skippedUids": []
-  }
+  "success": true
 }
 ```
 
@@ -915,15 +863,16 @@ game.risk.write
 POST /api/fq/deliveries/query
 ```
 
-权限：同时需要 `game.messages.read` 和 `game.gifts.read`。
+权限：始终需要 `game.gifts.read`；`includeMessages=true` 时额外需要 `game.messages.read`。
 
 ```json
 {
-  "uids": ["player-001", "player-002"]
+  "uids": ["player-001", "player-002"],
+  "includeMessages": true
 }
 ```
 
-每个 UID 最多返回最早的 100 条消息；礼包资格使用该 UID 最近一次玩家资料上报的完整昵称，在同一地图内精确匹配。响应仍按请求 UID 归位，存档封禁只让消息为空，不影响礼包资格：
+`includeMessages` 可省略，默认 `true`；设为 `false` 时不要求消息权限、不查询也不返回 `messages`，适用于只消费礼包资格的地图。启用消息时每个 UID 最多返回最早的 100 条消息；礼包资格使用该 UID 最近一次玩家资料上报的完整昵称，在同一地图内精确匹配。响应仍按请求 UID 归位，存档封禁只让消息为空，不影响礼包资格：
 
 ```json
 {
@@ -937,14 +886,12 @@ POST /api/fq/deliveries/query
             "id": "31",
             "subject": "系统补偿",
             "content": "维护补偿内容",
-            "attachments": [],
-            "created_at": "2026-07-16T10:40:00.000Z"
+            "attachments": []
           }
         ],
         "gifts": [
           {
             "gift_key": "测试10级",
-            "name": "测试10级",
             "value": 100
           }
         ]
@@ -976,11 +923,7 @@ POST /api/fq/messages/:messageId/ack
 
 ```json
 {
-  "success": true,
-  "data": {
-    "id": "31",
-    "delivered_at": "2026-07-16T10:41:00.000Z"
-  }
+  "success": true
 }
 ```
 
@@ -1211,7 +1154,7 @@ end)
 - [ ] 保存成功后更新本地 revision；
 - [ ] 网络重试复用同一 requestId 和请求内容；
 - [ ] revision 409 时重新读取，不强行覆盖；
-- [ ] 四人房无待投递时使用 4 个批量 HTTP 完成开局链；
+- [ ] 血液四人房开局使用 5 个批量 HTTP：bootstrap、玩家资料、两个排行榜和礼包投递；
 - [ ] 消息批量读取后只在游戏内写入成功后 ACK；礼包每局覆盖本地资格且不写入存档；
 - [ ] 榜单未发布时游戏显示“尚未发布”，人工发布后仅新开对局读取最新前 100 名；
 - [ ] 同一 UID 同一北京时间自然日只接受首次样本，并发重复请求只接受一次；

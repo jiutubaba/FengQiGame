@@ -29,6 +29,8 @@ const configSections = [
   ["preloadCode", "预加载代码"],
 ];
 
+const PRELOAD_CODE_LIMIT_KB = 256;
+
 export default function ConfigPanel({
   map,
   mapId,
@@ -63,6 +65,8 @@ export default function ConfigPanel({
   const confirmAction = useConfirm();
   const toast = useToast();
   const editable = can("map.edit");
+  const sectionEditable =
+    editable && (active !== "preloadCode" || isAdmin);
 
   const load = useCallback(async () => {
     setConfigError("");
@@ -96,6 +100,11 @@ export default function ConfigPanel({
         : JSON.stringify(config[active] || [], null, 2);
   const sectionChanged =
     active !== "basic" && Boolean(config) && editor !== savedEditor;
+  const preloadCodeBytes = new TextEncoder().encode(editor).byteLength;
+  const preloadCodeKilobytes = Math.ceil(preloadCodeBytes / 1024);
+  const preloadCodeOverLimit =
+    active === "preloadCode" &&
+    preloadCodeBytes > PRELOAD_CODE_LIMIT_KB * 1024;
 
   const selectSection = async (nextSection) => {
     if (nextSection === active) return;
@@ -403,13 +412,16 @@ export default function ConfigPanel({
                     : "使用 JSON 数组维护结构化配置，保存前会进行语法校验。"}
                 </p>
               </div>
-              {editable && (
+              {sectionEditable && (
                 <Button
                   variant="primary"
                   icon={Save}
                   onClick={saveSection}
                   disabled={
-                    !sectionChanged || sectionSaving || Boolean(configError)
+                    !sectionChanged ||
+                    sectionSaving ||
+                    Boolean(configError) ||
+                    preloadCodeOverLimit
                   }
                 >
                   {sectionSaving
@@ -438,13 +450,31 @@ export default function ConfigPanel({
                     action={<Button onClick={saveSection}>重新保存</Button>}
                   />
                 )}
-                <textarea
-                  className="code-editor config-editor"
-                  spellCheck="false"
-                  value={editor}
-                  onChange={(event) => setEditor(event.target.value)}
-                  readOnly={!editable}
-                />
+                <div className="config-editor-stack">
+                  <textarea
+                    className="code-editor config-editor"
+                    spellCheck="false"
+                    value={editor}
+                    onChange={(event) => setEditor(event.target.value)}
+                    readOnly={!sectionEditable}
+                    aria-describedby={
+                      active === "preloadCode"
+                        ? "preload-code-size"
+                        : undefined
+                    }
+                  />
+                  {active === "preloadCode" && (
+                    <div
+                      id="preload-code-size"
+                      className={`preload-code-size${
+                        preloadCodeOverLimit ? " is-over-limit" : ""
+                      }`}
+                      title={`${preloadCodeBytes} 字节`}
+                    >
+                      {preloadCodeKilobytes}/{PRELOAD_CODE_LIMIT_KB}KB
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </>

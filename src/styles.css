@@ -3024,6 +3024,24 @@ textarea::placeholder {
     Consolas,
     monospace;
 }
+.config-editor-stack .code-editor {
+  display: block;
+}
+.preload-code-size {
+  display: flex;
+  justify-content: flex-end;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-top: 0;
+  background: var(--surface-2);
+  color: var(--muted);
+  font: 600 12px/1.4 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.preload-code-size.is-over-limit {
+  background: var(--red-soft);
+  color: var(--red);
+}
 .export-form {
   max-width: 620px;
   display: grid;
