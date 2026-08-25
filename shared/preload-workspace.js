@@ -1,3 +1,5 @@
+import luaparse from "luaparse";
+
 export const PRELOAD_CODE_LIMIT_BYTES = 256 * 1024;
 export const PRELOAD_ENTRY_PATH = "main.lua";
 export const PRELOAD_WORKSPACE_VERSION = 1;
@@ -98,6 +100,158 @@ export function preloadWorkspaceErrors(workspace) {
   return [...new Set(errors)];
 }
 
+export function preloadWorkspaceDiagnostics(workspace) {
+  const files = Array.isArray(workspace?.files)
+    ? workspace.files.filter(
+        (file) =>
+          file &&
+          typeof file.path === "string" &&
+          typeof file.content === "string",
+      )
+    : [];
+  const filePaths = new Set(files.map((file) => file.path));
+  const filePathsByLowerCase = new Map(
+    files.map((file) => [file.path.toLocaleLowerCase("en-US"), file.path]),
+  );
+  const diagnostics = [];
+  const references = [];
+  const parseFailedPaths = new Set();
+  const dynamicRequirePaths = new Set();
+
+  for (const file of files) {
+    let ast;
+    try {
+      ast = luaparse.parse(luaParserSource(file.content), {
+        comments: false,
+        extendedIdentifiers: true,
+        locations: true,
+        luaVersion: "5.3",
+        ranges: true,
+        scope: true,
+      });
+    } catch (error) {
+      parseFailedPaths.add(file.path);
+      diagnostics.push(luaSyntaxDiagnostic(file.path, file.content, error));
+      continue;
+    }
+
+    walkLuaAst(ast, (node) => {
+      const requireCall = readRequireCall(file.content, node);
+      if (!requireCall) return;
+      if (requireCall.path === null) {
+        dynamicRequirePaths.add(file.path);
+        diagnostics.push(
+          luaReferenceDiagnostic(
+            file.path,
+            requireCall.location,
+            "warning",
+            'require 引用无法静态检查，请使用 require("文件名.lua") 的字符串形式',
+          ),
+        );
+        return;
+      }
+
+      const exactTarget = filePaths.has(requireCall.path)
+        ? requireCall.path
+        : null;
+      const caseInsensitiveTarget = filePathsByLowerCase.get(
+        requireCall.path.toLocaleLowerCase("en-US"),
+      );
+      const resolvedTarget = exactTarget || caseInsensitiveTarget || null;
+      const reference = {
+        sourcePath: file.path,
+        requestedPath: requireCall.path,
+        resolvedTarget,
+        location: requireCall.location,
+      };
+      references.push(reference);
+
+      if (exactTarget) return;
+      if (caseInsensitiveTarget) {
+        diagnostics.push(
+          luaReferenceDiagnostic(
+            file.path,
+            requireCall.location,
+            "error",
+            `require 路径大小写不匹配：${requireCall.path}，应为 ${caseInsensitiveTarget}`,
+          ),
+        );
+        return;
+      }
+      diagnostics.push(
+        luaReferenceDiagnostic(
+          file.path,
+          requireCall.location,
+          "error",
+          `require 引用的文件不存在：${requireCall.path}`,
+        ),
+      );
+    });
+  }
+
+  const dependencyGraph = new Map(files.map((file) => [file.path, []]));
+  for (const reference of references) {
+    if (reference.resolvedTarget) {
+      dependencyGraph.get(reference.sourcePath)?.push(reference.resolvedTarget);
+    }
+  }
+  for (const reference of references) {
+    if (!reference.resolvedTarget) continue;
+    const cyclePath = findDependencyPath(
+      dependencyGraph,
+      reference.resolvedTarget,
+      reference.sourcePath,
+    );
+    if (!cyclePath) continue;
+    diagnostics.push(
+      luaReferenceDiagnostic(
+        reference.sourcePath,
+        reference.location,
+        "error",
+        `require 存在循环依赖：${[reference.sourcePath, ...cyclePath].join(
+          " → ",
+        )}`,
+      ),
+    );
+  }
+
+  const reachablePaths = collectReachablePaths(
+    dependencyGraph,
+    PRELOAD_ENTRY_PATH,
+  );
+  const reachabilityIsComplete = [...reachablePaths].every(
+    (path) => !parseFailedPaths.has(path) && !dynamicRequirePaths.has(path),
+  );
+  if (reachabilityIsComplete) {
+    for (const file of files) {
+      if (file.path === PRELOAD_ENTRY_PATH || reachablePaths.has(file.path)) {
+        continue;
+      }
+      diagnostics.push({
+        path: file.path,
+        from: 0,
+        to: Math.min(1, file.content.length),
+        severity: "warning",
+        source: "Lua 引用",
+        message: `文件未被 ${PRELOAD_ENTRY_PATH} 的 require 链加载`,
+        line: 1,
+        column: 1,
+      });
+    }
+  }
+
+  return diagnostics.sort((left, right) => {
+    const pathOrder = comparePaths(left.path, right.path);
+    if (pathOrder) return pathOrder;
+    if (left.from !== right.from) return left.from - right.from;
+    return left.severity === right.severity
+      ? left.message.localeCompare(right.message, "zh-CN")
+      : left.severity === "error"
+        ? -1
+        : 1;
+  });
+}
+
 export function bundlePreloadWorkspace(workspace) {
   const normalized = normalizePreloadWorkspace(workspace);
   const errors = preloadWorkspaceErrors(normalized);
@@ -107,7 +261,7 @@ export function bundlePreloadWorkspace(workspace) {
     normalized.files.length === 1 &&
     normalized.files[0].path === PRELOAD_ENTRY_PATH
   ) {
-    return normalized.files[0].content;
+    return compactLuaSource(normalized.files[0].content);
   }
 
   const output = [
@@ -140,7 +294,7 @@ export function bundlePreloadWorkspace(workspace) {
     "end",
     `return __fq_preload_require(${luaString(PRELOAD_ENTRY_PATH)})`,
   );
-  return output.join("\n");
+  return compactLuaSource(output.join("\n"));
 }
 
 export function preloadWorkspaceBytes(workspace) {
@@ -203,6 +357,265 @@ function hasFileAncestor(value, fileKeys) {
 
 function comparePaths(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function compactLuaSource(source) {
+  let lexer;
+  try {
+    lexer = luaparse.parse(source, {
+      extendedIdentifiers: true,
+      luaVersion: "5.3",
+      ranges: true,
+      wait: true,
+    });
+  } catch {
+    return source;
+  }
+
+  const output = [];
+  let cursor = 0;
+  let hasToken = false;
+  try {
+    while (true) {
+      const token = lexer.lex();
+      if (token.type === luaparse.tokenTypes.EOF) break;
+      const gap = source.slice(cursor, token.range[0]);
+      const newlineCount = countLuaNewlines(gap);
+      if (newlineCount) {
+        output.push("\n".repeat(newlineCount));
+      } else if (hasToken && gap) {
+        output.push(" ");
+      }
+      output.push(source.slice(...token.range));
+      cursor = token.range[1];
+      hasToken = true;
+    }
+  } catch {
+    return source;
+  }
+  output.push("\n".repeat(countLuaNewlines(source.slice(cursor))));
+  return output.join("");
+}
+
+function countLuaNewlines(value) {
+  return value.match(/\r\n|\r|\n/g)?.length || 0;
+}
+
+function luaParserSource(source) {
+  // luaparse 以 Lua 5.3 为上限；等长移除 5.4 局部变量属性，保留诊断偏移。
+  return source.replace(/<(?:const|close)>/g, (attribute) =>
+    " ".repeat(attribute.length),
+  );
+}
+
+function luaSyntaxDiagnostic(path, source, error) {
+  const from = Math.min(
+    source.length,
+    Math.max(0, Number.isInteger(error.index) ? error.index : 0),
+  );
+  return {
+    path,
+    from,
+    to: Math.min(source.length, from + 1),
+    severity: "error",
+    source: "Lua 语法",
+    message: formatLuaError(error),
+    line: Math.max(1, Number(error.line) || 1),
+    column: Math.max(1, (Number(error.column) || 0) + 1),
+  };
+}
+
+function formatLuaError(error) {
+  const detail = String(error.message || "")
+    .replace(/^\[\d+:\d+\]\s*/, "")
+    .trim();
+  const expected = detail.match(/^(.*?) expected near '([^']*)'$/);
+  if (expected) {
+    return `Lua 语法错误：缺少${formatLuaToken(expected[1])}，错误靠近${formatLuaToken(expected[2])}`;
+  }
+  const unexpected = detail.match(
+    /^unexpected symbol '([^']*)' near '([^']*)'$/,
+  );
+  if (unexpected) {
+    return `Lua 语法错误：意外的符号${formatLuaToken(unexpected[1])}，错误靠近${formatLuaToken(unexpected[2])}`;
+  }
+  if (detail.startsWith("unfinished string")) {
+    return "Lua 语法错误：字符串没有正确结束";
+  }
+  if (detail.startsWith("malformed number")) {
+    return "Lua 语法错误：数字格式不正确";
+  }
+  return detail ? `Lua 语法错误：${detail}` : "Lua 语法错误";
+}
+
+function formatLuaToken(value) {
+  if (value === "<name>") return "变量或函数名称";
+  if (value === "<eof>") return "文件结尾";
+  return `“${String(value).replace(/^'(.*)'$/, "$1")}”`;
+}
+
+function walkLuaAst(value, visit) {
+  if (!value || typeof value !== "object") return;
+  if (typeof value.type === "string") visit(value);
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "loc" || key === "range") continue;
+    if (Array.isArray(child)) {
+      for (const item of child) walkLuaAst(item, visit);
+    } else {
+      walkLuaAst(child, visit);
+    }
+  }
+}
+
+function readRequireCall(source, node) {
+  if (
+    node.base?.type !== "Identifier" ||
+    node.base.name !== "require" ||
+    node.base.isLocal
+  ) {
+    return null;
+  }
+  let argument;
+  if (node.type === "CallExpression") {
+    [argument] = node.arguments;
+  } else if (node.type === "StringCallExpression") {
+    argument = node.argument;
+  } else if (node.type === "TableCallExpression") {
+    argument = node.arguments;
+  } else {
+    return null;
+  }
+  if (argument?.type !== "StringLiteral") {
+    return { path: null, location: luaNodeLocation(node.base, source) };
+  }
+  const path = decodeLuaString(source.slice(...argument.range));
+  return {
+    path,
+    location: luaNodeLocation(argument, source),
+  };
+}
+
+function decodeLuaString(raw) {
+  const longString = raw.match(/^\[(=*)\[([\s\S]*)\]\1\]$/);
+  if (longString) return longString[2].replace(/^\r?\n/, "");
+  const quote = raw[0];
+  if ((quote !== '"' && quote !== "'") || raw.at(-1) !== quote) return null;
+
+  let result = "";
+  for (let index = 1; index < raw.length - 1; index += 1) {
+    const character = raw[index];
+    if (character !== "\\") {
+      result += character;
+      continue;
+    }
+    index += 1;
+    const escaped = raw[index];
+    const simpleEscapes = {
+      a: "\u0007",
+      b: "\b",
+      f: "\f",
+      n: "\n",
+      r: "\r",
+      t: "\t",
+      v: "\u000b",
+      "\\": "\\",
+      '"': '"',
+      "'": "'",
+    };
+    if (Object.hasOwn(simpleEscapes, escaped)) {
+      result += simpleEscapes[escaped];
+      continue;
+    }
+    if (escaped === "\n") continue;
+    if (escaped === "\r") {
+      if (raw[index + 1] === "\n") index += 1;
+      continue;
+    }
+    if (escaped === "z") {
+      while (/\s/.test(raw[index + 1] || "")) index += 1;
+      continue;
+    }
+    if (escaped === "x") {
+      const hex = raw.slice(index + 1, index + 3);
+      if (!/^[\da-f]{2}$/i.test(hex)) return null;
+      result += String.fromCharCode(Number.parseInt(hex, 16));
+      index += 2;
+      continue;
+    }
+    if (escaped === "u" && raw[index + 1] === "{") {
+      const end = raw.indexOf("}", index + 2);
+      const hex = end === -1 ? "" : raw.slice(index + 2, end);
+      if (!/^[\da-f]+$/i.test(hex)) return null;
+      try {
+        result += String.fromCodePoint(Number.parseInt(hex, 16));
+      } catch {
+        return null;
+      }
+      index = end;
+      continue;
+    }
+    if (/\d/.test(escaped || "")) {
+      const decimal = raw.slice(index).match(/^\d{1,3}/)?.[0] || "";
+      const code = Number.parseInt(decimal, 10);
+      if (code > 255) return null;
+      result += String.fromCharCode(code);
+      index += decimal.length - 1;
+      continue;
+    }
+    return null;
+  }
+  return result;
+}
+
+function luaNodeLocation(node, source) {
+  const from = Math.max(0, node.range?.[0] || 0);
+  const to = Math.min(
+    source.length,
+    Math.max(from + 1, node.range?.[1] || from + 1),
+  );
+  return {
+    from,
+    to,
+    line: Math.max(1, node.loc?.start?.line || 1),
+    column: Math.max(1, (node.loc?.start?.column || 0) + 1),
+  };
+}
+
+function luaReferenceDiagnostic(path, location, severity, message) {
+  return {
+    path,
+    ...location,
+    severity,
+    source: "Lua 引用",
+    message,
+  };
+}
+
+function findDependencyPath(graph, start, goal) {
+  const pending = [[start, [start]]];
+  const visited = new Set();
+  while (pending.length) {
+    const [path, chain] = pending.shift();
+    if (path === goal) return chain;
+    if (visited.has(path)) continue;
+    visited.add(path);
+    for (const dependency of graph.get(path) || []) {
+      pending.push([dependency, [...chain, dependency]]);
+    }
+  }
+  return null;
+}
+
+function collectReachablePaths(graph, entry) {
+  const reachable = new Set();
+  const pending = graph.has(entry) ? [entry] : [];
+  while (pending.length) {
+    const path = pending.pop();
+    if (reachable.has(path)) continue;
+    reachable.add(path);
+    pending.push(...(graph.get(path) || []));
+  }
+  return reachable;
 }
 
 function luaString(value) {

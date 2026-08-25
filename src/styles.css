@@ -3193,7 +3193,8 @@ textarea::placeholder {
   color: #6f7782;
   fill: rgba(111, 119, 130, 0.08);
 }
-.preload-node-button > span:not(.preload-entry-badge) {
+.preload-node-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3212,6 +3213,18 @@ textarea::placeholder {
   border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent-bright);
+  font: 650 10px/1 var(--font-ui);
+  text-decoration: none;
+}
+.preload-diagnostic-badge {
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(212, 72, 72, 0.1);
+  color: var(--red);
   font: 650 10px/1 var(--font-ui);
   text-decoration: none;
 }
@@ -3302,6 +3315,33 @@ textarea::placeholder {
   position: relative;
   overflow: hidden;
   background: #1e1e1e;
+}
+.preload-editor-resizer {
+  height: 12px;
+  display: grid;
+  place-items: center;
+  border-top: 1px solid #333;
+  background: #181818;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.preload-editor-resizer > span {
+  width: 42px;
+  height: 3px;
+  border-radius: 999px;
+  background: #555a61;
+  transition:
+    width var(--motion-fast) ease,
+    background var(--motion-fast) ease;
+}
+.preload-editor-resizer:hover > span,
+.preload-editor-resizer:focus-visible > span {
+  width: 58px;
+  background: #75beff;
+}
+.preload-editor-resizer:focus-visible {
+  outline: 1px solid #75beff;
+  outline-offset: -2px;
 }
 .preload-code-editor {
   width: 100%;
@@ -3417,6 +3457,9 @@ textarea::placeholder {
   color: var(--red);
 }
 .preload-workspace-status.is-over-limit strong {
+  color: var(--red);
+}
+.preload-workspace-status.has-diagnostics:not(.is-over-limit) > span {
   color: var(--red);
 }
 .preload-breadcrumb button:focus-visible,

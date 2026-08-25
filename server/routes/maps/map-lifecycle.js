@@ -90,7 +90,11 @@ const mapConfigSchema = z
     preloadCode: z
       .string()
       .refine(
-        (value) => Buffer.byteLength(value, "utf8") <= PRELOAD_CODE_LIMIT_BYTES,
+        (value) =>
+          Buffer.byteLength(
+            bundlePreloadWorkspace(createPreloadWorkspace(value)),
+            "utf8",
+          ) <= PRELOAD_CODE_LIMIT_BYTES,
         "预加载代码不能超过 256 KiB",
       )
       .optional(),
@@ -514,6 +518,7 @@ export function registerMapLifecycleRoutes(router) {
       }
       if (Object.hasOwn(updates, "preloadCode")) {
         updates.preloadWorkspace = createPreloadWorkspace(updates.preloadCode);
+        updates.preloadCode = bundlePreloadWorkspace(updates.preloadWorkspace);
       } else if (Object.hasOwn(updates, "preloadWorkspace")) {
         updates.preloadWorkspace = normalizePreloadWorkspace(
           updates.preloadWorkspace,

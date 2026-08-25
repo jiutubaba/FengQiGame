@@ -1096,9 +1096,14 @@
     {
       "file": "server/tests/unit/preload-workspace.test.js",
       "tests": [
-        "旧版单段代码转换为 main.lua 后保持下发文本不变",
+        "旧版单段代码转换为 main.lua，并只压缩打包结果",
         "多文件按路径稳定打包，并从 main.lua 加载模块",
-        "拒绝路径穿越、缺失父目录和删除入口文件"
+        "词法不完整时保留源码，避免编辑过程因压缩中断",
+        "拒绝路径穿越、缺失父目录和删除入口文件",
+        "检查全部 Lua 文件并接受能解析到真实文件的 require",
+        "忽略被局部变量遮蔽的 require",
+        "报告 require 缺失、大小写不一致和动态引用",
+        "报告循环依赖、语法错误和未被入口加载的文件"
       ]
     },
     {
@@ -1208,7 +1213,7 @@
     },
     {
       "file": "server/routes/maps/map-lifecycle.js",
-      "lines": 754
+      "lines": 759
     },
     {
       "file": "server/routes/maps/players.js",
@@ -1260,7 +1265,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 2285
+      "lines": 2296
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1272,7 +1277,7 @@
     },
     {
       "file": "server/tests/unit/preload-workspace.test.js",
-      "lines": 68
+      "lines": 202
     },
     {
       "file": "server/tests/unit/security.test.js",
@@ -1356,7 +1361,7 @@
     },
     {
       "file": "src/pages/map-workspace/PreloadWorkspace.jsx",
-      "lines": 746
+      "lines": 800
     },
     {
       "file": "src/pages/map-workspace/ResourcePanels.jsx",
@@ -1384,7 +1389,7 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 5809
+      "lines": 5852
     },
     {
       "file": "src/utils/format.js",

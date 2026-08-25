@@ -2,7 +2,10 @@ import { access, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { bundlePreloadWorkspace } from "../../../shared/preload-workspace.js";
+import {
+  bundlePreloadWorkspace,
+  createPreloadWorkspace,
+} from "../../../shared/preload-workspace.js";
 import { app } from "../../app.js";
 import { config } from "../../config.js";
 import { closeDatabase, query } from "../../db/index.js";
@@ -1131,24 +1134,28 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .send({ permissions: ["map.view", "metrics.view"] })
       .expect(200);
 
+    const legacyPreloadSource = "-- 旧版接口注释\nreturn   true";
+    const legacyPreloadBundle = bundlePreloadWorkspace(
+      createPreloadWorkspace(legacyPreloadSource),
+    );
     const configResponse = await admin
       .put(`/api/maps/${mapId}/config`)
       .send({
         ranks: [{ id: "rank-1", name: "青铜" }],
         globals: [{ key: "season", value: 1 }],
-        preloadCode: "return true",
+        preloadCode: legacyPreloadSource,
       })
       .expect(200);
     expect(configResponse.body.data.ranks).toHaveLength(1);
     const loadedConfig = await admin
       .get(`/api/maps/${mapId}/config`)
       .expect(200);
-    expect(loadedConfig.body.data.preloadCode).toBe("return true");
+    expect(loadedConfig.body.data.preloadCode).toBe(legacyPreloadBundle);
     expect(loadedConfig.body.data.preloadWorkspace).toEqual({
       version: 1,
       entry: "main.lua",
       folders: [],
-      files: [{ path: "main.lua", content: "return true" }],
+      files: [{ path: "main.lua", content: legacyPreloadSource }],
     });
 
     const preloadWorkspace = {
@@ -1196,6 +1203,10 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     await admin
       .put(`/api/maps/${mapId}/config`)
       .send({ preloadCode: "x".repeat(256 * 1024) })
+      .expect(200);
+    await admin
+      .put(`/api/maps/${mapId}/config`)
+      .send({ preloadCode: "-- 可移除注释\n".repeat(25_000) })
       .expect(200);
     await admin
       .put(`/api/maps/${mapId}/config`)
