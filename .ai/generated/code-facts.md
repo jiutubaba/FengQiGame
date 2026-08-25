@@ -206,9 +206,14 @@
 
 ### `server/tests/unit/preload-workspace.test.js`
 
-- 旧版单段代码转换为 main.lua 后保持下发文本不变
+- 旧版单段代码转换为 main.lua，并只压缩打包结果
 - 多文件按路径稳定打包，并从 main.lua 加载模块
+- 词法不完整时保留源码，避免编辑过程因压缩中断
 - 拒绝路径穿越、缺失父目录和删除入口文件
+- 检查全部 Lua 文件并接受能解析到真实文件的 require
+- 忽略被局部变量遮蔽的 require
+- 报告 require 缺失、大小写不一致和动态引用
+- 报告循环依赖、语法错误和未被入口加载的文件
 
 ### `server/tests/unit/security.test.js`
 

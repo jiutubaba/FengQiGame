@@ -7,12 +7,11 @@ import {
   syntaxHighlighting,
 } from "@codemirror/language";
 import { lua as luaLegacyMode } from "@codemirror/legacy-modes/mode/lua";
-import { linter, lintGutter } from "@codemirror/lint";
+import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { basicSetup } from "codemirror";
-import luaparse from "luaparse";
 import {
   CheckCircle2,
   ChevronRight,
@@ -27,11 +26,14 @@ import {
   PRELOAD_CODE_LIMIT_BYTES,
   PRELOAD_ENTRY_PATH,
   normalizePreloadWorkspace,
+  preloadWorkspaceDiagnostics,
   preloadWorkspaceErrors,
 } from "../../../shared/preload-workspace.js";
 import { Button, Field, Modal, useConfirm } from "../../components/ui";
 
 const luaLanguage = StreamLanguage.define(luaLegacyMode);
+const PRELOAD_EDITOR_MIN_HEIGHT = 240;
+const PRELOAD_EDITOR_MAX_HEIGHT = 960;
 const vscodeHighlightStyle = HighlightStyle.define([
   { tag: tags.keyword, color: "#c586c0" },
   { tag: [tags.bool, tags.null], color: "#569cd6" },
@@ -90,6 +92,10 @@ const vscodeEditorTheme = EditorView.theme(
       textDecoration: "underline wavy #f14c4c 1px",
       textUnderlineOffset: "3px",
     },
+    ".cm-lintRange-warning": {
+      textDecoration: "underline wavy #cca700 1px",
+      textUnderlineOffset: "3px",
+    },
     ".cm-tooltip": {
       border: "1px solid #454545",
       backgroundColor: "#252526",
@@ -121,14 +127,36 @@ export default function PreloadWorkspace({
   const [nodeError, setNodeError] = useState("");
   const [importError, setImportError] = useState("");
   const [dragActive, setDragActive] = useState(false);
-  const [syntaxDiagnostics, setSyntaxDiagnostics] = useState([]);
+  const [editorHeight, setEditorHeight] = useState(defaultEditorHeight);
   const [editorCursor, setEditorCursor] = useState({ line: 1, column: 1 });
   const editorViewRef = useRef(null);
+  const editorFrameRef = useRef(null);
+  const editorResizeRef = useRef(null);
   const fileInputRef = useRef(null);
   const confirmAction = useConfirm();
   const selectedFile = workspace.files.find(
     (file) => file.path === selectedFilePath,
   );
+  const [workspaceDiagnostics, setWorkspaceDiagnostics] = useState(() =>
+    preloadWorkspaceDiagnostics(workspace),
+  );
+  const selectedDiagnostics = useMemo(
+    () =>
+      selectedFile
+        ? workspaceDiagnostics.filter(
+            (diagnostic) => diagnostic.path === selectedFile.path,
+          )
+        : [],
+    [selectedFile, workspaceDiagnostics],
+  );
+  const firstSelectedDiagnostic = selectedDiagnostics[0];
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setWorkspaceDiagnostics(preloadWorkspaceDiagnostics(workspace));
+    }, 260);
+    return () => window.clearTimeout(timeout);
+  }, [workspace]);
 
   useEffect(() => {
     if (selectedFilePath && !selectedFile) {
@@ -141,8 +169,12 @@ export default function PreloadWorkspace({
       path: file.path,
       name: baseName(file.path),
       sizeBytes: new TextEncoder().encode(file.content).byteLength,
+      diagnosticCount: workspaceDiagnostics.filter(
+        (diagnostic) => diagnostic.path === file.path,
+      ).length,
     }));
-  }, [workspace.files]);
+  }, [workspace.files, workspaceDiagnostics]);
+  const sourceBytes = items.reduce((sum, item) => sum + item.sizeBytes, 0);
 
   const updateFile = (content) => {
     onChange(
@@ -270,7 +302,7 @@ export default function PreloadWorkspace({
   };
 
   const focusFirstDiagnostic = () => {
-    const diagnostic = syntaxDiagnostics[0];
+    const diagnostic = firstSelectedDiagnostic;
     const view = editorViewRef.current;
     if (!diagnostic || !view) return;
     view.dispatch({
@@ -278,6 +310,46 @@ export default function PreloadWorkspace({
       effects: EditorView.scrollIntoView(diagnostic.from, { y: "center" }),
     });
     view.focus();
+  };
+
+  const startEditorResize = (event) => {
+    if (event.button !== 0 || !editorFrameRef.current) return;
+    editorResizeRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startHeight: editorFrameRef.current.getBoundingClientRect().height,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const resizeEditor = (event) => {
+    const resize = editorResizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    setEditorHeight(
+      clampEditorHeight(resize.startHeight + event.clientY - resize.startY),
+    );
+  };
+
+  const finishEditorResize = (event) => {
+    if (editorResizeRef.current?.pointerId !== event.pointerId) return;
+    editorResizeRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const resizeEditorWithKeyboard = (event) => {
+    const heightStep = event.shiftKey ? 80 : 24;
+    const nextHeight = {
+      ArrowUp: editorHeight - heightStep,
+      ArrowDown: editorHeight + heightStep,
+      Home: PRELOAD_EDITOR_MIN_HEIGHT,
+      End: PRELOAD_EDITOR_MAX_HEIGHT,
+    }[event.key];
+    if (nextHeight === undefined) return;
+    event.preventDefault();
+    setEditorHeight(clampEditorHeight(nextHeight));
   };
 
   return (
@@ -392,7 +464,9 @@ export default function PreloadWorkspace({
             </div>
           </div>
           <div
+            ref={editorFrameRef}
             className={`preload-code-frame${editable ? "" : " is-readonly"}`}
+            style={{ height: `${editorHeight}px` }}
           >
             <LuaCodeEditor
               key={selectedFile.path}
@@ -401,27 +475,49 @@ export default function PreloadWorkspace({
               onChange={updateFile}
               editable={editable}
               label={`${selectedFile.path} Lua 代码编辑器`}
-              onDiagnosticsChange={setSyntaxDiagnostics}
+              diagnostics={selectedDiagnostics}
               onCursorChange={setEditorCursor}
             />
           </div>
           <div
+            className="preload-editor-resizer"
+            role="separator"
+            aria-label="调整代码编辑器高度"
+            aria-orientation="horizontal"
+            aria-valuemin={PRELOAD_EDITOR_MIN_HEIGHT}
+            aria-valuemax={PRELOAD_EDITOR_MAX_HEIGHT}
+            aria-valuenow={Math.round(editorHeight)}
+            tabIndex={0}
+            title="上下拖动调整代码编辑器高度"
+            onPointerDown={startEditorResize}
+            onPointerMove={resizeEditor}
+            onPointerUp={finishEditorResize}
+            onPointerCancel={finishEditorResize}
+            onKeyDown={resizeEditorWithKeyboard}
+          >
+            <span aria-hidden="true" />
+          </div>
+          <div
             className={`preload-editor-status${
-              syntaxDiagnostics.length ? " has-error" : ""
+              selectedDiagnostics.length ? " has-issues" : ""
             }`}
             aria-live="polite"
           >
-            {syntaxDiagnostics.length ? (
-              <button type="button" onClick={focusFirstDiagnostic}>
+            {selectedDiagnostics.length ? (
+              <button
+                type="button"
+                title={firstSelectedDiagnostic.message}
+                onClick={focusFirstDiagnostic}
+              >
                 <CircleAlert size={13} />
-                {syntaxDiagnostics.length} 个语法错误 · 第{" "}
-                {syntaxDiagnostics[0].line} 行，第 {syntaxDiagnostics[0].column}{" "}
-                列
+                {selectedDiagnostics.length} 个检查问题 · 第{" "}
+                {firstSelectedDiagnostic.line} 行，第{" "}
+                {firstSelectedDiagnostic.column} 列
               </button>
             ) : (
               <span>
                 <CheckCircle2 size={13} />
-                未发现语法错误
+                未发现语法或引用问题
               </span>
             )}
             <div>
@@ -435,9 +531,8 @@ export default function PreloadWorkspace({
           </div>
           <div className="preload-file-foot">
             <span>
-              其他文件需由 <code>main.lua</code> 使用{" "}
-              <code>require("文件名.lua")</code>
-              加载
+              其他文件需由 <code>main.lua</code> 的{" "}
+              <code>require("文件名.lua")</code> 链加载
             </span>
             <span>
               {formatBytes(
@@ -461,9 +556,20 @@ export default function PreloadWorkspace({
                 onClick={() => setSelectedFilePath(item.path)}
               >
                 <FileCode2 size={17} />
-                <span title={item.path}>{item.name}</span>
+                <span className="preload-node-name" title={item.path}>
+                  {item.name}
+                </span>
                 {item.path === PRELOAD_ENTRY_PATH && (
                   <span className="preload-entry-badge">入口</span>
+                )}
+                {item.diagnosticCount > 0 && (
+                  <span
+                    className="preload-diagnostic-badge"
+                    title={`${item.diagnosticCount} 个检查问题`}
+                  >
+                    <CircleAlert size={12} />
+                    {item.diagnosticCount}
+                  </span>
                 )}
               </button>
               <span>{formatBytes(item.sizeBytes)}</span>
@@ -508,13 +614,20 @@ export default function PreloadWorkspace({
 
       <div
         id="preload-code-size"
-        className={`preload-workspace-status${overLimit ? " is-over-limit" : ""}`}
-        title={`${compiledBytes} 字节`}
+        className={`preload-workspace-status${overLimit ? " is-over-limit" : ""}${
+          workspaceDiagnostics.length ? " has-diagnostics" : ""
+        }`}
+        title={`源码 ${sourceBytes} 字节，安全压缩后 ${compiledBytes} 字节`}
       >
-        <span>根目录 · {workspace.files.length} 个 Lua 文件</span>
+        <span>
+          根目录 · {workspace.files.length} 个 Lua 文件 ·{" "}
+          {workspaceDiagnostics.length
+            ? `${workspaceDiagnostics.length} 个检查问题`
+            : "语法与引用检查通过"}
+        </span>
         <strong>
-          打包后 {Math.ceil(compiledBytes / 1024)}/
-          {PRELOAD_CODE_LIMIT_BYTES / 1024}KB
+          源码 {formatBytes(sourceBytes)} · 压缩后 {formatBytes(compiledBytes)}/
+          {PRELOAD_CODE_LIMIT_BYTES / 1024} KB
         </strong>
       </div>
 
@@ -564,17 +677,15 @@ function LuaCodeEditor({
   editable,
   label,
   editorViewRef,
-  onDiagnosticsChange,
+  diagnostics,
   onCursorChange,
 }) {
   const hostRef = useRef(null);
   const onChangeRef = useRef(onChange);
-  const diagnosticsRef = useRef(onDiagnosticsChange);
   const cursorRef = useRef(onCursorChange);
   const editableCompartmentRef = useRef(new Compartment());
 
   onChangeRef.current = onChange;
-  diagnosticsRef.current = onDiagnosticsChange;
   cursorRef.current = onCursorChange;
 
   useEffect(() => {
@@ -588,14 +699,6 @@ function LuaCodeEditor({
         column: position - line.from + 1,
       });
     };
-    const syntaxLinter = linter(
-      (view) => {
-        const diagnostics = luaDiagnostics(view.state.doc.toString());
-        diagnosticsRef.current(diagnostics);
-        return diagnostics;
-      },
-      { delay: 260 },
-    );
     const view = new EditorView({
       parent: hostRef.current,
       state: EditorState.create({
@@ -608,7 +711,6 @@ function LuaCodeEditor({
           syntaxHighlighting(vscodeHighlightStyle),
           vscodeEditorTheme,
           lintGutter(),
-          syntaxLinter,
           EditorState.tabSize.of(2),
           editableCompartmentRef.current.of(editableExtensions),
           EditorView.updateListener.of((update) => {
@@ -623,7 +725,6 @@ function LuaCodeEditor({
       }),
     });
     editorViewRef.current = view;
-    diagnosticsRef.current(luaDiagnostics(value));
     reportCursor(view);
 
     return () => {
@@ -652,6 +753,11 @@ function LuaCodeEditor({
     });
   }, [editorViewRef, value]);
 
+  useEffect(() => {
+    const view = editorViewRef.current;
+    if (view) view.dispatch(setDiagnostics(view.state, diagnostics));
+  }, [diagnostics, editorViewRef]);
+
   return <div ref={hostRef} className="preload-code-editor" />;
 }
 
@@ -667,69 +773,6 @@ function editorExtensions(editable, label) {
   ];
 }
 
-function luaDiagnostics(source) {
-  try {
-    // luaparse 以 Lua 5.3 为上限；等长移除 5.4 局部变量属性，保留诊断偏移。
-    const parserSource = source.replace(/<(?:const|close)>/g, (attribute) =>
-      " ".repeat(attribute.length),
-    );
-    luaparse.parse(parserSource, {
-      comments: false,
-      extendedIdentifiers: true,
-      locations: true,
-      luaVersion: "5.3",
-      ranges: true,
-      scope: false,
-    });
-    return [];
-  } catch (error) {
-    const from = Math.min(
-      source.length,
-      Math.max(0, Number.isInteger(error.index) ? error.index : 0),
-    );
-    return [
-      {
-        from,
-        to: Math.min(source.length, from + 1),
-        severity: "error",
-        source: "Lua",
-        message: formatLuaError(error),
-        line: Math.max(1, Number(error.line) || 1),
-        column: Math.max(1, (Number(error.column) || 0) + 1),
-      },
-    ];
-  }
-}
-
-function formatLuaError(error) {
-  const detail = String(error.message || "")
-    .replace(/^\[\d+:\d+\]\s*/, "")
-    .trim();
-  const expected = detail.match(/^(.*?) expected near '([^']*)'$/);
-  if (expected) {
-    return `Lua 语法错误：缺少${formatLuaToken(expected[1])}，错误靠近${formatLuaToken(expected[2])}`;
-  }
-  const unexpected = detail.match(
-    /^unexpected symbol '([^']*)' near '([^']*)'$/,
-  );
-  if (unexpected) {
-    return `Lua 语法错误：意外的符号${formatLuaToken(unexpected[1])}，错误靠近${formatLuaToken(unexpected[2])}`;
-  }
-  if (detail.startsWith("unfinished string")) {
-    return "Lua 语法错误：字符串没有正确结束";
-  }
-  if (detail.startsWith("malformed number")) {
-    return "Lua 语法错误：数字格式不正确";
-  }
-  return detail ? `Lua 语法错误：${detail}` : "Lua 语法错误";
-}
-
-function formatLuaToken(value) {
-  if (value === "<name>") return "变量或函数名称";
-  if (value === "<eof>") return "文件结尾";
-  return `“${String(value).replace(/^'(.*)'$/, "$1")}”`;
-}
-
 function nodeDialogTitle(dialog) {
   if (!dialog) return "";
   return dialog.mode === "rename" ? "重命名 Lua 文件" : "新建 Lua 文件";
@@ -742,4 +785,15 @@ function baseName(value) {
 function formatBytes(value) {
   if (value < 1024) return `${value} B`;
   return `${(value / 1024).toFixed(value < 10 * 1024 ? 1 : 0)} KB`;
+}
+
+function defaultEditorHeight() {
+  return typeof window !== "undefined" && window.innerWidth <= 760 ? 420 : 460;
+}
+
+function clampEditorHeight(value) {
+  return Math.min(
+    PRELOAD_EDITOR_MAX_HEIGHT,
+    Math.max(PRELOAD_EDITOR_MIN_HEIGHT, Math.round(value)),
+  );
 }
