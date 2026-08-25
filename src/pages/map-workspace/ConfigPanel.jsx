@@ -18,6 +18,13 @@ import {
   useConfirm,
   useToast,
 } from "../../components/ui";
+import {
+  PRELOAD_CODE_LIMIT_BYTES,
+  createPreloadWorkspace,
+  normalizePreloadWorkspace,
+  preloadWorkspaceBytes,
+} from "../../../shared/preload-workspace.js";
+import PreloadWorkspace from "./PreloadWorkspace";
 
 const configSections = [
   ["ranks", "榜单配置"],
@@ -28,8 +35,6 @@ const configSections = [
   ["randomGroups", "随机数存档"],
   ["preloadCode", "预加载代码"],
 ];
-
-const PRELOAD_CODE_LIMIT_KB = 256;
 
 export default function ConfigPanel({
   map,
@@ -47,6 +52,9 @@ export default function ConfigPanel({
     coverPath: map.coverPath || "",
   });
   const [editor, setEditor] = useState("");
+  const [preloadWorkspace, setPreloadWorkspace] = useState(() =>
+    createPreloadWorkspace(),
+  );
   const [clearOpen, setClearOpen] = useState(false);
   const [confirmName, setConfirmName] = useState("");
   const [deleteStep, setDeleteStep] = useState(0);
@@ -58,6 +66,7 @@ export default function ConfigPanel({
   const [configError, setConfigError] = useState("");
   const [mapSaveError, setMapSaveError] = useState("");
   const [sectionSaveError, setSectionSaveError] = useState("");
+  const [sectionSaveConflict, setSectionSaveConflict] = useState(false);
   const [clearError, setClearError] = useState("");
   const [archiveError, setArchiveError] = useState("");
   const [deleteError, setDeleteError] = useState("");
@@ -65,8 +74,7 @@ export default function ConfigPanel({
   const confirmAction = useConfirm();
   const toast = useToast();
   const editable = can("map.edit");
-  const sectionEditable =
-    editable && (active !== "preloadCode" || isAdmin);
+  const sectionEditable = editable && (active !== "preloadCode" || isAdmin);
 
   const load = useCallback(async () => {
     setConfigError("");
@@ -81,11 +89,11 @@ export default function ConfigPanel({
   }, [load]);
   useEffect(() => {
     if (!config || active === "basic") return;
-    setEditor(
-      active === "preloadCode"
-        ? String(config[active] || "")
-        : JSON.stringify(config[active] || [], null, 2),
-    );
+    if (active === "preloadCode") {
+      setPreloadWorkspace(configPreloadWorkspace(config));
+    } else {
+      setEditor(JSON.stringify(config[active] || [], null, 2));
+    }
   }, [active, config]);
 
   const mapChanged =
@@ -95,16 +103,20 @@ export default function ConfigPanel({
   const savedEditor =
     !config || active === "basic"
       ? ""
-      : active === "preloadCode"
-        ? String(config[active] || "")
-        : JSON.stringify(config[active] || [], null, 2);
+      : JSON.stringify(config[active] || [], null, 2);
+  const savedPreloadWorkspace = config
+    ? configPreloadWorkspace(config)
+    : createPreloadWorkspace();
   const sectionChanged =
-    active !== "basic" && Boolean(config) && editor !== savedEditor;
-  const preloadCodeBytes = new TextEncoder().encode(editor).byteLength;
-  const preloadCodeKilobytes = Math.ceil(preloadCodeBytes / 1024);
+    active !== "basic" &&
+    Boolean(config) &&
+    (active === "preloadCode"
+      ? JSON.stringify(preloadWorkspace) !==
+        JSON.stringify(savedPreloadWorkspace)
+      : editor !== savedEditor);
+  const preloadCodeBytes = preloadWorkspaceBytes(preloadWorkspace);
   const preloadCodeOverLimit =
-    active === "preloadCode" &&
-    preloadCodeBytes > PRELOAD_CODE_LIMIT_KB * 1024;
+    active === "preloadCode" && preloadCodeBytes > PRELOAD_CODE_LIMIT_BYTES;
 
   const selectSection = async (nextSection) => {
     if (nextSection === active) return;
@@ -124,11 +136,14 @@ export default function ConfigPanel({
         description: map.description || "",
         coverPath: map.coverPath || "",
       });
+    } else if (active === "preloadCode") {
+      setPreloadWorkspace(savedPreloadWorkspace);
     } else {
       setEditor(savedEditor);
     }
     setMapSaveError("");
     setSectionSaveError("");
+    setSectionSaveConflict(false);
     setActive(nextSection);
   };
 
@@ -151,15 +166,23 @@ export default function ConfigPanel({
   const saveSection = async () => {
     setSectionSaving(true);
     setSectionSaveError("");
+    setSectionSaveConflict(false);
     try {
-      const value = active === "preloadCode" ? editor : JSON.parse(editor);
+      const body =
+        active === "preloadCode"
+          ? {
+              preloadWorkspace,
+              expectedUpdatedAt: config.updatedAt,
+            }
+          : { [active]: JSON.parse(editor) };
       const next = await api(`/api/maps/${mapId}/config`, {
         method: "PUT",
-        body: { [active]: value },
+        body,
       });
       setConfig(next);
-      toast("配置已保存");
+      toast(active === "preloadCode" ? "预加载代码已打包保存" : "配置已保存");
     } catch (error) {
+      setSectionSaveConflict(error.code === "CONFLICT");
       setSectionSaveError(
         error instanceof SyntaxError ? "JSON 格式不正确" : error.message,
       );
@@ -408,7 +431,7 @@ export default function ConfigPanel({
                 <h3>{configSections.find(([key]) => key === active)?.[1]}</h3>
                 <p>
                   {active === "preloadCode"
-                    ? "保存游戏加载时使用的预加载代码。"
+                    ? "将 Lua 文件直接放在根目录，保存后由服务端统一打包下发。"
                     : "使用 JSON 数组维护结构化配置，保存前会进行语法校验。"}
                 </p>
               </div>
@@ -427,8 +450,12 @@ export default function ConfigPanel({
                   {sectionSaving
                     ? "正在保存…"
                     : sectionChanged
-                      ? "保存配置"
-                      : "配置已保存"}
+                      ? active === "preloadCode"
+                        ? "保存并发布"
+                        : "保存配置"
+                      : active === "preloadCode"
+                        ? "代码已保存"
+                        : "配置已保存"}
                 </Button>
               )}
             </div>
@@ -439,7 +466,11 @@ export default function ConfigPanel({
                 {sectionChanged && (
                   <InlineAlert
                     title="有未保存修改"
-                    description="保存前会校验当前配置格式。"
+                    description={
+                      active === "preloadCode"
+                        ? "保存后会从 main.lua 开始打包，并更新游戏启动接口下发的代码。"
+                        : "保存前会校验当前配置格式。"
+                    }
                   />
                 )}
                 {sectionSaveError && (
@@ -447,34 +478,34 @@ export default function ConfigPanel({
                     tone="danger"
                     title="配置保存失败"
                     description={sectionSaveError}
-                    action={<Button onClick={saveSection}>重新保存</Button>}
-                  />
-                )}
-                <div className="config-editor-stack">
-                  <textarea
-                    className="code-editor config-editor"
-                    spellCheck="false"
-                    value={editor}
-                    onChange={(event) => setEditor(event.target.value)}
-                    readOnly={!sectionEditable}
-                    aria-describedby={
-                      active === "preloadCode"
-                        ? "preload-code-size"
-                        : undefined
+                    action={
+                      <Button
+                        onClick={sectionSaveConflict ? load : saveSection}
+                      >
+                        {sectionSaveConflict ? "重新读取" : "重新保存"}
+                      </Button>
                     }
                   />
-                  {active === "preloadCode" && (
-                    <div
-                      id="preload-code-size"
-                      className={`preload-code-size${
-                        preloadCodeOverLimit ? " is-over-limit" : ""
-                      }`}
-                      title={`${preloadCodeBytes} 字节`}
-                    >
-                      {preloadCodeKilobytes}/{PRELOAD_CODE_LIMIT_KB}KB
-                    </div>
-                  )}
-                </div>
+                )}
+                {active === "preloadCode" ? (
+                  <PreloadWorkspace
+                    workspace={preloadWorkspace}
+                    onChange={setPreloadWorkspace}
+                    editable={sectionEditable}
+                    compiledBytes={preloadCodeBytes}
+                    overLimit={preloadCodeOverLimit}
+                  />
+                ) : (
+                  <div className="config-editor-stack">
+                    <textarea
+                      className="code-editor config-editor"
+                      spellCheck="false"
+                      value={editor}
+                      onChange={(event) => setEditor(event.target.value)}
+                      readOnly={!sectionEditable}
+                    />
+                  </div>
+                )}
               </>
             )}
           </>
@@ -593,4 +624,10 @@ export default function ConfigPanel({
       </Modal>
     </div>
   );
+}
+
+function configPreloadWorkspace(config) {
+  return config.preloadWorkspace
+    ? normalizePreloadWorkspace(config.preloadWorkspace)
+    : createPreloadWorkspace(config.preloadCode || "");
 }

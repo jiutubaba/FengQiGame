@@ -1094,6 +1094,14 @@
       ]
     },
     {
+      "file": "server/tests/unit/preload-workspace.test.js",
+      "tests": [
+        "旧版单段代码转换为 main.lua 后保持下发文本不变",
+        "多文件按路径稳定打包，并从 main.lua 加载模块",
+        "拒绝路径穿越、缺失父目录和删除入口文件"
+      ]
+    },
+    {
       "file": "server/tests/unit/security.test.js",
       "tests": [
         "密码哈希可以验证正确密码并拒绝错误密码",
@@ -1200,7 +1208,7 @@
     },
     {
       "file": "server/routes/maps/map-lifecycle.js",
-      "lines": 663
+      "lines": 754
     },
     {
       "file": "server/routes/maps/players.js",
@@ -1252,7 +1260,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 2234
+      "lines": 2285
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1261,6 +1269,10 @@
     {
       "file": "server/tests/unit/map-deletion.test.js",
       "lines": 106
+    },
+    {
+      "file": "server/tests/unit/preload-workspace.test.js",
+      "lines": 68
     },
     {
       "file": "server/tests/unit/security.test.js",
@@ -1320,7 +1332,7 @@
     },
     {
       "file": "src/pages/map-workspace/ConfigPanel.jsx",
-      "lines": 597
+      "lines": 634
     },
     {
       "file": "src/pages/map-workspace/GiftsPanel.jsx",
@@ -1341,6 +1353,10 @@
     {
       "file": "src/pages/map-workspace/PlayersPanel.jsx",
       "lines": 663
+    },
+    {
+      "file": "src/pages/map-workspace/PreloadWorkspace.jsx",
+      "lines": 746
     },
     {
       "file": "src/pages/map-workspace/ResourcePanels.jsx",
@@ -1368,7 +1384,7 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 5377
+      "lines": 5809
     },
     {
       "file": "src/utils/format.js",
