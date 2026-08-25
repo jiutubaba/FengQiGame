@@ -1,5 +1,17 @@
 import path from "node:path";
 import { z } from "zod";
+import {
+  PRELOAD_CODE_LIMIT_BYTES,
+  PRELOAD_ENTRY_PATH,
+  PRELOAD_MAX_FILES,
+  PRELOAD_MAX_FOLDERS,
+  PRELOAD_MAX_PATH_LENGTH,
+  PRELOAD_WORKSPACE_VERSION,
+  bundlePreloadWorkspace,
+  createPreloadWorkspace,
+  normalizePreloadWorkspace,
+  preloadWorkspaceErrors,
+} from "../../../shared/preload-workspace.js";
 import { query, transaction } from "../../db/index.js";
 import { writeAudit } from "../../lib/audit.js";
 import { conflict, HttpError, notFound } from "../../lib/errors.js";
@@ -25,6 +37,78 @@ const mapSchema = z.object({
   ownerUserId: z.coerce.number().int().positive().nullable().optional(),
   coverPath: z.string().trim().max(1000).nullable().optional(),
 });
+const preloadWorkspaceSchema = z
+  .object({
+    version: z.literal(PRELOAD_WORKSPACE_VERSION),
+    entry: z.literal(PRELOAD_ENTRY_PATH),
+    folders: z
+      .array(z.string().max(PRELOAD_MAX_PATH_LENGTH))
+      .max(PRELOAD_MAX_FOLDERS),
+    files: z
+      .array(
+        z
+          .object({
+            path: z.string().max(PRELOAD_MAX_PATH_LENGTH),
+            content: z.string(),
+          })
+          .strict(),
+      )
+      .max(PRELOAD_MAX_FILES),
+  })
+  .strict()
+  .superRefine((workspace, context) => {
+    const errors = preloadWorkspaceErrors(workspace);
+    for (const message of errors) {
+      context.addIssue({ code: "custom", message });
+    }
+    if (errors.length) return;
+    if (
+      Buffer.byteLength(bundlePreloadWorkspace(workspace), "utf8") >
+      PRELOAD_CODE_LIMIT_BYTES
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["files"],
+        message: "打包后的预加载代码不能超过 256 KiB",
+      });
+    }
+  });
+const mapConfigSchema = z
+  .object({
+    ranks: z.array(z.record(z.string(), z.unknown())).max(500).optional(),
+    gifts: z.array(z.record(z.string(), z.unknown())).max(1000).optional(),
+    anchorGifts: z
+      .array(z.record(z.string(), z.unknown()))
+      .max(1000)
+      .optional(),
+    globals: z.array(z.record(z.string(), z.unknown())).max(1000).optional(),
+    dayLimits: z.array(z.record(z.string(), z.unknown())).max(1000).optional(),
+    randomGroups: z
+      .array(z.record(z.string(), z.unknown()))
+      .max(1000)
+      .optional(),
+    preloadCode: z
+      .string()
+      .refine(
+        (value) => Buffer.byteLength(value, "utf8") <= PRELOAD_CODE_LIMIT_BYTES,
+        "预加载代码不能超过 256 KiB",
+      )
+      .optional(),
+    preloadWorkspace: preloadWorkspaceSchema.optional(),
+    expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
+  })
+  .strict()
+  .superRefine((config, context) => {
+    if (
+      Object.hasOwn(config, "preloadCode") &&
+      Object.hasOwn(config, "preloadWorkspace")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "预加载代码和文件工作区不能同时提交",
+      });
+    }
+  });
 
 export function registerMapLifecycleRoutes(router) {
   router.get("/", requireAuth, async (req, res) => {
@@ -409,10 +493,7 @@ export function registerMapLifecycleRoutes(router) {
       if (!result.rows[0]) throw notFound("地图配置不存在");
       res.json({
         success: true,
-        data: {
-          ...result.rows[0].config,
-          updatedAt: result.rows[0].updated_at,
-        },
+        data: mapConfigData(result.rows[0]),
       });
     },
   );
@@ -420,64 +501,64 @@ export function registerMapLifecycleRoutes(router) {
   router.put(
     "/:mapId/config",
     requireMapPermission(PERMISSIONS.MAP_EDIT),
-    validate(
-      z
-        .object({
-          ranks: z.array(z.record(z.string(), z.unknown())).max(500).optional(),
-          gifts: z
-            .array(z.record(z.string(), z.unknown()))
-            .max(1000)
-            .optional(),
-          anchorGifts: z
-            .array(z.record(z.string(), z.unknown()))
-            .max(1000)
-            .optional(),
-          globals: z
-            .array(z.record(z.string(), z.unknown()))
-            .max(1000)
-            .optional(),
-          dayLimits: z
-            .array(z.record(z.string(), z.unknown()))
-            .max(1000)
-            .optional(),
-          randomGroups: z
-            .array(z.record(z.string(), z.unknown()))
-            .max(1000)
-            .optional(),
-          preloadCode: z
-            .string()
-            .refine(
-              (value) => Buffer.byteLength(value, "utf8") <= 256 * 1024,
-              "预加载代码不能超过 256 KiB",
-            )
-            .optional(),
-        })
-        .strict(),
-    ),
+    validate(mapConfigSchema),
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
-      if (Object.hasOwn(req.body, "preloadCode") && req.user.role !== "admin") {
+      const { expectedUpdatedAt, ...submitted } = req.body;
+      const updates = { ...submitted };
+      const updatesPreload =
+        Object.hasOwn(updates, "preloadCode") ||
+        Object.hasOwn(updates, "preloadWorkspace");
+      if (updatesPreload && req.user.role !== "admin") {
         throw new HttpError(403, "仅管理员可以修改预加载代码", "FORBIDDEN");
       }
-      const result = await query(
-        `UPDATE map_configs SET config=config || $1::jsonb,updated_by=$2,updated_at=NOW()
-        WHERE map_id=$3 RETURNING config,updated_at`,
-        [JSON.stringify(req.body), req.user.id, mapId],
-      );
-      if (!result.rows[0]) throw notFound("地图配置不存在");
+      if (Object.hasOwn(updates, "preloadCode")) {
+        updates.preloadWorkspace = createPreloadWorkspace(updates.preloadCode);
+      } else if (Object.hasOwn(updates, "preloadWorkspace")) {
+        updates.preloadWorkspace = normalizePreloadWorkspace(
+          updates.preloadWorkspace,
+        );
+        updates.preloadCode = bundlePreloadWorkspace(updates.preloadWorkspace);
+      }
+      const result = await transaction(async (client) => {
+        const current = await client.query(
+          "SELECT updated_at FROM map_configs WHERE map_id=$1 FOR UPDATE",
+          [mapId],
+        );
+        if (!current.rows[0]) throw notFound("地图配置不存在");
+        if (
+          expectedUpdatedAt &&
+          new Date(current.rows[0].updated_at).toISOString() !==
+            new Date(expectedUpdatedAt).toISOString()
+        ) {
+          throw conflict("地图配置已被其他会话修改，请重新读取后再保存");
+        }
+        return client.query(
+          `UPDATE map_configs SET config=config || $1::jsonb,updated_by=$2,updated_at=NOW()
+          WHERE map_id=$3 RETURNING config,updated_at`,
+          [JSON.stringify(updates), req.user.id, mapId],
+        );
+      });
       await writeAudit(req, {
         action: "map.config.update",
         resourceType: "map_config",
         resourceId: mapId,
         mapId,
-        details: { sections: Object.keys(req.body) },
+        details: {
+          sections: Object.keys(updates),
+          ...(updatesPreload
+            ? {
+                preloadFiles: updates.preloadWorkspace.files.map(
+                  (file) => file.path,
+                ),
+                preloadBytes: Buffer.byteLength(updates.preloadCode, "utf8"),
+              }
+            : {}),
+        },
       });
       res.json({
         success: true,
-        data: {
-          ...result.rows[0].config,
-          updatedAt: result.rows[0].updated_at,
-        },
+        data: mapConfigData(result.rows[0]),
       });
     },
   );
@@ -585,6 +666,16 @@ export function registerRuntimeRoutes(router) {
   );
 }
 
+function mapConfigData(row) {
+  const config = row.config || {};
+  return {
+    ...config,
+    preloadWorkspace: config.preloadWorkspace
+      ? normalizePreloadWorkspace(config.preloadWorkspace)
+      : createPreloadWorkspace(config.preloadCode || ""),
+    updatedAt: row.updated_at,
+  };
+}
 function mapRow(row) {
   return {
     id: Number(row.id),

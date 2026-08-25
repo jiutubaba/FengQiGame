@@ -204,6 +204,12 @@
 - 成功删除时同时清理暂存目录和并发重建的原目录
 - 启动清理仅删除地图已不存在的受控残留目录
 
+### `server/tests/unit/preload-workspace.test.js`
+
+- 旧版单段代码转换为 main.lua 后保持下发文本不变
+- 多文件按路径稳定打包，并从 main.lua 加载模块
+- 拒绝路径穿越、缺失父目录和删除入口文件
+
 ### `server/tests/unit/security.test.js`
 
 - 密码哈希可以验证正确密码并拒绝错误密码

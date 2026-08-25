@@ -2,6 +2,7 @@ import { access, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { bundlePreloadWorkspace } from "../../../shared/preload-workspace.js";
 import { app } from "../../app.js";
 import { config } from "../../config.js";
 import { closeDatabase, query } from "../../db/index.js";
@@ -1115,7 +1116,14 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(200);
     const deniedPreload = await normalUser
       .put(`/api/maps/${mapId}/config`)
-      .send({ preloadCode: "return false" })
+      .send({
+        preloadWorkspace: {
+          version: 1,
+          entry: "main.lua",
+          folders: [],
+          files: [{ path: "main.lua", content: "return false" }],
+        },
+      })
       .expect(403);
     expect(deniedPreload.body.error.code).toBe("FORBIDDEN");
     await admin
@@ -1136,12 +1144,55 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .get(`/api/maps/${mapId}/config`)
       .expect(200);
     expect(loadedConfig.body.data.preloadCode).toBe("return true");
+    expect(loadedConfig.body.data.preloadWorkspace).toEqual({
+      version: 1,
+      entry: "main.lua",
+      folders: [],
+      files: [{ path: "main.lua", content: "return true" }],
+    });
+
+    const preloadWorkspace = {
+      version: 1,
+      entry: "main.lua",
+      folders: ["scripts"],
+      files: [
+        {
+          path: "main.lua",
+          content:
+            'local config = require("scripts/config.lua")\nreturn config.enabled',
+        },
+        {
+          path: "scripts/config.lua",
+          content: "return { enabled = true }",
+        },
+      ],
+    };
+    const workspaceResponse = await admin
+      .put(`/api/maps/${mapId}/config`)
+      .send({
+        preloadWorkspace,
+        expectedUpdatedAt: loadedConfig.body.data.updatedAt,
+      })
+      .expect(200);
+    const bundledPreload = bundlePreloadWorkspace(preloadWorkspace);
+    expect(workspaceResponse.body.data.preloadCode).toBe(bundledPreload);
+    expect(workspaceResponse.body.data.preloadWorkspace).toEqual(
+      preloadWorkspace,
+    );
     const preloadBootstrap = await request(app)
       .post("/api/fq/bootstrap")
       .set("fq-map-key", gameToken)
       .send({ uids: ["player-001"] })
       .expect(200);
-    expect(preloadBootstrap.body.data.preloadCode).toBe("return true");
+    expect(preloadBootstrap.body.data.preloadCode).toBe(bundledPreload);
+    const stalePreload = await admin
+      .put(`/api/maps/${mapId}/config`)
+      .send({
+        preloadWorkspace,
+        expectedUpdatedAt: loadedConfig.body.data.updatedAt,
+      })
+      .expect(409);
+    expect(stalePreload.body.error.code).toBe("CONFLICT");
     await admin
       .put(`/api/maps/${mapId}/config`)
       .send({ preloadCode: "x".repeat(256 * 1024) })
