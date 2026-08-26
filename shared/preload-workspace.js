@@ -9,6 +9,13 @@ export const PRELOAD_MAX_PATH_LENGTH = 240;
 
 const invalidPathCharacters = /[\u0000-\u001f\u007f<>:"|?*\\]/;
 
+export class PreloadBuildError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "PreloadBuildError";
+  }
+}
+
 export function createPreloadWorkspace(preloadCode = "") {
   return {
     version: PRELOAD_WORKSPACE_VERSION,
@@ -253,6 +260,10 @@ export function preloadWorkspaceDiagnostics(workspace) {
 }
 
 export function bundlePreloadWorkspace(workspace) {
+  return compactLuaSource(preloadWorkspaceBundleSource(workspace));
+}
+
+function preloadWorkspaceBundleSource(workspace) {
   const normalized = normalizePreloadWorkspace(workspace);
   const errors = preloadWorkspaceErrors(normalized);
   if (errors.length) throw new Error(errors[0]);
@@ -261,7 +272,7 @@ export function bundlePreloadWorkspace(workspace) {
     normalized.files.length === 1 &&
     normalized.files[0].path === PRELOAD_ENTRY_PATH
   ) {
-    return compactLuaSource(normalized.files[0].content);
+    return normalized.files[0].content;
   }
 
   const output = [
@@ -294,11 +305,17 @@ export function bundlePreloadWorkspace(workspace) {
     "end",
     `return __fq_preload_require(${luaString(PRELOAD_ENTRY_PATH)})`,
   );
-  return compactLuaSource(output.join("\n"));
+  return output.join("\n");
 }
 
 export function preloadWorkspaceBytes(workspace) {
-  return new TextEncoder().encode(bundlePreloadWorkspace(workspace)).byteLength;
+  const source = preloadWorkspaceBundleSource(workspace);
+  try {
+    return new TextEncoder().encode(compactLuaSource(source)).byteLength;
+  } catch (error) {
+    if (!(error instanceof PreloadBuildError)) throw error;
+    return new TextEncoder().encode(source).byteLength;
+  }
 }
 
 function validatePath(value, kind) {
@@ -360,22 +377,16 @@ function comparePaths(left, right) {
 }
 
 function compactLuaSource(source) {
-  let lexer;
   try {
-    lexer = luaparse.parse(source, {
+    const lexer = luaparse.parse(source, {
       extendedIdentifiers: true,
       luaVersion: "5.3",
       ranges: true,
       wait: true,
     });
-  } catch {
-    return source;
-  }
-
-  const output = [];
-  let cursor = 0;
-  let hasToken = false;
-  try {
+    const output = [];
+    let cursor = 0;
+    let hasToken = false;
     while (true) {
       const token = lexer.lex();
       if (token.type === luaparse.tokenTypes.EOF) break;
@@ -390,11 +401,14 @@ function compactLuaSource(source) {
       cursor = token.range[1];
       hasToken = true;
     }
-  } catch {
-    return source;
+    if (!hasToken) return "";
+    output.push("\n".repeat(countLuaNewlines(source.slice(cursor))));
+    return output.join("");
+  } catch (error) {
+    throw new PreloadBuildError(
+      `预加载代码精简失败：${formatLuaError(error)}`,
+    );
   }
-  output.push("\n".repeat(countLuaNewlines(source.slice(cursor))));
-  return output.join("");
 }
 
 function countLuaNewlines(value) {
@@ -429,6 +443,9 @@ function formatLuaError(error) {
   const detail = String(error.message || "")
     .replace(/^\[\d+:\d+\]\s*/, "")
     .trim();
+  if (/Cannot read properties of undefined/.test(detail)) {
+    return "Lua 语法错误：源码包含无法识别的符号";
+  }
   const expected = detail.match(/^(.*?) expected near '([^']*)'$/);
   if (expected) {
     return `Lua 语法错误：缺少${formatLuaToken(expected[1])}，错误靠近${formatLuaToken(expected[2])}`;

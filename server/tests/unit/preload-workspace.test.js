@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import luaparse from "luaparse";
 import {
+  PRELOAD_CODE_LIMIT_BYTES,
   PRELOAD_ENTRY_PATH,
   bundlePreloadWorkspace,
   createPreloadWorkspace,
@@ -9,6 +10,25 @@ import {
   preloadWorkspaceDiagnostics,
   preloadWorkspaceErrors,
 } from "../../../shared/preload-workspace.js";
+
+function bundleSource(source) {
+  return bundlePreloadWorkspace(createPreloadWorkspace(source));
+}
+
+function luaTokenSignature(source) {
+  const lexer = luaparse.parse(source, {
+    extendedIdentifiers: true,
+    luaVersion: "5.3",
+    ranges: true,
+    wait: true,
+  });
+  const tokens = [];
+  while (true) {
+    const token = lexer.lex();
+    if (token.type === luaparse.tokenTypes.EOF) return tokens;
+    tokens.push([token.type, source.slice(...token.range)]);
+  }
+}
 
 describe("预加载代码文件工作区", () => {
   it("旧版单段代码转换为 main.lua，并只压缩打包结果", () => {
@@ -71,10 +91,93 @@ describe("预加载代码文件工作区", () => {
     expect(() => luaparse.parse(bundle, { luaVersion: "5.3" })).not.toThrow();
   });
 
-  it("词法不完整时保留源码，避免编辑过程因压缩中断", () => {
+  it("词法不完整时拒绝生成发布产物，编辑器容量预览仍可计算", () => {
     const source = 'local value = "未结束';
+    let shebangError;
 
-    expect(bundlePreloadWorkspace(createPreloadWorkspace(source))).toBe(source);
+    try {
+      bundleSource("#!/usr/bin/lua\nreturn true");
+    } catch (error) {
+      shebangError = error;
+    }
+
+    expect(shebangError?.message).toContain("预加载代码精简失败：Lua 语法错误：");
+    expect(shebangError?.message).not.toContain("Cannot read properties");
+    expect(() => bundleSource(source)).toThrow("预加载代码精简失败");
+    expect(bundleSource("return true -- 后续合法发布不受污染")).toBe(
+      "return true",
+    );
+    expect(preloadWorkspaceBytes(createPreloadWorkspace(source))).toBe(
+      Buffer.byteLength(source, "utf8"),
+    );
+  });
+
+  it("纯注释、纯空白和空输入统一生成空字符串", () => {
+    expect(bundleSource("-- 只有单行注释\n")).toBe("");
+    expect(bundleSource("--[[只有长注释\n第二行]]\n")).toBe("");
+    expect(bundleSource(" \t\r\n\n")).toBe("");
+    expect(bundleSource("")).toBe("");
+  });
+
+  it("按 Lua 词法删除行尾注释并保留字符串和长字符串正文", () => {
+    const source = [
+      'local single = \'--[[普通字符串]]\'',
+      'local double = "转义引号 \\\" -- 仍是正文" -- 删除我',
+      "local long = [=[--[[长字符串正文]]",
+      "--[==[仍是正文]==]]=]",
+      "return single, double, long -- 中文 !@#$%^&*()",
+    ].join("\n");
+    const bundle = bundleSource(source);
+
+    expect(bundle).toContain("'--[[普通字符串]]'");
+    expect(bundle).toContain('"转义引号 \\\" -- 仍是正文"');
+    expect(bundle).toContain("[=[--[[长字符串正文]]\n--[==[仍是正文]==]]=]");
+    expect(bundle).not.toContain("删除我");
+    expect(bundle).not.toContain("中文 !@#$%^&*()");
+    expect(bundle.split("\n")).toHaveLength(source.split("\n").length);
+  });
+
+  it("删除所有 Lua 长注释形式并避免相邻 token 拼接", () => {
+    const source = [
+      "local a = 1--[[普通长注释]]+2",
+      "local b = a--[=[一级长注释]=]and true",
+      "return b--[==[二级长注释]==]or false",
+    ].join("\n");
+    const bundle = bundleSource(source);
+
+    expect(bundle).toBe(
+      ["local a = 1 +2", "local b = a and true", "return b or false"].join(
+        "\n",
+      ),
+    );
+    expect(luaTokenSignature(bundle)).toEqual(luaTokenSignature(source));
+  });
+
+  it("删除多行长注释时保留换行数量和 UTF-8 token", () => {
+    const source = "local 中文值 = 1--[=[第一行\r\n第二行\n第三行]=]and true";
+    const bundle = bundleSource(source);
+
+    expect(bundle).toBe("local 中文值 = 1\n\nand true");
+    expect(bundle.match(/\n/g)).toHaveLength(2);
+    expect(luaTokenSignature(bundle)).toEqual(luaTokenSignature(source));
+  });
+
+  it("边界容量按精简后的 UTF-8 字节计算且结果稳定", () => {
+    const atLimit = createPreloadWorkspace("x".repeat(PRELOAD_CODE_LIMIT_BYTES));
+    const overLimit = createPreloadWorkspace(
+      "x".repeat(PRELOAD_CODE_LIMIT_BYTES + 1),
+    );
+    const repeated = createPreloadWorkspace(
+      "-- 中文注释\nlocal text = '固定 -- 正文'\nreturn text",
+    );
+
+    expect(preloadWorkspaceBytes(atLimit)).toBe(PRELOAD_CODE_LIMIT_BYTES);
+    expect(preloadWorkspaceBytes(overLimit)).toBe(
+      PRELOAD_CODE_LIMIT_BYTES + 1,
+    );
+    expect(bundlePreloadWorkspace(repeated)).toBe(
+      bundlePreloadWorkspace(repeated),
+    );
   });
 
   it("拒绝路径穿越、缺失父目录和删除入口文件", () => {

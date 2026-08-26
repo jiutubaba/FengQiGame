@@ -1192,6 +1192,38 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .send({ uids: ["player-001"] })
       .expect(200);
     expect(preloadBootstrap.body.data.preloadCode).toBe(bundledPreload);
+    const failedPreloadRelease = await admin
+      .put(`/api/maps/${mapId}/config`)
+      .send({
+        preloadCode: 'local value = "未结束',
+        expectedUpdatedAt: workspaceResponse.body.data.updatedAt,
+      })
+      .expect(400);
+    expect(failedPreloadRelease.body.error).toMatchObject({
+      code: "PRELOAD_BUILD_FAILED",
+      message: expect.stringContaining("预加载代码精简失败"),
+    });
+    const bootstrapAfterFailedRelease = await request(app)
+      .post("/api/fq/bootstrap")
+      .set("fq-map-key", gameToken)
+      .send({ uids: ["player-001"] })
+      .expect(200);
+    expect(bootstrapAfterFailedRelease.body.data.preloadCode).toBe(
+      bundledPreload,
+    );
+    const persistedArtifact = "-- bootstrap 不应再次精简\nreturn true";
+    await query(
+      `UPDATE map_configs
+          SET config=jsonb_set(config,'{preloadCode}',to_jsonb($1::text),true)
+        WHERE map_id=$2`,
+      [persistedArtifact, mapId],
+    );
+    const unchangedBootstrap = await request(app)
+      .post("/api/fq/bootstrap")
+      .set("fq-map-key", gameToken)
+      .send({ uids: ["player-001"] })
+      .expect(200);
+    expect(unchangedBootstrap.body.data.preloadCode).toBe(persistedArtifact);
     const stalePreload = await admin
       .put(`/api/maps/${mapId}/config`)
       .send({
@@ -1208,10 +1240,14 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .put(`/api/maps/${mapId}/config`)
       .send({ preloadCode: "-- 可移除注释\n".repeat(25_000) })
       .expect(200);
-    await admin
+    const oversizedPreload = await admin
       .put(`/api/maps/${mapId}/config`)
       .send({ preloadCode: "x".repeat(256 * 1024 + 1) })
       .expect(400);
+    expect(oversizedPreload.body.error).toMatchObject({
+      code: "PRELOAD_CODE_TOO_LARGE",
+      message: "打包后的预加载代码不能超过 256 KiB",
+    });
 
     await admin
       .put("/api/admin/settings")

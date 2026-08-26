@@ -7,6 +7,7 @@ import {
   PRELOAD_MAX_FOLDERS,
   PRELOAD_MAX_PATH_LENGTH,
   PRELOAD_WORKSPACE_VERSION,
+  PreloadBuildError,
   bundlePreloadWorkspace,
   createPreloadWorkspace,
   normalizePreloadWorkspace,
@@ -61,17 +62,6 @@ const preloadWorkspaceSchema = z
     for (const message of errors) {
       context.addIssue({ code: "custom", message });
     }
-    if (errors.length) return;
-    if (
-      Buffer.byteLength(bundlePreloadWorkspace(workspace), "utf8") >
-      PRELOAD_CODE_LIMIT_BYTES
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["files"],
-        message: "打包后的预加载代码不能超过 256 KiB",
-      });
-    }
   });
 const mapConfigSchema = z
   .object({
@@ -87,17 +77,7 @@ const mapConfigSchema = z
       .array(z.record(z.string(), z.unknown()))
       .max(1000)
       .optional(),
-    preloadCode: z
-      .string()
-      .refine(
-        (value) =>
-          Buffer.byteLength(
-            bundlePreloadWorkspace(createPreloadWorkspace(value)),
-            "utf8",
-          ) <= PRELOAD_CODE_LIMIT_BYTES,
-        "预加载代码不能超过 256 KiB",
-      )
-      .optional(),
+    preloadCode: z.string().optional(),
     preloadWorkspace: preloadWorkspaceSchema.optional(),
     expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
   })
@@ -518,12 +498,32 @@ export function registerMapLifecycleRoutes(router) {
       }
       if (Object.hasOwn(updates, "preloadCode")) {
         updates.preloadWorkspace = createPreloadWorkspace(updates.preloadCode);
-        updates.preloadCode = bundlePreloadWorkspace(updates.preloadWorkspace);
       } else if (Object.hasOwn(updates, "preloadWorkspace")) {
         updates.preloadWorkspace = normalizePreloadWorkspace(
           updates.preloadWorkspace,
         );
-        updates.preloadCode = bundlePreloadWorkspace(updates.preloadWorkspace);
+      }
+      if (updatesPreload) {
+        try {
+          updates.preloadCode = bundlePreloadWorkspace(
+            updates.preloadWorkspace,
+          );
+        } catch (error) {
+          if (error instanceof PreloadBuildError) {
+            throw new HttpError(400, error.message, "PRELOAD_BUILD_FAILED");
+          }
+          throw error;
+        }
+        if (
+          Buffer.byteLength(updates.preloadCode, "utf8") >
+          PRELOAD_CODE_LIMIT_BYTES
+        ) {
+          throw new HttpError(
+            400,
+            "打包后的预加载代码不能超过 256 KiB",
+            "PRELOAD_CODE_TOO_LARGE",
+          );
+        }
       }
       const result = await transaction(async (client) => {
         const current = await client.query(
