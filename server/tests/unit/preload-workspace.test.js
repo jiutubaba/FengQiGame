@@ -91,6 +91,72 @@ describe("预加载代码文件工作区", () => {
     expect(() => luaparse.parse(bundle, { luaVersion: "5.3" })).not.toThrow();
   });
 
+  it("注释引用和未引用文件不进入发布产物，原始工作区保持完整", () => {
+    const workspace = normalizePreloadWorkspace({
+      version: 1,
+      entry: "main.lua",
+      folders: [],
+      files: [
+        {
+          path: "main.lua",
+          content: [
+            '-- require("单位数据.lua")',
+            "--[[ require('技能重载.lua') ]]",
+          ].join("\n"),
+        },
+        { path: "单位数据.lua", content: 'return "UNUSED_UNIT_DATA"' },
+        { path: "技能重载.lua", content: 'return "UNUSED_SKILL_RELOAD"' },
+      ],
+    });
+
+    expect(bundlePreloadWorkspace(workspace)).toBe("");
+    expect(preloadWorkspaceBytes(workspace)).toBe(0);
+    expect(workspace.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "单位数据.lua",
+          content: 'return "UNUSED_UNIT_DATA"',
+        }),
+        expect.objectContaining({
+          path: "技能重载.lua",
+          content: 'return "UNUSED_SKILL_RELOAD"',
+        }),
+      ]),
+    );
+    expect(
+      preloadWorkspaceDiagnostics(workspace).filter(({ message }) =>
+        message.includes("未被 main.lua"),
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("递归打包入口可达文件并稳定排除无关文件", () => {
+    const workspace = normalizePreloadWorkspace({
+      version: 1,
+      entry: "main.lua",
+      folders: [],
+      files: [
+        {
+          path: "main.lua",
+          content: 'local value = require("a.lua")\nreturn value',
+        },
+        {
+          path: "a.lua",
+          content:
+            'local value = require("b.lua")\nreturn "REACHABLE_A" .. value',
+        },
+        { path: "b.lua", content: 'return "REACHABLE_B"' },
+        { path: "unused.lua", content: 'return "UNUSED_MODULE"' },
+      ],
+    });
+    const bundle = bundlePreloadWorkspace(workspace);
+
+    expect(bundle).toContain("REACHABLE_A");
+    expect(bundle).toContain("REACHABLE_B");
+    expect(bundle).not.toContain("UNUSED_MODULE");
+    expect(bundlePreloadWorkspace(workspace)).toBe(bundle);
+  });
+
   it("词法不完整时拒绝生成发布产物，编辑器容量预览仍可计算", () => {
     const source = 'local value = "未结束';
     let shebangError;
@@ -103,7 +169,7 @@ describe("预加载代码文件工作区", () => {
 
     expect(shebangError?.message).toContain("预加载代码精简失败：Lua 语法错误：");
     expect(shebangError?.message).not.toContain("Cannot read properties");
-    expect(() => bundleSource(source)).toThrow("预加载代码精简失败");
+    expect(() => bundleSource(source)).toThrow("预加载代码打包失败");
     expect(bundleSource("return true -- 后续合法发布不受污染")).toBe(
       "return true",
     );
@@ -163,9 +229,11 @@ describe("预加载代码文件工作区", () => {
   });
 
   it("边界容量按精简后的 UTF-8 字节计算且结果稳定", () => {
-    const atLimit = createPreloadWorkspace("x".repeat(PRELOAD_CODE_LIMIT_BYTES));
+    const atLimit = createPreloadWorkspace(
+      `return "${"x".repeat(PRELOAD_CODE_LIMIT_BYTES - 9)}"`,
+    );
     const overLimit = createPreloadWorkspace(
-      "x".repeat(PRELOAD_CODE_LIMIT_BYTES + 1),
+      `return "${"x".repeat(PRELOAD_CODE_LIMIT_BYTES - 8)}"`,
     );
     const repeated = createPreloadWorkspace(
       "-- 中文注释\nlocal text = '固定 -- 正文'\nreturn text",
@@ -173,6 +241,12 @@ describe("预加载代码文件工作区", () => {
 
     expect(preloadWorkspaceBytes(atLimit)).toBe(PRELOAD_CODE_LIMIT_BYTES);
     expect(preloadWorkspaceBytes(overLimit)).toBe(
+      PRELOAD_CODE_LIMIT_BYTES + 1,
+    );
+    expect(Buffer.byteLength(bundlePreloadWorkspace(atLimit), "utf8")).toBe(
+      PRELOAD_CODE_LIMIT_BYTES,
+    );
+    expect(Buffer.byteLength(bundlePreloadWorkspace(overLimit), "utf8")).toBe(
       PRELOAD_CODE_LIMIT_BYTES + 1,
     );
     expect(bundlePreloadWorkspace(repeated)).toBe(
@@ -255,9 +329,88 @@ describe("预加载代码文件工作区", () => {
     expect(preloadWorkspaceDiagnostics(dynamic)).toEqual([
       expect.objectContaining({
         severity: "warning",
-        message: expect.stringContaining("无法静态检查"),
+        message: expect.stringContaining("发布时将保守打包全部文件"),
       }),
     ]);
+    expect(bundlePreloadWorkspace(dynamic)).toBe("require(moduleName)");
+  });
+
+  it("兼容可达的动态和间接 require，并忽略未引用文件中的动态加载", () => {
+    for (const source of [
+      "local loader = require\nreturn loader(moduleName)",
+      'return pcall(require, "模块.lua")',
+    ]) {
+      const workspace = createPreloadWorkspace(source);
+      expect(preloadWorkspaceDiagnostics(workspace)).toEqual([
+        expect.objectContaining({
+          severity: "warning",
+          message: expect.stringContaining("require 被间接使用"),
+        }),
+      ]);
+      expect(bundlePreloadWorkspace(workspace)).toContain("require");
+      expect(preloadWorkspaceBytes(workspace)).toBeGreaterThan(0);
+    }
+
+    const dynamicWorkspace = normalizePreloadWorkspace({
+      version: 1,
+      entry: "main.lua",
+      folders: [],
+      files: [
+        {
+          path: "main.lua",
+          content: "return require(moduleName)",
+        },
+        { path: "dynamic.lua", content: 'return "DYNAMIC_MODULE"' },
+        { path: "fallback.lua", content: 'return "FALLBACK_MODULE"' },
+      ],
+    });
+    const dynamicBundle = bundlePreloadWorkspace(dynamicWorkspace);
+    expect(dynamicBundle).toContain("DYNAMIC_MODULE");
+    expect(dynamicBundle).toContain("FALLBACK_MODULE");
+    expect(() =>
+      luaparse.parse(dynamicBundle, { luaVersion: "5.3" }),
+    ).not.toThrow();
+
+    const dynamicWithInvalidFile = normalizePreloadWorkspace({
+      version: 1,
+      entry: "main.lua",
+      folders: [],
+      files: [
+        { path: "main.lua", content: "return require(moduleName)" },
+        { path: "invalid.lua", content: "local value =" },
+      ],
+    });
+    expect(() => bundlePreloadWorkspace(dynamicWithInvalidFile)).toThrow(
+      "invalid.lua",
+    );
+
+    const unreachableDynamic = normalizePreloadWorkspace({
+      version: 1,
+      entry: "main.lua",
+      folders: [],
+      files: [
+        { path: "main.lua", content: "return true" },
+        {
+          path: "unused.lua",
+          content: "local loader = require\nreturn loader(moduleName)",
+        },
+      ],
+    });
+    expect(bundlePreloadWorkspace(unreachableDynamic)).toBe("return true");
+    expect(preloadWorkspaceDiagnostics(unreachableDynamic)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "unused.lua",
+          severity: "warning",
+          message: expect.stringContaining("require 被间接使用"),
+        }),
+        expect.objectContaining({
+          path: "unused.lua",
+          severity: "warning",
+          message: "文件未被 main.lua 的 require 链加载",
+        }),
+      ]),
+    );
   });
 
   it("报告循环依赖、语法错误和未被入口加载的文件", () => {
@@ -300,5 +453,6 @@ describe("预加载代码文件工作区", () => {
         }),
       ]),
     );
+    expect(bundlePreloadWorkspace(invalidAndUnused)).toBe("return true");
   });
 });

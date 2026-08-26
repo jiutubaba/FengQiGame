@@ -116,6 +116,10 @@ export function preloadWorkspaceDiagnostics(workspace) {
           typeof file.content === "string",
       )
     : [];
+  return analyzePreloadWorkspaceReferences(files).diagnostics;
+}
+
+function analyzePreloadWorkspaceReferences(files) {
   const filePaths = new Set(files.map((file) => file.path));
   const filePathsByLowerCase = new Map(
     files.map((file) => [file.path.toLocaleLowerCase("en-US"), file.path]),
@@ -124,6 +128,7 @@ export function preloadWorkspaceDiagnostics(workspace) {
   const references = [];
   const parseFailedPaths = new Set();
   const dynamicRequirePaths = new Set();
+  const dynamicRequires = [];
 
   for (const file of files) {
     let ast;
@@ -142,57 +147,67 @@ export function preloadWorkspaceDiagnostics(workspace) {
       continue;
     }
 
-    walkLuaAst(ast, (node) => {
+    walkLuaAst(ast, (node, parent, key) => {
       const requireCall = readRequireCall(file.content, node);
-      if (!requireCall) return;
-      if (requireCall.path === null) {
-        dynamicRequirePaths.add(file.path);
-        diagnostics.push(
-          luaReferenceDiagnostic(
-            file.path,
-            requireCall.location,
-            "warning",
-            'require 引用无法静态检查，请使用 require("文件名.lua") 的字符串形式',
-          ),
+      if (requireCall) {
+        if (requireCall.path === null) {
+          dynamicRequirePaths.add(file.path);
+          dynamicRequires.push({
+            path: file.path,
+            location: requireCall.location,
+            message:
+              'require 引用无法静态检查，请使用 require("文件名.lua") 的字符串形式',
+          });
+          return;
+        }
+
+        const exactTarget = filePaths.has(requireCall.path)
+          ? requireCall.path
+          : null;
+        const caseInsensitiveTarget = filePathsByLowerCase.get(
+          requireCall.path.toLocaleLowerCase("en-US"),
         );
-        return;
-      }
+        const resolvedTarget = exactTarget || caseInsensitiveTarget || null;
+        const reference = {
+          sourcePath: file.path,
+          requestedPath: requireCall.path,
+          resolvedTarget,
+          location: requireCall.location,
+        };
+        references.push(reference);
 
-      const exactTarget = filePaths.has(requireCall.path)
-        ? requireCall.path
-        : null;
-      const caseInsensitiveTarget = filePathsByLowerCase.get(
-        requireCall.path.toLocaleLowerCase("en-US"),
-      );
-      const resolvedTarget = exactTarget || caseInsensitiveTarget || null;
-      const reference = {
-        sourcePath: file.path,
-        requestedPath: requireCall.path,
-        resolvedTarget,
-        location: requireCall.location,
-      };
-      references.push(reference);
-
-      if (exactTarget) return;
-      if (caseInsensitiveTarget) {
+        if (exactTarget) return;
+        if (caseInsensitiveTarget) {
+          diagnostics.push(
+            luaReferenceDiagnostic(
+              file.path,
+              requireCall.location,
+              "error",
+              `require 路径大小写不匹配：${requireCall.path}，应为 ${caseInsensitiveTarget}`,
+            ),
+          );
+          return;
+        }
         diagnostics.push(
           luaReferenceDiagnostic(
             file.path,
             requireCall.location,
             "error",
-            `require 路径大小写不匹配：${requireCall.path}，应为 ${caseInsensitiveTarget}`,
+            `require 引用的文件不存在：${requireCall.path}`,
           ),
         );
         return;
       }
-      diagnostics.push(
-        luaReferenceDiagnostic(
-          file.path,
-          requireCall.location,
-          "error",
-          `require 引用的文件不存在：${requireCall.path}`,
-        ),
-      );
+
+      if (isIndirectGlobalRequire(node, parent, key)) {
+        dynamicRequirePaths.add(file.path);
+        dynamicRequires.push({
+          path: file.path,
+          location: luaNodeLocation(node, file.content),
+          message:
+            'require 被间接使用，无法静态检查，请直接使用 require("文件名.lua")',
+        });
+      }
     });
   }
 
@@ -226,6 +241,19 @@ export function preloadWorkspaceDiagnostics(workspace) {
     dependencyGraph,
     PRELOAD_ENTRY_PATH,
   );
+  for (const dynamicRequire of dynamicRequires) {
+    const isReachable = reachablePaths.has(dynamicRequire.path);
+    diagnostics.push(
+      luaReferenceDiagnostic(
+        dynamicRequire.path,
+        dynamicRequire.location,
+        "warning",
+        isReachable
+          ? `${dynamicRequire.message}；发布时将保守打包全部文件`
+          : dynamicRequire.message,
+      ),
+    );
+  }
   const reachabilityIsComplete = [...reachablePaths].every(
     (path) => !parseFailedPaths.has(path) && !dynamicRequirePaths.has(path),
   );
@@ -247,7 +275,7 @@ export function preloadWorkspaceDiagnostics(workspace) {
     }
   }
 
-  return diagnostics.sort((left, right) => {
+  diagnostics.sort((left, right) => {
     const pathOrder = comparePaths(left.path, right.path);
     if (pathOrder) return pathOrder;
     if (left.from !== right.from) return left.from - right.from;
@@ -257,22 +285,51 @@ export function preloadWorkspaceDiagnostics(workspace) {
         ? -1
         : 1;
   });
+  return {
+    diagnostics,
+    dynamicRequirePaths,
+    parseFailedPaths,
+    reachablePaths,
+  };
 }
 
 export function bundlePreloadWorkspace(workspace) {
-  return compactLuaSource(preloadWorkspaceBundleSource(workspace));
+  const plan = preloadWorkspaceBundlePlan(workspace);
+  if (plan.buildFailure) {
+    throw new PreloadBuildError(
+      `预加载代码打包失败：${plan.buildFailure.path} ${plan.buildFailure.message}`,
+    );
+  }
+  return compactLuaSource(preloadWorkspaceBundleSource(plan.files));
 }
 
-function preloadWorkspaceBundleSource(workspace) {
+function preloadWorkspaceBundlePlan(workspace) {
   const normalized = normalizePreloadWorkspace(workspace);
   const errors = preloadWorkspaceErrors(normalized);
   if (errors.length) throw new Error(errors[0]);
+  const analysis = analyzePreloadWorkspaceReferences(normalized.files);
+  const requiresFullWorkspace = [...analysis.reachablePaths].some((path) =>
+    analysis.dynamicRequirePaths.has(path),
+  );
+  const buildFailure = analysis.diagnostics.find(
+    (diagnostic) =>
+      diagnostic.source === "Lua 语法" &&
+      (requiresFullWorkspace || analysis.reachablePaths.has(diagnostic.path)),
+  );
+  return {
+    buildFailure,
+    files:
+      buildFailure || requiresFullWorkspace
+        ? normalized.files
+        : normalized.files.filter((file) =>
+            analysis.reachablePaths.has(file.path),
+          ),
+  };
+}
 
-  if (
-    normalized.files.length === 1 &&
-    normalized.files[0].path === PRELOAD_ENTRY_PATH
-  ) {
-    return normalized.files[0].content;
+function preloadWorkspaceBundleSource(files) {
+  if (files.length === 1 && files[0].path === PRELOAD_ENTRY_PATH) {
+    return files[0].content;
   }
 
   const output = [
@@ -281,7 +338,7 @@ function preloadWorkspaceBundleSource(workspace) {
     "local __fq_preload_loading = {}",
     "local __fq_preload_require",
   ];
-  for (const file of normalized.files) {
+  for (const file of files) {
     output.push(
       `__fq_preload_modules[${luaString(file.path)}] = function(...)`,
       "local require = __fq_preload_require",
@@ -309,7 +366,8 @@ function preloadWorkspaceBundleSource(workspace) {
 }
 
 export function preloadWorkspaceBytes(workspace) {
-  const source = preloadWorkspaceBundleSource(workspace);
+  const plan = preloadWorkspaceBundlePlan(workspace);
+  const source = preloadWorkspaceBundleSource(plan.files);
   try {
     return new TextEncoder().encode(compactLuaSource(source)).byteLength;
   } catch (error) {
@@ -471,17 +529,33 @@ function formatLuaToken(value) {
   return `“${String(value).replace(/^'(.*)'$/, "$1")}”`;
 }
 
-function walkLuaAst(value, visit) {
+function walkLuaAst(value, visit, parent = null, parentKey = null) {
   if (!value || typeof value !== "object") return;
-  if (typeof value.type === "string") visit(value);
+  if (typeof value.type === "string") visit(value, parent, parentKey);
   for (const [key, child] of Object.entries(value)) {
-    if (key === "loc" || key === "range") continue;
+    if (key === "globals" || key === "loc" || key === "range") continue;
     if (Array.isArray(child)) {
-      for (const item of child) walkLuaAst(item, visit);
+      for (const item of child) walkLuaAst(item, visit, value, key);
     } else {
-      walkLuaAst(child, visit);
+      walkLuaAst(child, visit, value, key);
     }
   }
+}
+
+function isIndirectGlobalRequire(node, parent, parentKey) {
+  if (
+    node.type !== "Identifier" ||
+    node.name !== "require" ||
+    node.isLocal !== false
+  ) {
+    return false;
+  }
+  return !(
+    parentKey === "base" &&
+    ["CallExpression", "StringCallExpression", "TableCallExpression"].includes(
+      parent?.type,
+    )
+  );
 }
 
 function readRequireCall(source, node) {
