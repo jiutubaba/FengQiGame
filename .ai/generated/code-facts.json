@@ -1110,8 +1110,9 @@
         "检查全部 Lua 文件并接受能解析到真实文件的 require",
         "忽略被局部变量遮蔽的 require",
         "报告 require 缺失、大小写不一致和动态引用",
-        "兼容可达的动态和间接 require，并忽略未引用文件中的动态加载",
-        "报告循环依赖、语法错误和未被入口加载的文件"
+        "兼容可达的动态和间接 require，并跳过未加载文件的检查",
+        "报告生效文件的循环依赖和语法错误，忽略未加载文件错误",
+        "动态引用保守检查全部文件，可达语法失败不牵连未加载文件"
       ]
     },
     {
@@ -1285,7 +1286,7 @@
     },
     {
       "file": "server/tests/unit/preload-workspace.test.js",
-      "lines": 459
+      "lines": 486
     },
     {
       "file": "server/tests/unit/security.test.js",
@@ -1369,7 +1370,7 @@
     },
     {
       "file": "src/pages/map-workspace/PreloadWorkspace.jsx",
-      "lines": 800
+      "lines": 827
     },
     {
       "file": "src/pages/map-workspace/ResourcePanels.jsx",
@@ -1397,7 +1398,7 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 5852
+      "lines": 5889
     },
     {
       "file": "src/utils/format.js",
