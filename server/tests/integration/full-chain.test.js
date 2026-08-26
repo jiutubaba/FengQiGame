@@ -1172,6 +1172,10 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
           path: "scripts/config.lua",
           content: "return { enabled = true }",
         },
+        {
+          path: "scripts/unused.lua",
+          content: 'return "UNUSED_PRELOAD_MODULE"',
+        },
       ],
     };
     const workspaceResponse = await admin
@@ -1182,6 +1186,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       })
       .expect(200);
     const bundledPreload = bundlePreloadWorkspace(preloadWorkspace);
+    expect(bundledPreload).not.toContain("UNUSED_PRELOAD_MODULE");
     expect(workspaceResponse.body.data.preloadCode).toBe(bundledPreload);
     expect(workspaceResponse.body.data.preloadWorkspace).toEqual(
       preloadWorkspace,
@@ -1192,16 +1197,49 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .send({ uids: ["player-001"] })
       .expect(200);
     expect(preloadBootstrap.body.data.preloadCode).toBe(bundledPreload);
+    const dynamicWorkspace = {
+      version: 1,
+      entry: "main.lua",
+      folders: [],
+      files: [
+        {
+          path: "main.lua",
+          content: "return require(moduleName)",
+        },
+        {
+          path: "dynamic.lua",
+          content: 'return "DYNAMIC_PRELOAD_MODULE"',
+        },
+      ],
+    };
+    const dynamicResponse = await admin
+      .put(`/api/maps/${mapId}/config`)
+      .send({
+        preloadWorkspace: dynamicWorkspace,
+        expectedUpdatedAt: workspaceResponse.body.data.updatedAt,
+      })
+      .expect(200);
+    const dynamicBundle = bundlePreloadWorkspace(dynamicWorkspace);
+    expect(dynamicBundle).toContain("DYNAMIC_PRELOAD_MODULE");
+    expect(dynamicResponse.body.data.preloadCode).toBe(dynamicBundle);
+    const bootstrapAfterDynamicRelease = await request(app)
+      .post("/api/fq/bootstrap")
+      .set("fq-map-key", gameToken)
+      .send({ uids: ["player-001"] })
+      .expect(200);
+    expect(bootstrapAfterDynamicRelease.body.data.preloadCode).toBe(
+      dynamicBundle,
+    );
     const failedPreloadRelease = await admin
       .put(`/api/maps/${mapId}/config`)
       .send({
         preloadCode: 'local value = "未结束',
-        expectedUpdatedAt: workspaceResponse.body.data.updatedAt,
+        expectedUpdatedAt: dynamicResponse.body.data.updatedAt,
       })
       .expect(400);
     expect(failedPreloadRelease.body.error).toMatchObject({
       code: "PRELOAD_BUILD_FAILED",
-      message: expect.stringContaining("预加载代码精简失败"),
+      message: expect.stringContaining("预加载代码打包失败"),
     });
     const bootstrapAfterFailedRelease = await request(app)
       .post("/api/fq/bootstrap")
@@ -1209,7 +1247,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .send({ uids: ["player-001"] })
       .expect(200);
     expect(bootstrapAfterFailedRelease.body.data.preloadCode).toBe(
-      bundledPreload,
+      dynamicBundle,
     );
     const persistedArtifact = "-- bootstrap 不应再次精简\nreturn true";
     await query(
@@ -1234,7 +1272,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(stalePreload.body.error.code).toBe("CONFLICT");
     await admin
       .put(`/api/maps/${mapId}/config`)
-      .send({ preloadCode: "x".repeat(256 * 1024) })
+      .send({ preloadCode: `return "${"x".repeat(256 * 1024 - 9)}"` })
       .expect(200);
     await admin
       .put(`/api/maps/${mapId}/config`)
@@ -1242,7 +1280,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(200);
     const oversizedPreload = await admin
       .put(`/api/maps/${mapId}/config`)
-      .send({ preloadCode: "x".repeat(256 * 1024 + 1) })
+      .send({ preloadCode: `return "${"x".repeat(256 * 1024 - 8)}"` })
       .expect(400);
     expect(oversizedPreload.body.error).toMatchObject({
       code: "PRELOAD_CODE_TOO_LARGE",
