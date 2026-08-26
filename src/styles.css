@@ -3169,6 +3169,25 @@ textarea::placeholder {
 .preload-list-row:hover {
   background: #fafaf9;
 }
+.preload-list-row.is-inactive {
+  background: #fbfbfa;
+  color: #969ba3;
+}
+.preload-list-row.is-inactive:hover {
+  background: #f7f7f5;
+}
+.preload-list-row.is-inactive .preload-node-button {
+  color: #858b94;
+}
+.preload-list-row.is-inactive .preload-node-button > svg {
+  color: #9ba0a8;
+  fill: transparent;
+}
+.preload-list-row.is-inactive .preload-node-name {
+  text-decoration: line-through;
+  text-decoration-color: #9da2aa;
+  text-decoration-thickness: 1px;
+}
 .preload-list-row:last-child {
   border-bottom: 0;
 }
@@ -3213,6 +3232,18 @@ textarea::placeholder {
   border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent-bright);
+  font: 650 10px/1 var(--font-ui);
+  text-decoration: none;
+}
+.preload-inactive-badge {
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border: 1px solid #d8dade;
+  border-radius: 999px;
+  background: #f2f2f0;
+  color: #777d86;
   font: 650 10px/1 var(--font-ui);
   text-decoration: none;
 }
@@ -3399,6 +3430,12 @@ textarea::placeholder {
 }
 .preload-editor-status > span svg {
   color: #89d185;
+}
+.preload-editor-status > span.is-inactive {
+  color: #aeb4bd;
+}
+.preload-editor-status > span.is-inactive svg {
+  color: #8f96a0;
 }
 .preload-editor-status > button {
   min-height: 22px;

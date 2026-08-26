@@ -26,7 +26,7 @@ import {
   PRELOAD_CODE_LIMIT_BYTES,
   PRELOAD_ENTRY_PATH,
   normalizePreloadWorkspace,
-  preloadWorkspaceDiagnostics,
+  preloadWorkspaceAnalysis,
   preloadWorkspaceErrors,
 } from "../../../shared/preload-workspace.js";
 import { Button, Field, Modal, useConfirm } from "../../components/ui";
@@ -137,9 +137,17 @@ export default function PreloadWorkspace({
   const selectedFile = workspace.files.find(
     (file) => file.path === selectedFilePath,
   );
-  const [workspaceDiagnostics, setWorkspaceDiagnostics] = useState(() =>
-    preloadWorkspaceDiagnostics(workspace),
+  const [workspaceAnalysis, setWorkspaceAnalysis] = useState(() =>
+    preloadWorkspaceAnalysis(workspace),
   );
+  const workspaceDiagnostics = workspaceAnalysis.diagnostics;
+  const activePaths = useMemo(
+    () => new Set(workspaceAnalysis.activePaths),
+    [workspaceAnalysis.activePaths],
+  );
+  const selectedFileActive = selectedFile
+    ? activePaths.has(selectedFile.path)
+    : false;
   const selectedDiagnostics = useMemo(
     () =>
       selectedFile
@@ -153,7 +161,7 @@ export default function PreloadWorkspace({
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      setWorkspaceDiagnostics(preloadWorkspaceDiagnostics(workspace));
+      setWorkspaceAnalysis(preloadWorkspaceAnalysis(workspace));
     }, 260);
     return () => window.clearTimeout(timeout);
   }, [workspace]);
@@ -172,9 +180,11 @@ export default function PreloadWorkspace({
       diagnosticCount: workspaceDiagnostics.filter(
         (diagnostic) => diagnostic.path === file.path,
       ).length,
+      active: activePaths.has(file.path),
     }));
-  }, [workspace.files, workspaceDiagnostics]);
+  }, [activePaths, workspace.files, workspaceDiagnostics]);
   const sourceBytes = items.reduce((sum, item) => sum + item.sizeBytes, 0);
+  const inactiveFileCount = items.filter((item) => !item.active).length;
 
   const updateFile = (content) => {
     onChange(
@@ -437,6 +447,9 @@ export default function PreloadWorkspace({
               {selectedFile.path === PRELOAD_ENTRY_PATH && (
                 <span className="preload-entry-badge">入口</span>
               )}
+              {!selectedFileActive && (
+                <span className="preload-inactive-badge">未加载</span>
+              )}
             </div>
             <div>
               <button type="button" onClick={() => setSelectedFilePath(null)}>
@@ -503,7 +516,12 @@ export default function PreloadWorkspace({
             }`}
             aria-live="polite"
           >
-            {selectedDiagnostics.length ? (
+            {!selectedFileActive ? (
+              <span className="is-inactive">
+                <FileCode2 size={13} />
+                未加载，不参与检查和发布
+              </span>
+            ) : selectedDiagnostics.length ? (
               <button
                 type="button"
                 title={firstSelectedDiagnostic.message}
@@ -549,7 +567,10 @@ export default function PreloadWorkspace({
             <span aria-hidden="true" />
           </div>
           {items.map((item) => (
-            <div className="preload-list-row" key={item.path}>
+            <div
+              className={`preload-list-row${item.active ? "" : " is-inactive"}`}
+              key={item.path}
+            >
               <button
                 type="button"
                 className="preload-node-button"
@@ -561,6 +582,9 @@ export default function PreloadWorkspace({
                 </span>
                 {item.path === PRELOAD_ENTRY_PATH && (
                   <span className="preload-entry-badge">入口</span>
+                )}
+                {!item.active && (
+                  <span className="preload-inactive-badge">未加载</span>
                 )}
                 {item.diagnosticCount > 0 && (
                   <span
@@ -620,10 +644,13 @@ export default function PreloadWorkspace({
         title={`源码 ${sourceBytes} 字节，安全压缩后 ${compiledBytes} 字节`}
       >
         <span>
-          根目录 · {workspace.files.length} 个 Lua 文件 ·{" "}
+          根目录 · {workspace.files.length} 个 Lua 文件
+          {inactiveFileCount ? ` · ${inactiveFileCount} 个未加载` : ""} ·{" "}
           {workspaceDiagnostics.length
             ? `${workspaceDiagnostics.length} 个检查问题`
-            : "语法与引用检查通过"}
+            : inactiveFileCount
+              ? "生效文件检查通过"
+              : "语法与引用检查通过"}
         </span>
         <strong>
           源码 {formatBytes(sourceBytes)} · 压缩后 {formatBytes(compiledBytes)}/

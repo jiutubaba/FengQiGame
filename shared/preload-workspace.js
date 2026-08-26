@@ -108,6 +108,10 @@ export function preloadWorkspaceErrors(workspace) {
 }
 
 export function preloadWorkspaceDiagnostics(workspace) {
+  return preloadWorkspaceAnalysis(workspace).diagnostics;
+}
+
+export function preloadWorkspaceAnalysis(workspace) {
   const files = Array.isArray(workspace?.files)
     ? workspace.files.filter(
         (file) =>
@@ -116,21 +120,36 @@ export function preloadWorkspaceDiagnostics(workspace) {
           typeof file.content === "string",
       )
     : [];
-  return analyzePreloadWorkspaceReferences(files).diagnostics;
+  const analysis = analyzePreloadWorkspaceReferences(files);
+  return {
+    diagnostics: analysis.diagnostics,
+    activePaths: [...analysis.activePaths].sort(comparePaths),
+    inactivePaths: files
+      .map((file) => file.path)
+      .filter((path) => !analysis.activePaths.has(path))
+      .sort(comparePaths),
+  };
 }
 
 function analyzePreloadWorkspaceReferences(files) {
   const filePaths = new Set(files.map((file) => file.path));
+  const filesByPath = new Map(files.map((file) => [file.path, file]));
   const filePathsByLowerCase = new Map(
     files.map((file) => [file.path.toLocaleLowerCase("en-US"), file.path]),
   );
+  const dependencyGraph = new Map(files.map((file) => [file.path, []]));
   const diagnostics = [];
   const references = [];
-  const parseFailedPaths = new Set();
+  const analyzedPaths = new Set();
   const dynamicRequirePaths = new Set();
   const dynamicRequires = [];
 
-  for (const file of files) {
+  const analyzeFile = (path) => {
+    if (analyzedPaths.has(path)) return;
+    const file = filesByPath.get(path);
+    if (!file) return;
+    analyzedPaths.add(path);
+
     let ast;
     try {
       ast = luaparse.parse(luaParserSource(file.content), {
@@ -142,9 +161,8 @@ function analyzePreloadWorkspaceReferences(files) {
         scope: true,
       });
     } catch (error) {
-      parseFailedPaths.add(file.path);
       diagnostics.push(luaSyntaxDiagnostic(file.path, file.content, error));
-      continue;
+      return;
     }
 
     walkLuaAst(ast, (node, parent, key) => {
@@ -175,6 +193,9 @@ function analyzePreloadWorkspaceReferences(files) {
           location: requireCall.location,
         };
         references.push(reference);
+        if (resolvedTarget) {
+          dependencyGraph.get(file.path)?.push(resolvedTarget);
+        }
 
         if (exactTarget) return;
         if (caseInsensitiveTarget) {
@@ -209,14 +230,32 @@ function analyzePreloadWorkspaceReferences(files) {
         });
       }
     });
-  }
+  };
 
-  const dependencyGraph = new Map(files.map((file) => [file.path, []]));
-  for (const reference of references) {
-    if (reference.resolvedTarget) {
-      dependencyGraph.get(reference.sourcePath)?.push(reference.resolvedTarget);
+  const reachablePaths = new Set();
+  const pendingPaths = filePaths.has(PRELOAD_ENTRY_PATH)
+    ? [PRELOAD_ENTRY_PATH]
+    : [];
+  while (pendingPaths.length) {
+    const path = pendingPaths.pop();
+    if (reachablePaths.has(path)) continue;
+    reachablePaths.add(path);
+    analyzeFile(path);
+    for (const dependency of dependencyGraph.get(path) || []) {
+      pendingPaths.push(dependency);
     }
   }
+
+  const requiresFullWorkspace = [...reachablePaths].some((path) =>
+    dynamicRequirePaths.has(path),
+  );
+  if (requiresFullWorkspace) {
+    for (const file of files) analyzeFile(file.path);
+  }
+  const activePaths = requiresFullWorkspace
+    ? new Set(filePaths)
+    : reachablePaths;
+
   for (const reference of references) {
     if (!reference.resolvedTarget) continue;
     const cyclePath = findDependencyPath(
@@ -237,42 +276,17 @@ function analyzePreloadWorkspaceReferences(files) {
     );
   }
 
-  const reachablePaths = collectReachablePaths(
-    dependencyGraph,
-    PRELOAD_ENTRY_PATH,
-  );
   for (const dynamicRequire of dynamicRequires) {
-    const isReachable = reachablePaths.has(dynamicRequire.path);
     diagnostics.push(
       luaReferenceDiagnostic(
         dynamicRequire.path,
         dynamicRequire.location,
         "warning",
-        isReachable
+        requiresFullWorkspace
           ? `${dynamicRequire.message}；发布时将保守打包全部文件`
           : dynamicRequire.message,
       ),
     );
-  }
-  const reachabilityIsComplete = [...reachablePaths].every(
-    (path) => !parseFailedPaths.has(path) && !dynamicRequirePaths.has(path),
-  );
-  if (reachabilityIsComplete) {
-    for (const file of files) {
-      if (file.path === PRELOAD_ENTRY_PATH || reachablePaths.has(file.path)) {
-        continue;
-      }
-      diagnostics.push({
-        path: file.path,
-        from: 0,
-        to: Math.min(1, file.content.length),
-        severity: "warning",
-        source: "Lua 引用",
-        message: `文件未被 ${PRELOAD_ENTRY_PATH} 的 require 链加载`,
-        line: 1,
-        column: 1,
-      });
-    }
   }
 
   diagnostics.sort((left, right) => {
@@ -287,9 +301,8 @@ function analyzePreloadWorkspaceReferences(files) {
   });
   return {
     diagnostics,
-    dynamicRequirePaths,
-    parseFailedPaths,
-    reachablePaths,
+    activePaths,
+    requiresFullWorkspace,
   };
 }
 
@@ -308,21 +321,16 @@ function preloadWorkspaceBundlePlan(workspace) {
   const errors = preloadWorkspaceErrors(normalized);
   if (errors.length) throw new Error(errors[0]);
   const analysis = analyzePreloadWorkspaceReferences(normalized.files);
-  const requiresFullWorkspace = [...analysis.reachablePaths].some((path) =>
-    analysis.dynamicRequirePaths.has(path),
-  );
   const buildFailure = analysis.diagnostics.find(
-    (diagnostic) =>
-      diagnostic.source === "Lua 语法" &&
-      (requiresFullWorkspace || analysis.reachablePaths.has(diagnostic.path)),
+    (diagnostic) => diagnostic.source === "Lua 语法",
   );
   return {
     buildFailure,
     files:
-      buildFailure || requiresFullWorkspace
+      buildFailure || analysis.requiresFullWorkspace
         ? normalized.files
         : normalized.files.filter((file) =>
-            analysis.reachablePaths.has(file.path),
+            analysis.activePaths.has(file.path),
           ),
   };
 }
@@ -695,18 +703,6 @@ function findDependencyPath(graph, start, goal) {
     }
   }
   return null;
-}
-
-function collectReachablePaths(graph, entry) {
-  const reachable = new Set();
-  const pending = graph.has(entry) ? [entry] : [];
-  while (pending.length) {
-    const path = pending.pop();
-    if (reachable.has(path)) continue;
-    reachable.add(path);
-    pending.push(...(graph.get(path) || []));
-  }
-  return reachable;
 }
 
 function luaString(value) {
