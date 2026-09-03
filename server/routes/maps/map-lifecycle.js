@@ -16,6 +16,7 @@ import {
 import { query, transaction } from "../../db/index.js";
 import { writeAudit } from "../../lib/audit.js";
 import { conflict, HttpError, notFound } from "../../lib/errors.js";
+import { createOpaqueToken } from "../../lib/security.js";
 import {
   removeDeletedMapUploadDirectories,
   restoreMapUploadDirectory,
@@ -37,6 +38,7 @@ const mapSchema = z.object({
   description: z.string().trim().max(4000).optional().default(""),
   ownerUserId: z.coerce.number().int().positive().nullable().optional(),
   coverPath: z.string().trim().max(1000).nullable().optional(),
+  platform: z.enum(["kk", "oasis_qiyuan"]).optional(),
 });
 const preloadWorkspaceSchema = z
   .object({
@@ -110,7 +112,7 @@ export function registerMapLifecycleRoutes(router) {
       where += " AND 'map.view'=ANY(mp.permissions)";
     }
     const result = await query(
-      `SELECT m.id,m.name,m.description,m.status,m.cover_path,m.created_at,m.updated_at,
+      `SELECT m.id,m.name,m.description,m.status,m.platform,m.cover_path,m.created_at,m.updated_at,
               u.display_name AS owner_name,${accessSelect},
               (SELECT COUNT(*)::int FROM players p WHERE p.map_id=m.id) AS player_count,
               COALESCE(
@@ -177,15 +179,18 @@ export function registerMapLifecycleRoutes(router) {
     requireAdmin,
     validate(mapSchema),
     async (req, res) => {
+      const feedbackToken = createOpaqueToken("fb_");
       const result = await transaction(async (client) => {
         const created = await client.query(
-          `INSERT INTO maps(name,description,owner_user_id,cover_path)
-         VALUES($1,$2,$3,$4) RETURNING *`,
+          `INSERT INTO maps(name,description,owner_user_id,cover_path,platform,feedback_token)
+         VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
           [
             req.body.name,
             req.body.description,
             req.body.ownerUserId || req.user.id,
             req.body.coverPath || null,
+            req.body.platform || "kk",
+            feedbackToken,
           ],
         );
         await client.query(
@@ -246,16 +251,18 @@ export function registerMapLifecycleRoutes(router) {
             req.body.coverPath === undefined
               ? current.rows[0].cover_path
               : req.body.coverPath,
+          platform: req.body.platform ?? current.rows[0].platform,
         },
       };
       const result = await query(
-        `UPDATE maps SET name=$1,description=$2,owner_user_id=$3,cover_path=$4,updated_at=NOW()
-        WHERE id=$5 RETURNING *`,
+        `UPDATE maps SET name=$1,description=$2,owner_user_id=$3,cover_path=$4,platform=$5,updated_at=NOW()
+        WHERE id=$6 RETURNING *`,
         [
           next.name,
           next.description,
           next.owner_user_id,
           next.cover_path,
+          next.platform,
           mapId,
         ],
       );
@@ -687,6 +694,7 @@ function mapRow(row) {
     name: row.name,
     description: row.description || "",
     status: row.status,
+    platform: row.platform,
     coverPath: row.cover_path,
     ownerName: row.owner_name || null,
     permissions: row.permissions || [],

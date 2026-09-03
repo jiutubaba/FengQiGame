@@ -42,6 +42,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     secondMapId,
     secondMapToken,
     secondMapKeyId,
+    feedbackResponseId,
     anchorId,
     pointId;
 
@@ -117,6 +118,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       "api_keys",
       "player_messages",
       "lottery_campaigns",
+      "feedback_responses",
       "leaderboards",
       "leaderboard_daily_collections",
       "risk_rules",
@@ -147,6 +149,21 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       [fqBusinessTables],
     );
     expect(forbiddenColumns.rows).toEqual([]);
+    const feedbackScoreColumns = await query(
+      `SELECT column_name
+         FROM information_schema.columns
+        WHERE table_schema=current_schema()
+          AND table_name='feedback_responses'
+          AND column_name LIKE '%_score'
+        ORDER BY column_name`,
+    );
+    expect(feedbackScoreColumns.rows.map((row) => row.column_name)).toEqual([
+      "gameplay_score",
+      "onboarding_score",
+      "progression_score",
+      "rewards_score",
+      "visuals_score",
+    ]);
   });
 
   it("管理员登录并创建地图与普通用户", async () => {
@@ -159,9 +176,11 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .send({
         name: "全链路测试地图",
         description: "integration",
+        platform: "kk",
       })
       .expect(201);
     mapId = mapResponse.body.data.id;
+    expect(mapResponse.body.data.platform).toBe("kk");
     expectNoEnvironmentFields(mapResponse.body);
     const userResponse = await admin
       .post("/api/admin/users")
@@ -190,6 +209,212 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     await normalUser.get(`/api/maps/${mapId}/metrics`).expect(200);
     await normalUser.get(`/api/maps/${mapId}/players`).expect(403);
     await normalUser.get("/api/admin/users").expect(403);
+  });
+
+  it("反馈问卷公开提交、综合评分和后台权限完整生效", async () => {
+    await normalUser.get(`/api/maps/${mapId}/feedback`).expect(403);
+    const initial = await admin.get(`/api/maps/${mapId}/feedback`).expect(200);
+    expect(initial.body.data.summary).toMatchObject({
+      responseCount: 0,
+      averageScore: null,
+    });
+    expect(initial.body.data.publicPath).toMatch(/^\/feedback\/fb_/);
+
+    const publicApiPath = `/api/public${initial.body.data.publicPath}`;
+    const survey = await request(app).get(publicApiPath).expect(200);
+    expect(survey.body.data).toMatchObject({
+      projectName: "全链路测试地图",
+      platform: "kk",
+    });
+    const ratings = {
+      onboarding: 5,
+      visuals: 4,
+      gameplay: 3,
+      rewards: 5,
+      progression: 4,
+    };
+    await request(app).post(publicApiPath).send({ ratings }).expect(400);
+    await request(app)
+      .post(publicApiPath)
+      .send({
+        ratings: Object.fromEntries(
+          Object.entries(ratings).map(([key, value]) => [key, String(value)]),
+        ),
+        qq: "numeric-strings-must-not-pass",
+      })
+      .expect(400);
+    await request(app)
+      .post(publicApiPath)
+      .send({
+        ratings: {
+          onboarding: 5,
+          visuals: 4,
+          gameplay: 3,
+          cover: 5,
+          rewards: 4,
+        },
+        qq: "legacy-feedback",
+      })
+      .expect(400);
+    const submitted = await request(app)
+      .post(publicApiPath)
+      .send({
+        ratings,
+        qq: "123456789",
+        optimizationSuggestion: "缩短前期等待时间",
+        futureContent: "增加团队挑战",
+      })
+      .expect(201);
+    expect(submitted.body.data.averageScore).toBe(4.2);
+    expect(submitted.body.data.id).toBeUndefined();
+
+    const result = await admin.get(`/api/maps/${mapId}/feedback`).expect(200);
+    feedbackResponseId = result.body.data.responses[0].id;
+    expect(result.body.data.summary).toEqual({
+      responseCount: 1,
+      averageScore: 4.2,
+      dimensions: {
+        onboarding: 5,
+        visuals: 4,
+        gameplay: 3,
+        rewards: 5,
+        progression: 4,
+      },
+    });
+    expect(result.body.data.responses[0]).toMatchObject({
+      averageScore: 4.2,
+      qq: "123456789",
+      wechat: "",
+      isStarred: false,
+      optimizationSuggestion: "缩短前期等待时间",
+      futureContent: "增加团队挑战",
+    });
+
+    await request(app)
+      .post(publicApiPath)
+      .send({
+        ratings: {
+          onboarding: 2,
+          visuals: 3,
+          gameplay: 3,
+          rewards: 4,
+          progression: 3,
+        },
+        wechat: "wechat-filter-002",
+        optimizationSuggestion: "希望存档成长目标更明确",
+        futureContent: "增加单人挑战",
+      })
+      .expect(201);
+    await request(app)
+      .post(publicApiPath)
+      .send({
+        ratings: {
+          onboarding: 5,
+          visuals: 5,
+          gameplay: 5,
+          rewards: 5,
+          progression: 5,
+        },
+        qq: "987654321",
+        wechat: "wechat-filter-003",
+        optimizationSuggestion: "",
+        futureContent: "增加大型团队副本",
+      })
+      .expect(201);
+
+    const responseDirectory = await admin
+      .get(`/api/maps/${mapId}/feedback`)
+      .expect(200);
+    const wechatResponseId = responseDirectory.body.data.responses.find(
+      (item) => item.wechat === "wechat-filter-002",
+    ).id;
+    const completeContactResponseId =
+      responseDirectory.body.data.responses.find(
+        (item) => item.wechat === "wechat-filter-003",
+      ).id;
+
+    const scoreSorted = await admin
+      .get(`/api/maps/${mapId}/feedback?sort=score_asc`)
+      .expect(200);
+    expect(scoreSorted.body.data.responses.map((item) => item.id)).toEqual([
+      wechatResponseId,
+      feedbackResponseId,
+      completeContactResponseId,
+    ]);
+    const searched = await admin
+      .get(`/api/maps/${mapId}/feedback?q=${encodeURIComponent("存档成长")}`)
+      .expect(200);
+    expect(searched.body.data.pagination.total).toBe(1);
+    expect(searched.body.data.responses[0].id).toBe(wechatResponseId);
+    const bothContacts = await admin
+      .get(`/api/maps/${mapId}/feedback?contact=both&score=5`)
+      .expect(200);
+    expect(bothContacts.body.data.responses).toHaveLength(1);
+    expect(bothContacts.body.data.responses[0].id).toBe(
+      completeContactResponseId,
+    );
+    await admin.get(`/api/maps/${mapId}/feedback?sort=not_allowed`).expect(400);
+    await admin
+      .post(`/api/maps/${mapId}/feedback/responses/batch`)
+      .send({ action: "star", responseIds: [feedbackResponseId] })
+      .expect(200);
+    const starredOnly = await admin
+      .get(`/api/maps/${mapId}/feedback?starred=starred`)
+      .expect(200);
+    expect(starredOnly.body.data.pagination.total).toBe(1);
+    expect(starredOnly.body.data.responses[0]).toMatchObject({
+      id: feedbackResponseId,
+      isStarred: true,
+    });
+
+    await admin
+      .put(`/api/admin/users/${userId}/maps/${mapId}`)
+      .send({ permissions: ["map.view", "metrics.view", "feedback.view"] })
+      .expect(200);
+    await normalUser.get(`/api/maps/${mapId}/feedback`).expect(200);
+    await normalUser
+      .post(`/api/maps/${mapId}/feedback/responses/batch`)
+      .send({ action: "unstar", responseIds: [feedbackResponseId] })
+      .expect(403);
+    await admin
+      .put(`/api/admin/users/${userId}/maps/${mapId}`)
+      .send({
+        permissions: [
+          "map.view",
+          "metrics.view",
+          "feedback.view",
+          "feedback.manage",
+        ],
+      })
+      .expect(200);
+    await normalUser
+      .post(`/api/maps/${mapId}/feedback/responses/batch`)
+      .send({ action: "unstar", responseIds: [feedbackResponseId] })
+      .expect(200);
+    await admin
+      .post(`/api/maps/${mapId}/feedback/responses/batch`)
+      .send({
+        action: "delete",
+        responseIds: [wechatResponseId, completeContactResponseId],
+      })
+      .expect(200);
+    const remaining = await admin
+      .get(`/api/maps/${mapId}/feedback`)
+      .expect(200);
+    expect(remaining.body.data.summary.responseCount).toBe(1);
+    expect(remaining.body.data.responses[0]).toMatchObject({
+      id: feedbackResponseId,
+      isStarred: false,
+    });
+    const feedbackAudit = await query(
+      "SELECT details::text AS details FROM audit_logs WHERE action='feedback.delete' ORDER BY id DESC LIMIT 1",
+    );
+    expect(feedbackAudit.rows[0].details).toContain('"count": 2');
+    expect(feedbackAudit.rows[0].details).not.toContain("wechat-filter");
+    await admin
+      .put(`/api/admin/users/${userId}/maps/${mapId}`)
+      .send({ permissions: ["map.view", "metrics.view", "feedback.view"] })
+      .expect(200);
   });
 
   it("游戏客户端写入玩家，后台批量设置当前礼包资格，消息仍需确认领取", async () => {
@@ -1759,10 +1984,43 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
 
     const secondMap = await admin
       .post("/api/maps")
-      .send({ name: "第二张隔离地图", description: "integration isolation" })
+      .send({
+        name: "第二张隔离地图",
+        description: "integration isolation",
+        platform: "oasis_qiyuan",
+      })
       .expect(201);
     secondMapId = secondMap.body.data.id;
+    expect(secondMap.body.data.platform).toBe("oasis_qiyuan");
     expectNoEnvironmentFields(secondMap.body);
+    const secondFeedback = await admin
+      .get(`/api/maps/${secondMapId}/feedback`)
+      .expect(200);
+    await request(app)
+      .post(`/api/public${secondFeedback.body.data.publicPath}`)
+      .send({
+        ratings: {
+          onboarding: 2,
+          visuals: 2,
+          gameplay: 2,
+          rewards: 2,
+          progression: 2,
+        },
+        wechat: "second-map-player",
+      })
+      .expect(201);
+    await admin
+      .post(`/api/maps/${secondMapId}/feedback/responses/batch`)
+      .send({ action: "star", responseIds: [feedbackResponseId] })
+      .expect(404);
+    const [firstMapFeedback, secondMapFeedback] = await Promise.all([
+      admin.get(`/api/maps/${mapId}/feedback`),
+      admin.get(`/api/maps/${secondMapId}/feedback`),
+    ]);
+    expect(firstMapFeedback.body.data.summary.responseCount).toBe(1);
+    expect(firstMapFeedback.body.data.summary.averageScore).toBe(4.2);
+    expect(secondMapFeedback.body.data.summary.responseCount).toBe(1);
+    expect(secondMapFeedback.body.data.summary.averageScore).toBe(2);
     const secondKey = await admin
       .post(`/api/maps/${secondMapId}/api-keys`)
       .send({
@@ -2290,6 +2548,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       "api_keys",
       "player_messages",
       "lottery_campaigns",
+      "feedback_responses",
       "leaderboards",
       "risk_rules",
       "risk_events",

@@ -24,7 +24,11 @@ export const contextRules = [
     name: "地图与环境",
     matches: [
       /^server\/routes\/maps\.js$/,
+      /^server\/routes\/maps\/map-lifecycle\.js$/,
+      /^server\/db\/migrations\/003_project_platforms_and_feedback\.sql$/,
       /^src\/pages\/Map(Center|Workspace)\.jsx$/,
+      /^src\/pages\/map-workspace\/ConfigPanel\.jsx$/,
+      /^src\/utils\/projects\.js$/,
     ],
     documents: [".ai/systems/地图与环境.md"],
     checks: ["npm run test:integration"],
@@ -44,6 +48,9 @@ export const contextRules = [
     matches: [
       /^server\/routes\/(maps|game)\.js$/,
       /^src\/pages\/MapWorkspace\.jsx$/,
+      /^server\/routes\/maps\/feedback\.js$/,
+      /^src\/pages\/(FeedbackPage|map-workspace\/FeedbackPanel)\.jsx$/,
+      /^server\/db\/migrations\/003_project_platforms_and_feedback\.sql$/,
       /^server\/db\/migrations\/00[12]_.*\.sql$/,
     ],
     documents: [".ai/systems/玩家与运营内容.md"],
@@ -54,7 +61,7 @@ export const contextRules = [
     matches: [
       /^server\/routes\/(maps|game)\.js$/,
       /^src\/pages\/MapWorkspace\.jsx$/,
-      /^server\/db\/migrations\/003_.*\.sql$/,
+      /^server\/db\/migrations\/002_leaderboard_daily_collections\.sql$/,
     ],
     documents: [".ai/systems/排行榜与风控.md"],
     checks: ["npm run test:integration"],

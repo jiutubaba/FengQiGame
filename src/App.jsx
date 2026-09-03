@@ -7,6 +7,7 @@ const AdminAuditPage = lazy(() => import("./pages/AdminAuditPage"));
 const AdminSettingsPage = lazy(() => import("./pages/AdminSettingsPage"));
 const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 const AuthPage = lazy(() => import("./pages/AuthPage"));
+const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
 const LotteryPage = lazy(() => import("./pages/LotteryPage"));
 const MapCenter = lazy(() => import("./pages/MapCenter"));
 const MapWorkspace = lazy(() => import("./pages/MapWorkspace"));
@@ -16,13 +17,14 @@ const PublicHome = lazy(() => import("./pages/PublicHome"));
 const routeTitles = [
   [/^\/$/, "风起游戏"],
   [/^\/login$/, "后台登录 · 风起游戏"],
-  [/^\/maps$/, "地图中心 · 风起游戏"],
-  [/^\/maps\/\d+/, "地图工作台 · 风起游戏"],
+  [/^\/maps$/, "项目中心 · 风起游戏"],
+  [/^\/maps\/\d+/, "项目工作台 · 风起游戏"],
   [/^\/profile$/, "个人中心 · 风起游戏"],
   [/^\/admin\/users$/, "账号与权限 · 风起游戏"],
   [/^\/admin\/audit$/, "审计日志 · 风起游戏"],
   [/^\/admin\/settings$/, "系统设置 · 风起游戏"],
   [/^\/lottery\//, "群抽活动 · 风起游戏"],
+  [/^\/feedback\//, "反馈问卷 · 风起游戏"],
 ];
 
 function RouteTitle() {
@@ -82,6 +84,7 @@ export default function App() {
         <Route path="/" element={<PublicHome />} />
         <Route path="/login" element={<AuthPage />} />
         <Route path="/lottery/:token" element={<LotteryPage />} />
+        <Route path="/feedback/:token" element={<FeedbackPage />} />
         <Route
           element={
             <Protected>

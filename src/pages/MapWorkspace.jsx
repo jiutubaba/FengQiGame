@@ -19,6 +19,7 @@ const LeaderboardsPanel = lazy(
 );
 const RiskPanel = lazy(() => import("./map-workspace/RiskPanel"));
 const GiftsPanel = lazy(() => import("./map-workspace/GiftsPanel"));
+const FeedbackPanel = lazy(() => import("./map-workspace/FeedbackPanel"));
 const ResourcePanel = lazy(() =>
   import("./map-workspace/ResourcePanels").then((module) => ({
     default: module.ResourcePanel,
@@ -41,8 +42,8 @@ const ApiKeysPanel = lazy(() =>
 );
 
 const sectionTitles = {
-  metrics: ["地图数据", "查看游戏客户端上报的真实指标。", "metrics.view"],
-  config: ["地图配置", "维护地图基础信息与共享配置。", "map.view"],
+  metrics: ["项目数据", "查看游戏客户端上报的真实指标。", "metrics.view"],
+  config: ["项目配置", "维护项目基础信息与共享配置。", "map.view"],
   players: [
     "玩家管理",
     "查询玩家、调整封禁状态并发送游戏内消息。",
@@ -62,6 +63,11 @@ const sectionTitles = {
     "礼包与群抽",
     "维护礼包、批量设置玩家资格并创建公开群抽活动。",
     "gifts.manage",
+  ],
+  feedback: [
+    "反馈问卷",
+    "查看综合评分、玩家建议并复制当前项目的公开问卷链接。",
+    "feedback.view",
   ],
   anchors: ["主播管理", "维护地图的主播名单和专属礼包配置。", "anchors.manage"],
   points: [
@@ -113,21 +119,21 @@ export default function MapWorkspace() {
         description="该工作区没有这个功能。"
         action={
           <Button onClick={() => navigate(`/maps/${mapId}/metrics`)}>
-            返回地图数据
+            返回项目数据
           </Button>
         }
       />
     );
   if (!map && loadError)
     return <ErrorState description={loadError} onRetry={loadMap} />;
-  if (!map) return <div className="loading-state">正在读取地图与权限…</div>;
+  if (!map) return <div className="loading-state">正在读取项目与权限…</div>;
   if (!allowed)
     return (
       <EmptyState
         icon={ShieldAlert}
         title="没有访问权限"
         description="管理员尚未为你的账号开放此功能。"
-        action={<Button onClick={() => navigate("/maps")}>返回地图中心</Button>}
+        action={<Button onClick={() => navigate("/maps")}>返回项目中心</Button>}
       />
     );
 
@@ -150,6 +156,7 @@ export default function MapWorkspace() {
     leaderboards: <LeaderboardsPanel {...panelProps} />,
     risk: <RiskPanel {...panelProps} />,
     gifts: <GiftsPanel {...panelProps} />,
+    feedback: <FeedbackPanel {...panelProps} />,
     anchors: <ResourcePanel {...panelProps} resource="anchors" />,
     points: <ResourcePanel {...panelProps} resource="points" />,
     logs: <LogsPanel {...panelProps} />,
@@ -161,7 +168,7 @@ export default function MapWorkspace() {
     <div className="page-stack page-enter">
       <div className="workspace-head">
         <SectionHead
-          eyebrow={`MAP / ${String(map.id).padStart(3, "0")}`}
+          eyebrow={`${map.platform === "oasis_qiyuan" ? "绿洲启元" : "KK平台"} / PROJECT ${String(map.id).padStart(3, "0")}`}
           title={title[0]}
           description={title[1]}
         />
@@ -169,7 +176,7 @@ export default function MapWorkspace() {
       {loadError && (
         <InlineAlert
           tone="danger"
-          title="地图信息刷新失败"
+          title="项目信息刷新失败"
           description={loadError}
           action={<Button onClick={loadMap}>重新尝试</Button>}
         />

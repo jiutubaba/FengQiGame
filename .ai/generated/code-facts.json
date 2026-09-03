@@ -425,6 +425,22 @@
     },
     {
       "method": "GET",
+      "path": "/api/maps/:mapId/feedback",
+      "source": "server/routes/maps/feedback.js",
+      "guards": [
+        "map:FEEDBACK_VIEW"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/maps/:mapId/feedback/responses/batch",
+      "source": "server/routes/maps/feedback.js",
+      "guards": [
+        "map:FEEDBACK_MANAGE"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/api/maps/:mapId/files",
       "source": "server/routes/maps/files.js",
       "guards": [
@@ -795,6 +811,18 @@
     },
     {
       "method": "GET",
+      "path": "/api/public/feedback/:token",
+      "source": "server/routes/public.js",
+      "guards": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/public/feedback/:token",
+      "source": "server/routes/public.js",
+      "guards": []
+    },
+    {
+      "method": "GET",
       "path": "/api/public/lotteries/:token",
       "source": "server/routes/public.js",
       "guards": []
@@ -836,6 +864,7 @@
     "/admin/audit",
     "/admin/settings",
     "/admin/users",
+    "/feedback/:token",
     "/login",
     "/lottery/:token",
     "/maps",
@@ -883,6 +912,14 @@
     {
       "name": "GIFTS_MANAGE",
       "value": "gifts.manage"
+    },
+    {
+      "name": "FEEDBACK_VIEW",
+      "value": "feedback.view"
+    },
+    {
+      "name": "FEEDBACK_MANAGE",
+      "value": "feedback.manage"
     },
     {
       "name": "ANCHORS_MANAGE",
@@ -1014,6 +1051,24 @@
         "leaderboard_daily_collections"
       ],
       "alteredTables": []
+    },
+    {
+      "file": "server/db/migrations/003_project_platforms_and_feedback.sql",
+      "sha256": "6d73818d778cd44de8ce163ba485d83a2a9413e3ad2b2475529b698f40354e2a",
+      "tables": [
+        "feedback_responses"
+      ],
+      "alteredTables": [
+        "maps"
+      ]
+    },
+    {
+      "file": "server/db/migrations/004_feedback_management.sql",
+      "sha256": "620307cbf47711949f9aff3989b9c0585f7b047bee4bce6af32028a23ec8ab03",
+      "tables": [],
+      "alteredTables": [
+        "feedback_responses"
+      ]
     }
   ],
   "environmentVariables": {
@@ -1064,6 +1119,7 @@
         "单运行空间基线不存在环境列",
         "管理员登录并创建地图与普通用户",
         "普通用户只能访问被授权的地图与功能",
+        "反馈问卷公开提交、综合评分和后台权限完整生效",
         "游戏客户端写入玩家，后台批量设置当前礼包资格，消息仍需确认领取",
         "FQ 存档支持首次读取、版本写入、幂等重放、冲突保护和存档封禁",
         "客户端上报日志和指标并进入后台查询链路",
@@ -1161,6 +1217,14 @@
       "lines": 25
     },
     {
+      "file": "server/db/migrations/003_project_platforms_and_feedback.sql",
+      "lines": 51
+    },
+    {
+      "file": "server/db/migrations/004_feedback_management.sql",
+      "lines": 6
+    },
+    {
       "file": "server/index.js",
       "lines": 52
     },
@@ -1178,7 +1242,7 @@
     },
     {
       "file": "server/middleware/auth.js",
-      "lines": 107
+      "lines": 109
     },
     {
       "file": "server/middleware/errors.js",
@@ -1190,7 +1254,7 @@
     },
     {
       "file": "server/routes/admin.js",
-      "lines": 267
+      "lines": 269
     },
     {
       "file": "server/routes/auth.js",
@@ -1202,11 +1266,15 @@
     },
     {
       "file": "server/routes/maps.js",
-      "lines": 29
+      "lines": 31
     },
     {
       "file": "server/routes/maps/api-keys.js",
       "lines": 173
+    },
+    {
+      "file": "server/routes/maps/feedback.js",
+      "lines": 249
     },
     {
       "file": "server/routes/maps/files.js",
@@ -1222,7 +1290,7 @@
     },
     {
       "file": "server/routes/maps/map-lifecycle.js",
-      "lines": 759
+      "lines": 767
     },
     {
       "file": "server/routes/maps/players.js",
@@ -1242,7 +1310,7 @@
     },
     {
       "file": "server/routes/public.js",
-      "lines": 106
+      "lines": 218
     },
     {
       "file": "server/routes/system.js",
@@ -1274,7 +1342,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 2370
+      "lines": 2629
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1302,7 +1370,7 @@
     },
     {
       "file": "src/App.jsx",
-      "lines": 156
+      "lines": 159
     },
     {
       "file": "src/auth/AuthContext.jsx",
@@ -1310,7 +1378,7 @@
     },
     {
       "file": "src/components/AppShell.jsx",
-      "lines": 523
+      "lines": 534
     },
     {
       "file": "src/components/Galaxy.jsx",
@@ -1334,11 +1402,15 @@
     },
     {
       "file": "src/pages/AdminUsersPage.jsx",
-      "lines": 665
+      "lines": 669
     },
     {
       "file": "src/pages/AuthPage.jsx",
       "lines": 183
+    },
+    {
+      "file": "src/pages/FeedbackPage.jsx",
+      "lines": 329
     },
     {
       "file": "src/pages/LotteryPage.jsx",
@@ -1346,7 +1418,11 @@
     },
     {
       "file": "src/pages/map-workspace/ConfigPanel.jsx",
-      "lines": 634
+      "lines": 654
+    },
+    {
+      "file": "src/pages/map-workspace/FeedbackPanel.jsx",
+      "lines": 645
     },
     {
       "file": "src/pages/map-workspace/GiftsPanel.jsx",
@@ -1382,11 +1458,11 @@
     },
     {
       "file": "src/pages/MapCenter.jsx",
-      "lines": 285
+      "lines": 342
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 185
+      "lines": 192
     },
     {
       "file": "src/pages/ProfilePage.jsx",
@@ -1398,11 +1474,15 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 5889
+      "lines": 7308
     },
     {
       "file": "src/utils/format.js",
       "lines": 21
+    },
+    {
+      "file": "src/utils/projects.js",
+      "lines": 25
     }
   ]
 }
