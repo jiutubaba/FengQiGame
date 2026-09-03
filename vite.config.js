@@ -4,6 +4,9 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   envDir: false,
   plugins: [react()],
+  test: {
+    exclude: ["**/node_modules/**", "**/.git/**", "**/.runtime/**"],
+  },
   server: {
     host: "127.0.0.1",
     open: true,
