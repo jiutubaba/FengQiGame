@@ -148,7 +148,7 @@ router.post(
 router.get("/users/:userId/maps", async (req, res) => {
   const userId = Number(req.params.userId);
   const result = await query(
-    `SELECT m.id,m.name,m.status,COALESCE(mp.permissions,ARRAY[]::TEXT[]) AS permissions
+    `SELECT m.id,m.name,m.status,m.platform,COALESCE(mp.permissions,ARRAY[]::TEXT[]) AS permissions
        FROM maps m LEFT JOIN map_permissions mp ON mp.map_id=m.id AND mp.user_id=$1
       WHERE m.status='active' ORDER BY m.name`,
     [userId],
@@ -230,8 +230,8 @@ router.put(
 );
 
 const permissionLabels = {
-  "map.view": "查看地图",
-  "map.edit": "编辑地图与配置",
+  "map.view": "查看项目",
+  "map.edit": "编辑项目与配置",
   "metrics.view": "查看数据指标",
   "players.view": "查看玩家",
   "players.manage": "管理玩家",
@@ -240,6 +240,8 @@ const permissionLabels = {
   "risk.view": "查看风控事件",
   "risk.manage": "处置风控事件",
   "gifts.manage": "管理礼包资格与定义",
+  "feedback.view": "查看反馈问卷",
+  "feedback.manage": "管理反馈问卷",
   "anchors.manage": "管理主播",
   "points.manage": "管理埋点",
   "logs.view": "查看日志",

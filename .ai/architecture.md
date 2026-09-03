@@ -1,6 +1,6 @@
 # 系统架构
 
-更新时间：2026-08-12
+更新时间：2026-09-03
 
 ## 组件边界
 
@@ -17,13 +17,15 @@
 浏览器 -> Caddy/同源站点 -> Express -> 会话与地图权限 -> PostgreSQL/上传卷
 游戏客户端 -> /api/fq + FQ-Map-Key -> Express API Key 权限 -> 绑定地图 -> PostgreSQL
 公开参与者 -> 不可猜测群抽 Token -> 限流公开接口 -> 群抽数据
+问卷填写者 -> 项目反馈 Token -> 限流公开接口 -> 地图反馈数据
 ```
 
-浏览器后台使用 Cookie 会话；游戏客户端不使用后台账号；公开群抽接口不获得后台权限。前端菜单显隐只改善体验，服务端中间件才是授权边界。
+浏览器后台使用 Cookie 会话；游戏客户端不使用后台账号；公开群抽与反馈问卷接口不获得后台权限。前端菜单显隐只改善体验，服务端中间件才是授权边界。
 
 ## 数据分区
 
 - 地图是核心租户边界，业务查询不得跨越请求已授权的 `map_id`。
+- 项目平台只用于后台分组和展示，目前取值为 `kk`、`oasis_qiyuan`；平台不构成新的数据隔离维度。
 - 每张地图只有一个运行空间，业务数据统一按 `map_id` 隔离；API Key 创建时固定地图，客户端请求体不能覆盖。
 - FQ 协议、数据库和后台界面不保留 `environment`、`runtime_env` 或三环境兼容分支。
 - 地图归档保留历史数据但退出活跃列表；管理员永久删除会清除当前数据库中的地图及全部关联数据和当前上传卷目录，但保留审计记录与既有备份。
@@ -32,8 +34,8 @@
 ## 关键实现入口
 
 - 前端路由：`src/App.jsx`；页面路由使用 React 懒加载，后台壳层和功能权限菜单位于 `src/components/AppShell.jsx`。
-- 地图工作台壳层与权限门禁：`src/pages/MapWorkspace.jsx`；指标、配置、玩家、排行榜、风控、礼包和资源管理面板按业务域拆分在 `src/pages/map-workspace/` 并按当前功能懒加载。
-- 地图后台 API 组合入口：`server/routes/maps.js`；具体路由按地图生命周期、玩家、排行榜、风控、礼包与群抽、运营资源、文件和 API Key 拆分在 `server/routes/maps/`，组合入口保持原有注册顺序和 `/api/maps` 对外挂载点。
+- 项目工作台壳层与权限门禁：`src/pages/MapWorkspace.jsx`；指标、配置、玩家、反馈问卷、排行榜、风控、礼包和资源管理面板按业务域拆分在 `src/pages/map-workspace/` 并按当前功能懒加载。
+- 项目后台 API 组合入口：`server/routes/maps.js`；具体路由按项目生命周期、玩家、反馈问卷、排行榜、风控、礼包与群抽、运营资源、文件和 API Key 拆分在 `server/routes/maps/`，组合入口保持原有注册顺序和 `/api/maps` 对外挂载点。
 - 游戏客户端协议：`server/routes/game.js`；认证授权：`server/middleware/auth.js`。
 - 迁移：`server/db/migrations/`；启动装配：`server/app.js`、`server/index.js`。
 

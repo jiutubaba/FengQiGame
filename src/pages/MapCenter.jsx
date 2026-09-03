@@ -26,6 +26,7 @@ import {
   useToast,
 } from "../components/ui";
 import { formatDate, formatNumber } from "../utils/format";
+import { PROJECT_PLATFORMS } from "../utils/projects";
 
 export default function MapCenter() {
   const [viewParams, setViewParams] = useSearchParams();
@@ -39,7 +40,11 @@ export default function MapCenter() {
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
-  const [form, setForm] = useState({ name: "", description: "" });
+  const [form, setForm] = useState({
+    name: "",
+    description: "",
+    platform: "kk",
+  });
   const navigate = useNavigate();
   const toast = useToast();
   const { isAdmin } = useAuth();
@@ -78,6 +83,16 @@ export default function MapCenter() {
       ),
     [maps, search],
   );
+  const platformGroups = useMemo(
+    () =>
+      PROJECT_PLATFORMS.map((platform) => ({
+        ...platform,
+        projects: filtered.filter(
+          (project) => project.platform === platform.value,
+        ),
+      })).filter((platform) => platform.projects.length),
+    [filtered],
+  );
 
   const createMap = async () => {
     setCreating(true);
@@ -85,8 +100,8 @@ export default function MapCenter() {
     try {
       const created = await api("/api/maps", { method: "POST", body: form });
       setCreateOpen(false);
-      setForm({ name: "", description: "" });
-      toast("地图已创建");
+      setForm({ name: "", description: "", platform: "kk" });
+      toast("项目已创建");
       await loadMaps();
       navigate(`/maps/${created.id}/metrics`);
     } catch (error) {
@@ -99,12 +114,12 @@ export default function MapCenter() {
   return (
     <div className="page-stack page-enter map-center-page">
       <SectionHead
-        eyebrow="MAP DIRECTORY"
-        title="地图中心"
+        eyebrow="PROJECT DIRECTORY"
+        title="项目中心"
         description={
           isAdmin
-            ? "管理员可查看全部地图，并配置用户访问权限。"
-            : "仅显示管理员已授权给你的地图和功能。"
+            ? "按平台查看全部项目，并配置用户访问权限。"
+            : "仅显示管理员已授权给你的项目和功能。"
         }
         actions={
           isAdmin && (
@@ -116,7 +131,7 @@ export default function MapCenter() {
                 setCreateOpen(true);
               }}
             >
-              新建地图
+              新建项目
             </Button>
           )
         }
@@ -127,8 +142,8 @@ export default function MapCenter() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="搜索地图名称或 ID"
-            aria-label="搜索地图名称或 ID"
+            placeholder="搜索项目名称或 ID"
+            aria-label="搜索项目名称或 ID"
           />
         </div>
         <div className="view-toggle">
@@ -151,81 +166,99 @@ export default function MapCenter() {
             卡片视图
           </button>
         </div>
-        <span className="result-count">共 {filtered.length} 张地图</span>
+        <span className="result-count">共 {filtered.length} 个项目</span>
       </div>
 
       {loadError && maps.length > 0 && (
         <InlineAlert
           tone="danger"
-          title="地图列表刷新失败"
+          title="项目列表刷新失败"
           description={loadError}
           action={<Button onClick={loadMaps}>重新尝试</Button>}
         />
       )}
 
       {loading && !maps.length ? (
-        <div className="loading-state">正在读取地图数据…</div>
+        <div className="loading-state">正在读取项目数据…</div>
       ) : loadError && !maps.length ? (
         <ErrorState description={loadError} onRetry={loadMaps} />
       ) : filtered.length ? (
-        <div className={`map-list map-list-${view}`}>
-          {filtered.map((map) => (
-            <Link
-              className="map-card"
-              key={map.id}
-              to={`/maps/${map.id}/metrics`}
-              aria-label={`打开地图 ${map.name}`}
-            >
-              <div
-                className={`map-cover ${map.coverPath ? "has-cover" : "is-placeholder"}`}
-              >
-                <img
-                  src={map.coverPath || "/assets/fengqi-mark.svg?v=attio"}
-                  alt={map.coverPath ? `${map.name} 封面` : ""}
-                  loading="lazy"
-                />
-                <div className="map-cover-shade" />
-                <span className="map-open-icon" aria-hidden="true">
-                  <ArrowUpRight size={18} />
-                </span>
+        <div className="platform-groups">
+          {platformGroups.map((platform, platformIndex) => (
+            <section className="platform-group" key={platform.value}>
+              <header className="platform-group-head">
+                <span>{String(platformIndex + 1).padStart(2, "0")}</span>
+                <div>
+                  <h2>{platform.label}</h2>
+                  <p>{platform.description}</p>
+                </div>
+                <small>{platform.projects.length} 个项目</small>
+              </header>
+              <div className={`map-list map-list-${view}`}>
+                {platform.projects.map((map) => (
+                  <Link
+                    className="map-card"
+                    key={map.id}
+                    to={`/maps/${map.id}/metrics`}
+                    aria-label={`打开项目 ${map.name}`}
+                  >
+                    <div
+                      className={`map-cover ${map.coverPath ? "has-cover" : "is-placeholder"}`}
+                    >
+                      <img
+                        src={map.coverPath || "/assets/fengqi-mark.svg?v=attio"}
+                        alt={map.coverPath ? `${map.name} 封面` : ""}
+                        loading="lazy"
+                      />
+                      <div className="map-cover-shade" />
+                      <span className="map-open-icon" aria-hidden="true">
+                        <ArrowUpRight size={18} />
+                      </span>
+                    </div>
+                    <div className="map-card-body">
+                      <div className="map-title-row">
+                        <div>
+                          <span>
+                            PROJECT / {String(map.id).padStart(3, "0")}
+                          </span>
+                          <h3>{map.name}</h3>
+                        </div>
+                      </div>
+                      <div className="map-meta">
+                        <span>
+                          <small>项目 ID</small>
+                          <b>{map.id}</b>
+                        </span>
+                        <span>
+                          <small>累计用户</small>
+                          <b>{formatNumber(map.cumulativeUsers)}</b>
+                        </span>
+                        <span className="map-meta-games">
+                          <small>累计有效局</small>
+                          <b>{formatNumber(map.totalGameCount)}</b>
+                        </span>
+                      </div>
+                      <div className="map-card-foot">
+                        <span>负责人 · {map.ownerName || "未指定"}</span>
+                        <span>更新 {formatDate(map.updatedAt)}</span>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
               </div>
-              <div className="map-card-body">
-                <div className="map-title-row">
-                  <div>
-                    <span>MAP / {String(map.id).padStart(3, "0")}</span>
-                    <h3>{map.name}</h3>
-                  </div>
-                </div>
-                <div className="map-meta">
-                  <span>
-                    <small>地图 ID</small>
-                    <b>{map.id}</b>
-                  </span>
-                  <span>
-                    <small>累计用户</small>
-                    <b>{formatNumber(map.cumulativeUsers)}</b>
-                  </span>
-                  <span className="map-meta-games">
-                    <small>累计有效局</small>
-                    <b>{formatNumber(map.totalGameCount)}</b>
-                  </span>
-                </div>
-                <div className="map-card-foot">
-                  <span>负责人 · {map.ownerName || "未指定"}</span>
-                  <span>更新 {formatDate(map.updatedAt)}</span>
-                </div>
-              </div>
-            </Link>
+            </section>
           ))}
         </div>
       ) : (
         <EmptyState
           icon={ShieldCheck}
-          title="当前没有可访问的地图"
+          title={search.trim() ? "没有匹配的项目" : "当前没有可访问的项目"}
           description={
-            isAdmin
-              ? "创建第一张地图后即可开始接入游戏客户端。"
-              : "请联系管理员为账号分配地图与功能权限。"
+            search.trim()
+              ? "请尝试其他项目名称或 ID。"
+              : isAdmin
+                ? "创建第一个项目后即可开始接入游戏客户端。"
+                : "请联系管理员为账号分配地图与功能权限。"
           }
         />
       )}
@@ -233,8 +266,8 @@ export default function MapCenter() {
       <Modal
         open={createOpen}
         onClose={() => !creating && setCreateOpen(false)}
-        title="新建地图"
-        eyebrow="CREATE MAP"
+        title="新建项目"
+        eyebrow="CREATE PROJECT"
         closeOnBackdrop={!creating}
         closeOnEscape={!creating}
         footer={
@@ -247,7 +280,7 @@ export default function MapCenter() {
               onClick={createMap}
               disabled={!form.name.trim() || creating}
             >
-              {creating ? "正在创建…" : "创建地图"}
+              {creating ? "正在创建…" : "创建项目"}
             </Button>
           </>
         }
@@ -255,16 +288,40 @@ export default function MapCenter() {
         {createError && (
           <InlineAlert
             tone="danger"
-            title="地图创建失败"
+            title="项目创建失败"
             description={createError}
           />
         )}
-        <Field label="地图名称">
+        <Field label="所属平台">
+          <div className="platform-choice-grid">
+            {PROJECT_PLATFORMS.map((platform) => (
+              <label
+                className={form.platform === platform.value ? "active" : ""}
+                key={platform.value}
+              >
+                <input
+                  type="radio"
+                  name="project-platform"
+                  value={platform.value}
+                  checked={form.platform === platform.value}
+                  onChange={() =>
+                    setForm({ ...form, platform: platform.value })
+                  }
+                />
+                <span>
+                  <strong>{platform.label}</strong>
+                  <small>{platform.description}</small>
+                </span>
+              </label>
+            ))}
+          </div>
+        </Field>
+        <Field label="项目名称">
           <input
             className="input"
             value={form.name}
             onChange={(event) => setForm({ ...form, name: event.target.value })}
-            placeholder="请输入唯一的地图名称"
+            placeholder="请输入唯一的项目名称"
           />
         </Field>
         <Field label="说明">

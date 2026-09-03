@@ -4,10 +4,10 @@
 
 - 项目：`fengqi-game-admin`
 - 版本：`1.0.0`
-- API 路由：98
-- 地图权限：15
+- API 路由：102
+- 地图权限：17
 - 客户端权限：11
-- 数据库迁移：2
+- 数据库迁移：4
 
 ## 地图权限
 
@@ -23,6 +23,8 @@
 | `RISK_VIEW` | `risk.view` |
 | `RISK_MANAGE` | `risk.manage` |
 | `GIFTS_MANAGE` | `gifts.manage` |
+| `FEEDBACK_VIEW` | `feedback.view` |
+| `FEEDBACK_MANAGE` | `feedback.manage` |
 | `ANCHORS_MANAGE` | `anchors.manage` |
 | `POINTS_MANAGE` | `points.manage` |
 | `LOGS_VIEW` | `logs.view` |
@@ -94,6 +96,8 @@
 | GET | `/api/maps/:mapId/api-keys/:keyId` | map:API_KEYS_MANAGE | `server/routes/maps/api-keys.js` |
 | GET | `/api/maps/:mapId/config` | map:MAP_VIEW | `server/routes/maps/map-lifecycle.js` |
 | PUT | `/api/maps/:mapId/config` | map:MAP_EDIT | `server/routes/maps/map-lifecycle.js` |
+| GET | `/api/maps/:mapId/feedback` | map:FEEDBACK_VIEW | `server/routes/maps/feedback.js` |
+| POST | `/api/maps/:mapId/feedback/responses/batch` | map:FEEDBACK_MANAGE | `server/routes/maps/feedback.js` |
 | GET | `/api/maps/:mapId/files` | map:FILES_MANAGE | `server/routes/maps/files.js` |
 | DELETE | `/api/maps/:mapId/files/:fileId` | map:FILES_MANAGE | `server/routes/maps/files.js` |
 | GET | `/api/maps/:mapId/files/:fileId/download` | map:FILES_MANAGE | `server/routes/maps/files.js` |
@@ -140,6 +144,8 @@
 | DELETE | `/api/maps/:mapId/risk/rules/:ruleId` | map:RISK_MANAGE | `server/routes/maps/risk.js` |
 | PATCH | `/api/maps/:mapId/risk/rules/:ruleId` | map:RISK_MANAGE | `server/routes/maps/risk.js` |
 | POST | `/api/maps/:mapId/runtime/clear` | requireAdmin, requireAuth | `server/routes/maps/map-lifecycle.js` |
+| GET | `/api/public/feedback/:token` | public | `server/routes/public.js` |
+| POST | `/api/public/feedback/:token` | public | `server/routes/public.js` |
 | GET | `/api/public/lotteries/:token` | public | `server/routes/public.js` |
 | POST | `/api/public/lotteries/:token/entries` | public | `server/routes/public.js` |
 | GET | `/api/system/audit` | requireAdmin, requireAuth | `server/routes/system.js` |
@@ -153,6 +159,7 @@
 - `/admin/audit`
 - `/admin/settings`
 - `/admin/users`
+- `/feedback/:token`
 - `/login`
 - `/lottery/:token`
 - `/maps`
@@ -166,6 +173,8 @@
 | --- | --- | --- | --- |
 | `server/db/migrations/001_single_map_baseline.sql` | anchors, api_keys, audit_logs, fq_global_archives, fq_metric_session_activity, fq_metric_sessions, fq_player_archives, gift_entitlements, gifts, leaderboard_entries, leaderboard_snapshot_entries, leaderboard_snapshots, leaderboards, lottery_campaigns, lottery_entries, map_configs, map_files, map_logs, map_metrics, map_permissions, maps, player_messages, players, risk_events, risk_rules, sessions, system_settings, tracking_points, users | — | `8abaed2687a2` |
 | `server/db/migrations/002_leaderboard_daily_collections.sql` | leaderboard_daily_collections | — | `a2171fb49693` |
+| `server/db/migrations/003_project_platforms_and_feedback.sql` | feedback_responses | maps | `6d73818d778c` |
+| `server/db/migrations/004_feedback_management.sql` | — | feedback_responses | `620307cbf477` |
 
 ## 环境变量
 
@@ -180,6 +189,7 @@
 - 单运行空间基线不存在环境列
 - 管理员登录并创建地图与普通用户
 - 普通用户只能访问被授权的地图与功能
+- 反馈问卷公开提交、综合评分和后台权限完整生效
 - 游戏客户端写入玩家，后台批量设置当前礼包资格，消息仍需确认领取
 - FQ 存档支持首次读取、版本写入、幂等重放、冲突保护和存档封禁
 - 客户端上报日志和指标并进入后台查询链路

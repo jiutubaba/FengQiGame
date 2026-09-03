@@ -14,6 +14,8 @@ export const PERMISSIONS = Object.freeze({
   RISK_VIEW: "risk.view",
   RISK_MANAGE: "risk.manage",
   GIFTS_MANAGE: "gifts.manage",
+  FEEDBACK_VIEW: "feedback.view",
+  FEEDBACK_MANAGE: "feedback.manage",
   ANCHORS_MANAGE: "anchors.manage",
   POINTS_MANAGE: "points.manage",
   LOGS_VIEW: "logs.view",

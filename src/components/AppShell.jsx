@@ -20,6 +20,7 @@ import {
   LogOut,
   Map,
   Menu,
+  MessageSquareText,
   RadioTower,
   ScrollText,
   Settings2,
@@ -33,15 +34,16 @@ import {
 } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { projectPlatform } from "../utils/projects";
 
 const workspaceNavigation = [
   {
     id: "metrics",
-    label: "地图数据",
+    label: "项目数据",
     icon: Activity,
     permission: "metrics.view",
   },
-  { id: "config", label: "地图配置", icon: Settings2, permission: "map.view" },
+  { id: "config", label: "项目配置", icon: Settings2, permission: "map.view" },
   { id: "players", label: "玩家管理", icon: Users, permission: "players.view" },
   {
     id: "leaderboards",
@@ -56,6 +58,12 @@ const workspaceNavigation = [
     permission: "risk.view",
   },
   { id: "gifts", label: "礼包与群抽", icon: Gift, permission: "gifts.manage" },
+  {
+    id: "feedback",
+    label: "反馈问卷",
+    icon: MessageSquareText,
+    permission: "feedback.view",
+  },
   {
     id: "anchors",
     label: "主播管理",
@@ -87,11 +95,11 @@ const workspaceGroups = [
   {
     id: "operations",
     label: "玩家运营",
-    items: ["players", "gifts", "anchors", "points"],
+    items: ["players", "feedback", "gifts", "anchors", "points"],
   },
   {
     id: "delivery",
-    label: "地图管理",
+    label: "项目管理",
     items: ["config", "files", "api-keys"],
   },
 ];
@@ -259,7 +267,7 @@ export default function AppShell() {
           ? "系统设置"
           : location.pathname.startsWith("/profile")
             ? "个人中心"
-            : "地图中心");
+            : "项目中心");
 
   useEffect(() => {
     const currentTitle = currentWorkspaceItem?.label || pageTitle;
@@ -297,7 +305,7 @@ export default function AppShell() {
           <SideLink
             to="/maps"
             icon={LayoutGrid}
-            label="地图中心"
+            label="项目中心"
             end
             onClick={closeMobile}
           />
@@ -312,7 +320,10 @@ export default function AppShell() {
                 />
                 <div>
                   <strong>{selectedMap.name}</strong>
-                  <span>ID {selectedMap.id}</span>
+                  <span>
+                    {projectPlatform(selectedMap.platform)?.label} · ID{" "}
+                    {selectedMap.id}
+                  </span>
                 </div>
               </div>
               {visibleWorkspaceGroups.map((group) => (
@@ -399,7 +410,7 @@ export default function AppShell() {
               {inWorkspace && selectedMap ? (
                 <>
                   <Link className="breadcrumb-home" to="/maps">
-                    地图中心
+                    项目中心
                   </Link>
                   <ChevronRight className="breadcrumb-separator" size={14} />
                   <Link
@@ -484,7 +495,7 @@ export default function AppShell() {
           </div>
         </header>
         {inWorkspace && selectedMap && (
-          <nav className="mobile-workspace-nav" aria-label="当前地图功能">
+          <nav className="mobile-workspace-nav" aria-label="当前项目功能">
             <span className="mobile-workspace-label">{selectedMap.name}</span>
             {visibleWorkspaceGroups.map((group) => (
               <div className="mobile-workspace-group" key={group.id}>

@@ -22,6 +22,7 @@ import {
   useToast,
 } from "../components/ui";
 import { formatDate } from "../utils/format";
+import { projectPlatform } from "../utils/projects";
 
 export default function AdminUsersPage() {
   const [viewParams, setViewParams] = useSearchParams();
@@ -134,7 +135,7 @@ export default function AdminUsersPage() {
       <SectionHead
         eyebrow="ACCESS CONTROL"
         title="账号与权限"
-        description="管理员管理全局账号；普通用户按地图和功能逐项授权。"
+        description="管理员管理全局账号；普通用户按项目和功能逐项授权。"
         actions={
           <Button
             variant="primary"
@@ -544,7 +545,7 @@ function PermissionModal({ user, onClose, onSaved }) {
           }),
         ),
       );
-      toast("地图与功能权限已保存");
+      toast("项目与功能权限已保存");
       onClose();
       onSaved();
     } catch (error) {
@@ -568,7 +569,7 @@ function PermissionModal({ user, onClose, onSaved }) {
       wide
       footer={
         <>
-          <span className="result-count">已授权 {assignedCount} 张地图</span>
+          <span className="result-count">已授权 {assignedCount} 个项目</span>
           <Button onClick={onClose} disabled={saving}>
             取消
           </Button>
@@ -606,7 +607,10 @@ function PermissionModal({ user, onClose, onSaved }) {
                 <header>
                   <div>
                     <strong>{map.name}</strong>
-                    <small>MAP / {map.id}</small>
+                    <small>
+                      {projectPlatform(map.platform)?.label} · PROJECT /{" "}
+                      {map.id}
+                    </small>
                   </div>
                   <Button
                     size="sm"
@@ -625,7 +629,7 @@ function PermissionModal({ user, onClose, onSaved }) {
                       )
                     }
                   >
-                    {map.permissions.length ? "取消整张地图" : "授权整张地图"}
+                    {map.permissions.length ? "取消整个项目" : "授权整个项目"}
                   </Button>
                 </header>
                 <div>

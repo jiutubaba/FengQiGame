@@ -25,6 +25,7 @@ import {
   preloadWorkspaceBytes,
 } from "../../../shared/preload-workspace.js";
 import PreloadWorkspace from "./PreloadWorkspace";
+import { PROJECT_PLATFORMS } from "../../utils/projects";
 
 const configSections = [
   ["ranks", "榜单配置"],
@@ -50,6 +51,7 @@ export default function ConfigPanel({
     name: map.name,
     description: map.description || "",
     coverPath: map.coverPath || "",
+    platform: map.platform,
   });
   const [editor, setEditor] = useState("");
   const [preloadWorkspace, setPreloadWorkspace] = useState(() =>
@@ -99,7 +101,8 @@ export default function ConfigPanel({
   const mapChanged =
     mapForm.name !== map.name ||
     mapForm.description !== (map.description || "") ||
-    mapForm.coverPath !== (map.coverPath || "");
+    mapForm.coverPath !== (map.coverPath || "") ||
+    mapForm.platform !== map.platform;
   const savedEditor =
     !config || active === "basic"
       ? ""
@@ -135,6 +138,7 @@ export default function ConfigPanel({
         name: map.name,
         description: map.description || "",
         coverPath: map.coverPath || "",
+        platform: map.platform,
       });
     } else if (active === "preloadCode") {
       setPreloadWorkspace(savedPreloadWorkspace);
@@ -156,7 +160,7 @@ export default function ConfigPanel({
         body: { ...mapForm, coverPath: mapForm.coverPath || null },
       });
       await refreshMap();
-      toast("地图基础信息已保存");
+      toast("项目基础信息已保存");
     } catch (error) {
       setMapSaveError(error.message);
     } finally {
@@ -289,8 +293,8 @@ export default function ConfigPanel({
             <div className="config-surface-head">
               <div>
                 <span className="eyebrow">MAP SETTINGS</span>
-                <h3>地图基础信息</h3>
-                <p>地图名称全局唯一，运行数据仅归属于当前地图。</p>
+                <h3>项目基础信息</h3>
+                <p>项目名称全局唯一，平台分组不改变项目的数据隔离边界。</p>
               </div>
               {editable && (
                 <Button
@@ -302,8 +306,8 @@ export default function ConfigPanel({
                   {mapSaving
                     ? "正在保存…"
                     : mapChanged
-                      ? "保存地图"
-                      : "地图已保存"}
+                      ? "保存项目"
+                      : "项目已保存"}
                 </Button>
               )}
             </div>
@@ -324,13 +328,29 @@ export default function ConfigPanel({
             {mapSaveError && (
               <InlineAlert
                 tone="danger"
-                title="地图基础信息保存失败"
+                title="项目基础信息保存失败"
                 description={mapSaveError}
                 action={<Button onClick={saveMap}>重新保存</Button>}
               />
             )}
             <div className="form-grid">
-              <Field label="地图名称">
+              <Field label="所属平台">
+                <select
+                  className="input"
+                  value={mapForm.platform}
+                  onChange={(event) =>
+                    setMapForm({ ...mapForm, platform: event.target.value })
+                  }
+                  disabled={!editable}
+                >
+                  {PROJECT_PLATFORMS.map((platform) => (
+                    <option key={platform.value} value={platform.value}>
+                      {platform.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="项目名称">
                 <input
                   className="input"
                   value={mapForm.name}
