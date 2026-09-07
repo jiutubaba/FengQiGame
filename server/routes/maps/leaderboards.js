@@ -20,7 +20,9 @@ export function registerLeaderboardRoutes(router) {
     name: z.string().trim().min(1).max(160),
     valueLabel: z.string().trim().min(1).max(80).default("积分"),
     sortDirection: z.enum(["asc", "desc"]).default("desc"),
-    scoreUpdateMode: z.enum(["latest", "best"]).default("latest"),
+    scoreUpdateMode: z
+      .enum(["latest", "best", "realtime_latest", "realtime_best"])
+      .default("latest"),
     enabled: z.boolean().default(true),
   });
 

@@ -373,9 +373,14 @@ export default function LeaderboardsPanel({ mapId, can }) {
                 <div>
                   <span>更新策略</span>
                   <strong>
-                    {current.scoreUpdateMode === "best"
-                      ? "每日首份 · 仅更优时更新"
-                      : "每日首份 · 覆盖当前成绩"}
+                    {
+                      {
+                        latest: "每日首份 · 覆盖当前成绩",
+                        best: "每日首份 · 仅更优时更新",
+                        realtime_latest: "实时更新样本",
+                        realtime_best: "实时更新更优样本",
+                      }[current.scoreUpdateMode]
+                    }
                   </strong>
                 </div>
                 <div>
@@ -678,6 +683,8 @@ export default function LeaderboardsPanel({ mapId, can }) {
               >
                 <option value="latest">每日首份样本覆盖当前成绩</option>
                 <option value="best">每日首份样本仅在更优时更新</option>
+                <option value="realtime_latest">实时更新样本</option>
+                <option value="realtime_best">实时更新更优样本</option>
               </select>
             </Field>
             <Field label="接收上报">

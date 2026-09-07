@@ -590,7 +590,7 @@ router.post(
       req.params.leaderboardKey,
     );
     const leaderboardResult = await query(
-      `SELECT l.id,latest.id AS snapshot_id,latest.published_at,
+      `SELECT l.id,l.score_update_mode,latest.id AS snapshot_id,latest.published_at,
               (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date::text AS collection_date
          FROM leaderboards l
          LEFT JOIN LATERAL (
@@ -615,8 +615,13 @@ router.post(
     const submittedToday = await query(
       `SELECT player_uid FROM leaderboard_daily_collections
         WHERE leaderboard_id=$1 AND player_uid=ANY($2::text[])
-          AND collection_date=$3::date`,
-      [leaderboard.id, req.body.uids, leaderboard.collection_date],
+          AND collection_date=$3::date AND $4 IN ('latest','best')`,
+      [
+        leaderboard.id,
+        req.body.uids,
+        leaderboard.collection_date,
+        leaderboard.score_update_mode,
+      ],
     );
     let entries = [];
     let playerRanks = [];
@@ -704,26 +709,30 @@ router.post(
            RETURNING player_uid`,
           [leaderboard.id, entry.uid, leaderboard.collection_date],
         );
-        if (!collection.rows[0]) continue;
+        if (
+          !collection.rows[0] &&
+          ["latest", "best"].includes(leaderboard.score_update_mode)
+        )
+          continue;
         await client.query(
           `INSERT INTO leaderboard_entries(leaderboard_id,player_uid,player_name,game_level,score,game_count,metadata,last_submitted_on)
            VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$10::date)
            ON CONFLICT(leaderboard_id,player_uid) DO UPDATE SET
               player_name=EXCLUDED.player_name,
               game_level=CASE
-                WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                WHEN $8 IN ('latest','realtime_latest') OR ($8 IN ('best','realtime_best') AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
                 THEN EXCLUDED.game_level ELSE leaderboard_entries.game_level END,
               score=CASE
-                WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                WHEN $8 IN ('latest','realtime_latest') OR ($8 IN ('best','realtime_best') AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
                 THEN EXCLUDED.score ELSE leaderboard_entries.score END,
               game_count=CASE
-                WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                WHEN $8 IN ('latest','realtime_latest') OR ($8 IN ('best','realtime_best') AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
                 THEN EXCLUDED.game_count ELSE leaderboard_entries.game_count END,
               metadata=CASE
-                WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                WHEN $8 IN ('latest','realtime_latest') OR ($8 IN ('best','realtime_best') AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
                 THEN EXCLUDED.metadata ELSE leaderboard_entries.metadata END,
               updated_at=CASE
-                WHEN $8='latest' OR ($8='best' AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                WHEN $8 IN ('latest','realtime_latest') OR ($8 IN ('best','realtime_best') AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
                 THEN NOW() ELSE leaderboard_entries.updated_at END,
               last_submitted_on=EXCLUDED.last_submitted_on`,
           [
