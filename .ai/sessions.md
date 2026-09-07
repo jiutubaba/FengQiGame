@@ -2,6 +2,14 @@
 
 只保留最近 5 次重要开发任务。新增一条时删除最旧一条；稳定事实必须同步到系统文档。
 
+## 2026-09-07 [Codex] 多人维护工作流与接入
+
+- 新增成员接入和分阶段实施文档、协作任务及发布 Issue 模板、PR 交接模板、关键路径 CODEOWNERS；独立 Git / AI / 云身份、交叉审核和发布人职责同步到 AGENTS 与 ADR-0006。
+- GitHub 已设置并回读强制 PR、讨论解决、至少 1 位他人批准、旧批准失效和负责人审核；保留两项 required checks、strict、管理员受限及禁止强推 / 删除。双方 CODEOWNERS 已写入 PR #57，合并后生效。
+- 发布技能要求远端写入阶段在同一云助手脚本中持有部署锁；新增本机身份目录忽略规则。API 实际绑定 `0.0.0.0:3000`，已纠正原生模式文档并记录收口待办，未修改应用代码。
+- 验证：本地文档治理检查、30/30 单元测试、生产构建通过，生产依赖漏洞为 0；技能结构和模板 / 链接检查通过；PR #57 首轮 CI 的两项 required checks 通过，隔离 PostgreSQL 测试 19/19。
+- 项目负责人已授权第二位维护者正式发布；GitHub 账号 `axbca` 已接受邀请，API 确认写权限。已创建 `fq-deployer-axbca` 并回读确认只绑定 `FQCloudAssistantDeploy`；未创建 AccessKey，控制台登录 / MFA 和 `official-cli` 分配待管理员完成。未执行生产部署，对方电脑启动、跨人审核及发布互斥仍待实际验收。
+
 ## 2026-09-07 [Codex] 排行榜实时采集策略
 
 - 新增“实时更新样本”和“实时更新更优样本”，每日首份两种策略保持不变；分数与附属字段按同一规则更新，更优策略相同成绩保留达成时间。
@@ -43,10 +51,3 @@
 - 合并与载荷：功能 PR #39 与运行镜像补充 `shared/` 的 PR #40 已合并为 `main@54e0fb1`；PR 与最终 `main` 的质量/审计、隔离 PostgreSQL 两项 required checks 均通过，最终 CI 为 `32863646149`。`deploy-54e0fb1` 的源码包与 145 文件洁净构建包 SHA-256 分别为 `630c93d2349efb746a2666ace6ede3b9459995a69eb2ccfc141a4719db3f6cd6`、`6e000933e8820b5cef3edd306b0ba7c84a92e75080d06c9264eadbd7efa39fe3`。
 - 正式发布：数据库与上传卷备份 `20260825-230326/230327` 均完成私有 OSS CRC64 校验；app-only 发布后的正式镜像为 `sha256:1b9cf801bcf09ebc6f4b3a2c05b52cc1e52caf26fc34a02d3ed11b314bb237ac`，`.release-commit` 为 `54e0fb1`。旧正式镜像、校正前健康镜像和旧源码包均保留；未改变 PostgreSQL、上传卷、Caddy、`.env` 或网络。
 - 生产验收：`001`、`002`、排行榜每日采集表、`players.rank_ban`、共享预加载模块、三容器 0 重启、app/db healthy、Caddy、备份 timer、公网跳转、安全头、健康接口、缺 Key 401、近 15 分钟日志、145 文件整树及公网 index、主 JS/CSS、ConfigPanel 哈希均通过。地图 ID 2 当前为 56,733 字节旧格式 `preloadCode`，尚无结构化 `preloadWorkspace`；新页面读取时映射为 `main.lua`。内置浏览器能打开正式登录页并读取标题“风起游戏”，但 DOM/Canvas 与控制台读取超时；正式登录后的配置页交互、真实系统拖放和游戏客户端仍待验收。
-
-## 2026-08-24 [Codex] FQ 预加载代码正式发布
-
-- 发布内容：`/api/fq/bootstrap` 下发最大 256 KiB 的 `preloadCode`，管理员配置页显示 UTF-8 容量 `当前KB/256KB`；普通地图维护者只读。投递请求在 `includeMessages=false` 时只需 `game.gifts.read`，同时删除客户端不消费的响应字段。
-- 代码与载荷：PR #37 合并为 `main@18f612c`，PR 与 `main` 的质量/审计、隔离 PostgreSQL 两项 required checks 均通过，`main` CI 为 `32740774916`。`deploy-18f612c` 的源码包与 145 文件洁净构建包 SHA-256 分别为 `7059fafc0e45e118eefea1a2be235fcf8f3534f679293f717c342a8dd561a8da`、`9f22801b2ed57032e628cbc65e6e28dba9a78c36d152f965c5fd1f5e03ed820d`。
-- 正式发布：数据库与上传卷备份 `20260824-224921/224922` 均完成私有 OSS CRC64 校验；云助手 app-only 发布后，正式 `.release-commit` 为 `18f612c`，镜像为 `sha256:da23617d9be40b00388e1e51afc5de38c180e7e4993def28000d5eef1cf44b3a`，旧镜像与旧源码包已保留。app/db、Caddy、备份 timer、迁移、公网跳转、安全头、健康接口、缺 Key 401、日志及静态资源哈希均通过，未改变数据库、上传卷、Caddy、`.env` 或网络。
-- 剩余边界：地图 ID 2 的预加载代码仍为空，正式登录后的配置页视觉状态未验收；游戏地图未重新构建、发布或实机联调。旧地图省略 `includeMessages` 时服务端兼容默认 `true`，因此血液地图 Key 暂时保留 `game.messages.read`，必须先发布固定发送 `false` 的新地图并验证正式请求，再回收权限。
