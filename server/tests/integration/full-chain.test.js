@@ -1553,6 +1553,126 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(points.body.data[0].triggerCount).toBe(3);
   });
 
+  it("排行榜四种采集策略支持升降序、同日重报、策略切换和快照隔离", async () => {
+    for (const mode of ["latest", "best", "realtime_latest", "realtime_best"]) {
+      for (const direction of ["asc", "desc"]) {
+        const key = `${mode}_${direction}`;
+        const created = await admin
+          .post(`/api/maps/${mapId}/leaderboards`)
+          .send({
+            leaderboardKey: key,
+            name: key,
+            scoreUpdateMode: mode,
+            sortDirection: direction,
+          })
+          .expect(201);
+        const id = created.body.data.id;
+        const realtime = mode.startsWith("realtime_");
+        const upload = (score, version = score) =>
+          request(app)
+            .post(`/api/fq/leaderboards/${key}/entries`)
+            .set("fq-map-key", gameToken)
+            .send({
+              entries: [
+                {
+                  uid: "strategy-probe",
+                  name: "策略验收",
+                  score,
+                  gameLevel: `N${version}`,
+                  gameCount: version,
+                  metadata: { version },
+                },
+              ],
+            })
+            .expect(200);
+        const read = () =>
+          admin
+            .get(`/api/maps/${mapId}/leaderboards/${id}/entries`)
+            .expect(200);
+        const gameRead = () =>
+          request(app)
+            .post(`/api/fq/leaderboards/${key}/query`)
+            .set("fq-map-key", gameToken)
+            .send({ uids: ["strategy-probe"] })
+            .expect(200);
+        await upload(100);
+        await admin
+          .post(`/api/maps/${mapId}/leaderboards/${id}/publish`)
+          .send({ limit: 100 })
+          .expect(201);
+        await upload(150);
+        await upload(120);
+        const expected =
+          mode === "realtime_latest"
+            ? 120
+            : mode === "realtime_best" && direction === "desc"
+              ? 150
+              : 100;
+        const live = (await read()).body.data.entries[0];
+        expect(live).toMatchObject({
+          score: expected,
+          gameLevel: `N${expected}`,
+          gameCount: expected,
+          metadata: { version: expected },
+        });
+        const published = (await gameRead()).body.data;
+        expect(published.entries[0].score).toBe(100);
+        expect(published.submittedTodayUids).toEqual(
+          realtime ? [] : ["strategy-probe"],
+        );
+        await upload(expected, 999);
+        const equal = (await read()).body.data.entries[0];
+        if (mode !== "realtime_latest") {
+          expect(equal).toMatchObject({
+            score: expected,
+            gameLevel: live.gameLevel,
+            gameCount: live.gameCount,
+            metadata: live.metadata,
+            updatedAt: live.updatedAt,
+          });
+        } else {
+          expect(equal).toMatchObject({
+            gameLevel: "N999",
+            gameCount: 999,
+            metadata: { version: 999 },
+          });
+        }
+        if (mode === "realtime_best") {
+          await Promise.all([upload(90), upload(200), upload(110)]);
+          expect((await read()).body.data.entries[0].score).toBe(
+            direction === "asc" ? 90 : 200,
+          );
+        }
+        // 实时采集也保留当日事实，切回每日策略不能再次采集。
+        if (realtime) {
+          const beforeSwitch = (await read()).body.data.entries[0].score;
+          await admin
+            .patch(`/api/maps/${mapId}/leaderboards/${id}`)
+            .send({ scoreUpdateMode: "latest" })
+            .expect(200);
+          await upload(500);
+          expect((await read()).body.data.entries[0].score).toBe(beforeSwitch);
+          expect((await gameRead()).body.data.submittedTodayUids).toEqual([
+            "strategy-probe",
+          ]);
+        }
+        await admin
+          .patch(`/api/maps/${mapId}/leaderboards/${id}`)
+          .send({ scoreUpdateMode: "realtime_latest" })
+          .expect(200);
+        await upload(80);
+        expect((await read()).body.data.entries[0].score).toBe(80);
+        expect((await gameRead()).body.data.submittedTodayUids).toEqual([]);
+        const collections = await query(
+          "SELECT count(*)::int AS count FROM leaderboard_daily_collections WHERE leaderboard_id=$1",
+          [id],
+        );
+        expect(collections.rows[0].count).toBe(1);
+        await admin.delete(`/api/maps/${mapId}/leaderboards/${id}`).expect(200);
+      }
+    }
+  });
+
   it("排行榜发布快照、风险事件幂等上报与玩家封禁形成闭环", async () => {
     await normalUser.get(`/api/maps/${mapId}/leaderboards`).expect(403);
     await normalUser.get(`/api/maps/${mapId}/risk/events`).expect(403);

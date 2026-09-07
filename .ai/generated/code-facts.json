@@ -1069,6 +1069,14 @@
       "alteredTables": [
         "feedback_responses"
       ]
+    },
+    {
+      "file": "server/db/migrations/005_leaderboard_realtime_modes.sql",
+      "sha256": "71869d9f00681245d7c99f4b89872936ec789b04aafb57c7c2e6f109fc0d094b",
+      "tables": [],
+      "alteredTables": [
+        "leaderboards"
+      ]
     }
   ],
   "environmentVariables": {
@@ -1126,6 +1134,7 @@
         "自动指标会话幂等、隔离、在线状态及 11 项公式均按北京时间聚合",
         "地图局部编辑、地图配置和系统设置均能持久化",
         "主播和埋点支持增改查，游戏客户端可上报埋点",
+        "排行榜四种采集策略支持升降序、同日重报、策略切换和快照隔离",
         "排行榜发布快照、风险事件幂等上报与玩家封禁形成闭环",
         "同地图多 Key 共享数据，同 UID 在不同地图仍隔离",
         "文件夹、文件上传、列表、下载和级联删除形成闭环",
@@ -1225,6 +1234,10 @@
       "lines": 6
     },
     {
+      "file": "server/db/migrations/005_leaderboard_realtime_modes.sql",
+      "lines": 5
+    },
+    {
       "file": "server/index.js",
       "lines": 52
     },
@@ -1262,7 +1275,7 @@
     },
     {
       "file": "server/routes/game.js",
-      "lines": 916
+      "lines": 925
     },
     {
       "file": "server/routes/maps.js",
@@ -1286,7 +1299,7 @@
     },
     {
       "file": "server/routes/maps/leaderboards.js",
-      "lines": 407
+      "lines": 409
     },
     {
       "file": "server/routes/maps/map-lifecycle.js",
@@ -1342,7 +1355,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 2629
+      "lines": 2749
     },
     {
       "file": "server/tests/unit/logging.test.js",
@@ -1430,7 +1443,7 @@
     },
     {
       "file": "src/pages/map-workspace/LeaderboardsPanel.jsx",
-      "lines": 696
+      "lines": 703
     },
     {
       "file": "src/pages/map-workspace/MetricsPanel.jsx",

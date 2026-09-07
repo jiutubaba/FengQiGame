@@ -7,7 +7,7 @@
 - API 路由：102
 - 地图权限：17
 - 客户端权限：11
-- 数据库迁移：4
+- 数据库迁移：5
 
 ## 地图权限
 
@@ -175,6 +175,7 @@
 | `server/db/migrations/002_leaderboard_daily_collections.sql` | leaderboard_daily_collections | — | `a2171fb49693` |
 | `server/db/migrations/003_project_platforms_and_feedback.sql` | feedback_responses | maps | `6d73818d778c` |
 | `server/db/migrations/004_feedback_management.sql` | — | feedback_responses | `620307cbf477` |
+| `server/db/migrations/005_leaderboard_realtime_modes.sql` | — | leaderboards | `71869d9f0068` |
 
 ## 环境变量
 
@@ -196,6 +197,7 @@
 - 自动指标会话幂等、隔离、在线状态及 11 项公式均按北京时间聚合
 - 地图局部编辑、地图配置和系统设置均能持久化
 - 主播和埋点支持增改查，游戏客户端可上报埋点
+- 排行榜四种采集策略支持升降序、同日重报、策略切换和快照隔离
 - 排行榜发布快照、风险事件幂等上报与玩家封禁形成闭环
 - 同地图多 Key 共享数据，同 UID 在不同地图仍隔离
 - 文件夹、文件上传、列表、下载和级联删除形成闭环
