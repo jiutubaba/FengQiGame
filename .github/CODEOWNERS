@@ -1,23 +1,23 @@
-# 第二位维护者接受邀请后，将其账号追加到下列关键路径，再启用负责人强制审核。
-/AGENTS.md @jiutubaba
-/.github/ @jiutubaba
-/.agents/skills/publish-fq-admin/ @jiutubaba
-/.ai/security.md @jiutubaba
-/.ai/operations.md @jiutubaba
-/.ai/systems/部署与恢复.md @jiutubaba
-/docs/协作开发与交接.md @jiutubaba
-/docs/协作工作流实施计划.md @jiutubaba
-/docs/部署与运维.md @jiutubaba
-/docs/上线验收清单.md @jiutubaba
-/server/middleware/ @jiutubaba
-/server/routes/auth.js @jiutubaba
-/server/routes/admin.js @jiutubaba
-/server/config.js @jiutubaba
-/server/db/ @jiutubaba
-/运维/ @jiutubaba
-/Dockerfile @jiutubaba
-/docker-compose.yml @jiutubaba
-/Caddyfile @jiutubaba
-/.env.example @jiutubaba
-/首次配置.ps1 @jiutubaba
-/启动网站.bat @jiutubaba
+# 关键路径由两位维护者共同负责；作者自己的批准不能满足他人审核要求。
+/AGENTS.md @jiutubaba @axbca
+/.github/ @jiutubaba @axbca
+/.agents/skills/publish-fq-admin/ @jiutubaba @axbca
+/.ai/security.md @jiutubaba @axbca
+/.ai/operations.md @jiutubaba @axbca
+/.ai/systems/部署与恢复.md @jiutubaba @axbca
+/docs/协作开发与交接.md @jiutubaba @axbca
+/docs/协作工作流实施计划.md @jiutubaba @axbca
+/docs/部署与运维.md @jiutubaba @axbca
+/docs/上线验收清单.md @jiutubaba @axbca
+/server/middleware/ @jiutubaba @axbca
+/server/routes/auth.js @jiutubaba @axbca
+/server/routes/admin.js @jiutubaba @axbca
+/server/config.js @jiutubaba @axbca
+/server/db/ @jiutubaba @axbca
+/运维/ @jiutubaba @axbca
+/Dockerfile @jiutubaba @axbca
+/docker-compose.yml @jiutubaba @axbca
+/Caddyfile @jiutubaba @axbca
+/.env.example @jiutubaba @axbca
+/首次配置.ps1 @jiutubaba @axbca
+/启动网站.bat @jiutubaba @axbca
