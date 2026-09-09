@@ -36,6 +36,9 @@ export default function LeaderboardsPanel({ mapId, can }) {
   const [listLoadError, setListLoadError] = useState("");
   const [detailLoadError, setDetailLoadError] = useState("");
   const [blockingEntryId, setBlockingEntryId] = useState(null);
+  const [selectedEntryIds, setSelectedEntryIds] = useState([]);
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  const [batchError, setBatchError] = useState("");
   const leaderboardRequestId = useRef(0);
   const entriesRequestId = useRef(0);
   const confirmAction = useConfirm();
@@ -102,6 +105,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
       );
       if (requestId !== entriesRequestId.current) return;
       setDetail(nextDetail);
+      setSelectedEntryIds([]);
     } catch (error) {
       if (requestId === entriesRequestId.current)
         setDetailLoadError(error.message);
@@ -111,6 +115,10 @@ export default function LeaderboardsPanel({ mapId, can }) {
   }, [mapId, selectedId, snapshotId, query]);
 
   useEffect(() => {
+    setSelectedEntryIds([]);
+    setBatchError("");
+    setDetail(null);
+    setLoading(true);
     const timer = setTimeout(loadEntries, 180);
     return () => {
       clearTimeout(timer);
@@ -262,6 +270,46 @@ export default function LeaderboardsPanel({ mapId, can }) {
     }
   };
 
+  const removeSelectedEntries = async () => {
+    if (
+      !manageable ||
+      snapshotId ||
+      loading ||
+      batchDeleting ||
+      !selectedEntryIds.length
+    )
+      return;
+    const entryIds = [...selectedEntryIds];
+    if (
+      !(await confirmAction({
+        title: "批量移除实时榜条目",
+        description: `确认从“${current.name}”移除选中的 ${entryIds.length} 条记录？`,
+        detail:
+          "此操作无法撤销，已发布快照保持不变。每日采集记录仍保留；实时策略下，玩家再次上报后可能重新入榜。",
+        confirmLabel: `移除 ${entryIds.length} 条`,
+      }))
+    )
+      return;
+    setBatchDeleting(true);
+    setBatchError("");
+    try {
+      const result = await api(
+        `/api/maps/${mapId}/leaderboards/${selectedId}/entries/batch-delete`,
+        {
+          method: "POST",
+          body: { entryIds, confirm: true },
+        },
+      );
+      setSelectedEntryIds([]);
+      toast(`已移除 ${result.count} 条实时榜记录`);
+      await Promise.all([loadEntries(), loadLeaderboards()]);
+    } catch (error) {
+      setBatchError(error.message);
+    } finally {
+      setBatchDeleting(false);
+    }
+  };
+
   const current = leaderboards.find((item) => item.id === selectedId);
   const snapshots = detail?.snapshots || [];
   const entries = detail?.entries || [];
@@ -298,6 +346,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
               <button
                 key={item.id}
                 className={item.id === selectedId ? "active" : ""}
+                disabled={batchDeleting}
                 onClick={() => selectLeaderboard(item.id)}
               >
                 <span className="rail-rank-mark">
@@ -326,6 +375,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
                   <Search size={16} />
                   <input
                     value={query}
+                    disabled={batchDeleting}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="玩家 UID 或名称"
                     aria-label="搜索排行榜玩家 UID 或名称"
@@ -346,7 +396,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
                         variant="primary"
                         icon={Save}
                         onClick={publish}
-                        disabled={!current.entryCount}
+                        disabled={!current.entryCount || batchDeleting}
                         title="将当前实时候选池的前 100 名发布为不可变快照"
                       >
                         发布前 100 名
@@ -404,6 +454,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
                 <div className="segmented-switch compact-switch">
                   <button
                     type="button"
+                    disabled={batchDeleting}
                     className={!snapshotId ? "active" : ""}
                     onClick={() => setSnapshotId("")}
                     aria-pressed={!snapshotId}
@@ -413,7 +464,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
                   <button
                     type="button"
                     className={snapshotId ? "active" : ""}
-                    disabled={!snapshots.length}
+                    disabled={!snapshots.length || batchDeleting}
                     onClick={() =>
                       setSnapshotId(String(snapshots[0]?.id || ""))
                     }
@@ -465,6 +516,35 @@ export default function LeaderboardsPanel({ mapId, can }) {
                 />
               )}
 
+              {manageable && !snapshotId && (
+                <div className="module-toolbar">
+                  <span>
+                    已选 {selectedEntryIds.length} 条 · 全选仅包含当前显示的记录
+                  </span>
+                  <Button
+                    icon={Trash2}
+                    variant="danger"
+                    disabled={
+                      !selectedEntryIds.length ||
+                      loading ||
+                      Boolean(detailLoadError) ||
+                      batchDeleting ||
+                      blockingEntryId !== null
+                    }
+                    onClick={removeSelectedEntries}
+                  >
+                    {batchDeleting ? "正在移除…" : "批量移除"}
+                  </Button>
+                </div>
+              )}
+              {batchError && (
+                <InlineAlert
+                  tone="danger"
+                  title="批量移除失败"
+                  description={batchError}
+                />
+              )}
+
               {loading && !detail ? (
                 <div className="loading-state">正在计算排名…</div>
               ) : detailLoadError && !detail ? (
@@ -478,6 +558,38 @@ export default function LeaderboardsPanel({ mapId, can }) {
                   <table className="data-table">
                     <thead>
                       <tr>
+                        {manageable && !snapshotId && (
+                          <th className="check-cell">
+                            <label className="leaderboard-entry-check">
+                              <input
+                                type="checkbox"
+                                aria-label="全选当前显示的排行榜记录"
+                                checked={
+                                  entries.length > 0 &&
+                                  selectedEntryIds.length === entries.length
+                                }
+                                ref={(element) => {
+                                  if (element)
+                                    element.indeterminate =
+                                      selectedEntryIds.length > 0 &&
+                                      selectedEntryIds.length < entries.length;
+                                }}
+                                disabled={
+                                  loading ||
+                                  batchDeleting ||
+                                  Boolean(detailLoadError)
+                                }
+                                onChange={(event) =>
+                                  setSelectedEntryIds(
+                                    event.target.checked
+                                      ? entries.map((entry) => entry.id)
+                                      : [],
+                                  )
+                                }
+                              />
+                            </label>
+                          </th>
+                        )}
                         <th>名次</th>
                         <th>玩家</th>
                         <th>UID</th>
@@ -495,6 +607,29 @@ export default function LeaderboardsPanel({ mapId, can }) {
                         <tr
                           key={`${snapshotId || "live"}-${entry.rank}-${entry.uid}`}
                         >
+                          {manageable && !snapshotId && (
+                            <td className="check-cell">
+                              <label className="leaderboard-entry-check">
+                                <input
+                                  type="checkbox"
+                                  aria-label={`选择 ${entry.name}（${entry.uid}）`}
+                                  checked={selectedEntryIds.includes(entry.id)}
+                                  disabled={
+                                    loading ||
+                                    batchDeleting ||
+                                    Boolean(detailLoadError)
+                                  }
+                                  onChange={(event) =>
+                                    setSelectedEntryIds((ids) =>
+                                      event.target.checked
+                                        ? [...ids, entry.id]
+                                        : ids.filter((id) => id !== entry.id),
+                                    )
+                                  }
+                                />
+                              </label>
+                            </td>
+                          )}
                           <td>
                             <span
                               className={`rank-number ${entry.rank <= 3 ? `rank-${entry.rank}` : ""}`}
@@ -521,7 +656,11 @@ export default function LeaderboardsPanel({ mapId, can }) {
                               <span className="table-action-group">
                                 <button
                                   className="table-action danger"
-                                  disabled={blockingEntryId === entry.id}
+                                  disabled={
+                                    blockingEntryId === entry.id ||
+                                    batchDeleting ||
+                                    loading
+                                  }
                                   onClick={() => removeEntry(entry)}
                                 >
                                   <Trash2 size={14} />
@@ -529,7 +668,11 @@ export default function LeaderboardsPanel({ mapId, can }) {
                                 </button>
                                 <button
                                   className="table-action danger"
-                                  disabled={blockingEntryId === entry.id}
+                                  disabled={
+                                    blockingEntryId === entry.id ||
+                                    batchDeleting ||
+                                    loading
+                                  }
                                   onClick={() => blockEntryPlayer(entry)}
                                 >
                                   <Ban size={14} />

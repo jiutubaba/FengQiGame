@@ -4,6 +4,10 @@ chcp 65001 >nul
 title 风起游戏
 cd /d "%~dp0"
 
+set "POWERSHELL_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%POWERSHELL_EXE%" set "POWERSHELL_EXE=powershell.exe"
+if exist "%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin\docker.exe" set "PATH=%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin;%PATH%"
+
 set "DEPLOYMENT_MODE="
 if exist ".env" (
   for /f "tokens=1,* delims==" %%A in ('findstr /b "DEPLOYMENT_MODE=" ".env"') do set "DEPLOYMENT_MODE=%%B"
@@ -18,7 +22,7 @@ if not exist ".env" (
   )
   echo.
   echo 首次运行将使用 !DEPLOYMENT_MODE! 模式配置。
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0首次配置.ps1" -Mode !DEPLOYMENT_MODE!
+  "%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0首次配置.ps1" -Mode !DEPLOYMENT_MODE!
   if errorlevel 1 (
     echo.
     echo [错误] 首次配置未完成。
@@ -65,13 +69,13 @@ if errorlevel 1 (
 findstr /b "ADMIN_PASSWORD=" ".env" >nul 2>nul
 if not errorlevel 1 (
   echo 正在等待初始管理员创建完成...
-  powershell.exe -NoProfile -Command "$ok=$false; for($i=0;$i -lt 60;$i++){ $id=docker compose ps -q app; if($id -and (docker inspect --format '{{.State.Health.Status}}' $id) -eq 'healthy'){$ok=$true;break}; Start-Sleep -Seconds 1 }; if(-not $ok){exit 1}"
+  "%POWERSHELL_EXE%" -NoProfile -Command "$ok=$false; for($i=0;$i -lt 60;$i++){ $id=docker compose ps -q app; if($id -and (docker inspect --format '{{.State.Health.Status}}' $id) -eq 'healthy'){$ok=$true;break}; Start-Sleep -Seconds 1 }; if(-not $ok){exit 1}"
   if errorlevel 1 (
     echo [错误] 应用未通过健康检查，管理员密码仍保留在 .env 以便排障重试。
     pause
     exit /b 1
   )
-  powershell.exe -NoProfile -Command "$path=(Resolve-Path -LiteralPath '.env').Path; $lines=[IO.File]::ReadAllLines($path) | Where-Object { $_ -notmatch '^ADMIN_PASSWORD=' }; [IO.File]::WriteAllLines($path,$lines,(New-Object Text.UTF8Encoding($false)))"
+  "%POWERSHELL_EXE%" -NoProfile -Command "$path=(Resolve-Path -LiteralPath '.env').Path; $lines=[IO.File]::ReadAllLines($path) | Where-Object { $_ -notmatch '^ADMIN_PASSWORD=' }; [IO.File]::WriteAllLines($path,$lines,(New-Object Text.UTF8Encoding($false)))"
   docker compose up -d --force-recreate app
 )
 echo.
@@ -85,7 +89,7 @@ exit /b 0
 :native_mode
 echo.
 echo 正在使用本机 PostgreSQL 构建、迁移并启动风起游戏...
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0运维\启动本机服务.ps1"
+"%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0运维\启动本机服务.ps1"
 if errorlevel 1 (
   echo.
   echo [错误] 本机服务启动失败，请检查 .runtime\app.stderr.log。

@@ -1,4 +1,4 @@
-param(
+﻿param(
   [ValidateSet('docker', 'native')]
   [string]$Mode = 'docker',
   [ValidateRange(1, 65535)]

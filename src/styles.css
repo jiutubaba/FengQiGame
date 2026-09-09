@@ -2900,6 +2900,14 @@ textarea::placeholder {
 .check-cell {
   width: 36px;
 }
+.leaderboard-entry-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+}
 .table-action {
   min-height: 32px;
   display: inline-flex;
