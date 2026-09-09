@@ -1673,6 +1673,178 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     }
   });
 
+  it("排行榜批量移除校验权限和归属，原子删除且保留快照与采集事实", async () => {
+    const board = await admin
+      .post(`/api/maps/${mapId}/leaderboards`)
+      .send({
+        leaderboardKey: "batch_delete_test",
+        name: "批量移除测试",
+        scoreUpdateMode: "latest",
+      })
+      .expect(201);
+    const boardId = board.body.data.id;
+    const base = `/api/maps/${mapId}/leaderboards/${boardId}`;
+    await request(app)
+      .post("/api/fq/leaderboards/batch_delete_test/entries")
+      .set("fq-map-key", gameToken)
+      .send({
+        entries: [
+          { uid: "batch-a", name: "批量甲", score: 20 },
+          { uid: "batch-b", name: "批量乙", score: 10 },
+        ],
+      })
+      .expect(200);
+    const live = await admin.get(`${base}/entries`).expect(200);
+    const entryIds = live.body.data.entries.map((entry) => entry.id);
+    const snapshot = await admin
+      .post(`${base}/publish`)
+      .send({ limit: 100 })
+      .expect(201);
+    const payload = { entryIds, confirm: true };
+    await normalUser
+      .post(`${base}/entries/batch-delete`)
+      .send(payload)
+      .expect(403);
+    for (const body of [
+      { entryIds: [], confirm: true },
+      { entryIds },
+      { entryIds: [entryIds[0], entryIds[0]], confirm: true },
+      { entryIds: Array.from({ length: 101 }, (_, i) => i + 1), confirm: true },
+    ]) {
+      await admin.post(`${base}/entries/batch-delete`).send(body).expect(400);
+    }
+    const otherBoard = await admin
+      .post(`/api/maps/${mapId}/leaderboards`)
+      .send({
+        leaderboardKey: "batch_delete_other",
+        name: "其它榜单",
+      })
+      .expect(201);
+    await admin
+      .post(
+        `/api/maps/${mapId}/leaderboards/${otherBoard.body.data.id}/entries/batch-delete`,
+      )
+      .send(payload)
+      .expect(404);
+    await admin
+      .post(
+        `/api/maps/${mapId + 100000}/leaderboards/${boardId}/entries/batch-delete`,
+      )
+      .send(payload)
+      .expect(404);
+    await admin
+      .post(`${base}/entries/batch-delete`)
+      .send({ entryIds: [entryIds[0], Number.MAX_SAFE_INTEGER], confirm: true })
+      .expect(404);
+    const before = await admin.get(`${base}/entries`).expect(200);
+    expect(before.body.data.entries.map((entry) => entry.id)).toEqual(entryIds);
+    const removed = await admin
+      .post(`${base}/entries/batch-delete`)
+      .send(payload)
+      .expect(200);
+    expect(removed.body.data.count).toBe(2);
+    expect(
+      (await admin.get(`${base}/entries`).expect(200)).body.data.entries,
+    ).toEqual([]);
+    const history = await admin
+      .get(`${base}/entries?snapshotId=${snapshot.body.data.id}`)
+      .expect(200);
+    expect(history.body.data.entries.map((entry) => entry.uid)).toEqual([
+      "batch-a",
+      "batch-b",
+    ]);
+    await request(app)
+      .post("/api/fq/leaderboards/batch_delete_test/entries")
+      .set("fq-map-key", gameToken)
+      .send({ entries: [{ uid: "batch-a", name: "批量甲", score: 30 }] })
+      .expect(200);
+    expect(
+      (await admin.get(`${base}/entries`).expect(200)).body.data.entries,
+    ).toEqual([]);
+    const audit = await query(
+      "SELECT details FROM audit_logs WHERE action='leaderboard.entries.delete' AND map_id=$1 AND resource_id=$2",
+      [mapId, String(boardId)],
+    );
+    expect(audit.rows).toHaveLength(1);
+    expect(audit.rows[0].details).toEqual({ entryIds, count: 2 });
+    await admin.delete(base).expect(200);
+    await admin
+      .delete(`/api/maps/${mapId}/leaderboards/${otherBoard.body.data.id}`)
+      .expect(200);
+  });
+
+  it("排行榜大整数边界精确入库、排序和发布，越界拒绝整批", async () => {
+    const created = await admin
+      .post(`/api/maps/${mapId}/leaderboards`)
+      .send({
+        leaderboardKey: "score_boundary",
+        name: "分数边界测试",
+        scoreUpdateMode: "realtime_latest",
+      })
+      .expect(201);
+    const boardId = created.body.data.id;
+    const scores = [
+      Number.MAX_SAFE_INTEGER,
+      Number.MAX_SAFE_INTEGER - 1,
+      1e15 + 1,
+      1.25,
+      Number.MIN_SAFE_INTEGER,
+    ];
+    await request(app)
+      .post("/api/fq/leaderboards/score_boundary/entries")
+      .set("fq-map-key", gameToken)
+      .send({
+        entries: scores.map((score, index) => ({
+          uid: `boundary-${index}`,
+          name: `边界${index}`,
+          score: String(score),
+        })),
+      })
+      .expect(200);
+    const stored = await query(
+      "SELECT score::text FROM leaderboard_entries WHERE leaderboard_id=$1 ORDER BY score DESC",
+      [boardId],
+    );
+    expect(stored.rows.map((row) => row.score)).toEqual(
+      scores.map((score) => score.toFixed(6)),
+    );
+    const live = await admin
+      .get(`/api/maps/${mapId}/leaderboards/${boardId}/entries`)
+      .expect(200);
+    expect(live.body.data.entries.map((entry) => entry.score)).toEqual(scores);
+    for (const score of [
+      Number.MAX_SAFE_INTEGER + 1,
+      Number.MIN_SAFE_INTEGER - 1,
+    ]) {
+      const rejected = await request(app)
+        .post("/api/fq/leaderboards/score_boundary/entries")
+        .set("fq-map-key", gameToken)
+        .send({
+          entries: [
+            { uid: "boundary-0", name: "不可写入", score: 0 },
+            { uid: "overflow", name: "越界", score },
+          ],
+        })
+        .expect(400);
+      expect(rejected.body.error.code).toBe("VALIDATION_ERROR");
+    }
+    await admin
+      .post(`/api/maps/${mapId}/leaderboards/${boardId}/publish`)
+      .send({ limit: 100 })
+      .expect(201);
+    const published = await request(app)
+      .post("/api/fq/leaderboards/score_boundary/query")
+      .set("fq-map-key", gameToken)
+      .send({})
+      .expect(200);
+    expect(published.body.data.entries.map((entry) => entry.score)).toEqual(
+      scores,
+    );
+    await admin
+      .delete(`/api/maps/${mapId}/leaderboards/${boardId}`)
+      .expect(200);
+  });
+
   it("排行榜发布快照、风险事件幂等上报与玩家封禁形成闭环", async () => {
     await normalUser.get(`/api/maps/${mapId}/leaderboards`).expect(403);
     await normalUser.get(`/api/maps/${mapId}/risk/events`).expect(403);
@@ -2206,6 +2378,18 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
   });
 
   it("文件夹、文件上传、列表、下载和级联删除形成闭环", async () => {
+    const oversizedIndex = await admin
+      .post(`/api/maps/${mapId}/files/upload`)
+      .field("items[1]", "invalid")
+      .expect(400);
+    expect(oversizedIndex.body.error.code).toBe("LIMIT_FIELD_ARRAY_INDEX");
+    const oversizedFile = await admin
+      .post(`/api/maps/${mapId}/files/upload`)
+      .attach("files", Buffer.alloc(config.uploadMaxBytes + 1), "too-large.txt")
+      .expect(400);
+    expect(oversizedFile.body.error.code).toBe("LIMIT_FILE_SIZE");
+    const unchanged = await admin.get(`/api/maps/${mapId}/files`).expect(200);
+    expect(unchanged.body.data).toHaveLength(0);
     const rejected = await admin
       .post(`/api/maps/${mapId}/files/upload`)
       .attach("files", Buffer.from("echo unsafe"), {

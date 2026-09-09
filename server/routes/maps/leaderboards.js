@@ -289,6 +289,58 @@ export function registerLeaderboardRoutes(router) {
     },
   );
 
+  router.post(
+    "/:mapId/leaderboards/:leaderboardId/entries/batch-delete",
+    requireMapPermission(PERMISSIONS.LEADERBOARDS_MANAGE),
+    validate(
+      z.object({
+        entryIds: z
+          .array(z.number().int().positive().max(Number.MAX_SAFE_INTEGER))
+          .min(1)
+          .max(100)
+          .refine(
+            (ids) => new Set(ids).size === ids.length,
+            "不能重复选择条目",
+          ),
+        confirm: z.literal(true),
+      }),
+    ),
+    async (req, res) => {
+      const mapId = idSchema.parse(req.params.mapId);
+      const leaderboardId = idSchema.parse(req.params.leaderboardId);
+      const { entryIds } = req.body;
+      await transaction(async (client) => {
+        const entries = await client.query(
+          `SELECT e.id FROM leaderboard_entries e
+             JOIN leaderboards l ON l.id=e.leaderboard_id
+            WHERE l.map_id=$1 AND e.leaderboard_id=$2 AND e.id=ANY($3::bigint[])
+            ORDER BY e.id FOR UPDATE OF e`,
+          [mapId, leaderboardId, entryIds],
+        );
+        if (entries.rowCount !== entryIds.length)
+          throw notFound(
+            "部分排行榜记录已不存在或不属于当前榜单，请刷新后重试",
+          );
+        await client.query(
+          "DELETE FROM leaderboard_entries WHERE leaderboard_id=$1 AND id=ANY($2::bigint[])",
+          [leaderboardId, entryIds],
+        );
+        await writeAudit(
+          req,
+          {
+            action: "leaderboard.entries.delete",
+            resourceType: "leaderboard",
+            resourceId: leaderboardId,
+            mapId,
+            details: { entryIds, count: entryIds.length },
+          },
+          client,
+        );
+      });
+      res.json({ success: true, data: { count: entryIds.length } });
+    },
+  );
+
   router.delete(
     "/:mapId/leaderboards/:leaderboardId/entries/:entryId",
     requireMapPermission(PERMISSIONS.LEADERBOARDS_MANAGE),

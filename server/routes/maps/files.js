@@ -63,6 +63,7 @@ export function registerFileRoutes(router) {
       fileSize: config.uploadMaxBytes,
       files: 20,
       fields: 10,
+      fieldArrayIndexLimit: 0,
       parts: 30,
     },
     fileFilter(_req, file, callback) {

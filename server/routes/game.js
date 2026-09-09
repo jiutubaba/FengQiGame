@@ -539,7 +539,11 @@ const leaderboardEntrySchema = z.object({
   uid: z.string().trim().min(1).max(128),
   name: z.string().trim().min(1).max(160),
   gameLevel: z.string().trim().max(64).optional().default(""),
-  score: z.coerce.number().finite().min(-1e15).max(1e15),
+  score: z.coerce
+    .number()
+    .finite()
+    .min(Number.MIN_SAFE_INTEGER)
+    .max(Number.MAX_SAFE_INTEGER),
   gameCount: z.coerce.number().int().min(0).max(1e12).optional().default(0),
   metadata: z.record(z.string(), z.unknown()).optional().default({}),
 });

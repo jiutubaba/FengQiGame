@@ -763,7 +763,7 @@ game.leaderboards.write
 - `uid`：1–128；
 - `name`：1–160；
 - `gameLevel`：最多 64；
-- `score`：有限数值，范围 `-1e15` 到 `1e15`；
+- `score`：有限数值，范围 `-9007199254740991` 到 `9007199254740991`（含边界）；整数在此范围内可精确传输，小数仍遵循 JavaScript Number 精度。任一条目超出范围时整批返回 400，不自动截断；
 - `gameCount`：0–1e12 的整数；
 - `metadata`：JSON 对象。
 
