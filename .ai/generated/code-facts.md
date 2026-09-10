@@ -4,7 +4,7 @@
 
 - 项目：`fengqi-game-admin`
 - 版本：`1.0.0`
-- API 路由：103
+- API 路由：104
 - 地图权限：17
 - 客户端权限：11
 - 数据库迁移：5
@@ -118,6 +118,7 @@
 | DELETE | `/api/maps/:mapId/leaderboards/:leaderboardId/entries/:entryId` | map:LEADERBOARDS_MANAGE | `server/routes/maps/leaderboards.js` |
 | POST | `/api/maps/:mapId/leaderboards/:leaderboardId/entries/:entryId/rank-ban` | map:LEADERBOARDS_MANAGE | `server/routes/maps/leaderboards.js` |
 | POST | `/api/maps/:mapId/leaderboards/:leaderboardId/entries/batch-delete` | map:LEADERBOARDS_MANAGE | `server/routes/maps/leaderboards.js` |
+| POST | `/api/maps/:mapId/leaderboards/:leaderboardId/entries/clear` | map:LEADERBOARDS_MANAGE | `server/routes/maps/leaderboards.js` |
 | POST | `/api/maps/:mapId/leaderboards/:leaderboardId/publish` | map:LEADERBOARDS_MANAGE | `server/routes/maps/leaderboards.js` |
 | GET | `/api/maps/:mapId/logs` | map:LOGS_VIEW | `server/routes/maps/resources.js` |
 | DELETE | `/api/maps/:mapId/logs/:logId` | map:MAP_EDIT | `server/routes/maps/resources.js` |
@@ -201,6 +202,7 @@
 - 主播和埋点支持增改查，游戏客户端可上报埋点
 - 排行榜四种采集策略支持升降序、同日重报、策略切换和快照隔离
 - 排行榜批量移除校验权限和归属，原子删除且保留快照与采集事实
+- 排行榜整榜清空会删除全部实时候选并保留快照与采集事实
 - 排行榜大整数边界精确入库、排序和发布，越界拒绝整批
 - 排行榜发布快照、风险事件幂等上报与玩家封禁形成闭环
 - 同地图多 Key 共享数据，同 UID 在不同地图仍隔离
@@ -275,6 +277,7 @@
 - `gift.update`
 - `leaderboard.create`
 - `leaderboard.delete`
+- `leaderboard.entries.clear`
 - `leaderboard.entries.delete`
 - `leaderboard.entry.delete`
 - `leaderboard.player.ban`

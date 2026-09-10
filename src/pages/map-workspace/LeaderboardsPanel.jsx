@@ -38,7 +38,9 @@ export default function LeaderboardsPanel({ mapId, can }) {
   const [blockingEntryId, setBlockingEntryId] = useState(null);
   const [selectedEntryIds, setSelectedEntryIds] = useState([]);
   const [batchDeleting, setBatchDeleting] = useState(false);
+  const [clearingEntries, setClearingEntries] = useState(false);
   const [batchError, setBatchError] = useState("");
+  const entriesDeleting = batchDeleting || clearingEntries;
   const leaderboardRequestId = useRef(0);
   const entriesRequestId = useRef(0);
   const confirmAction = useConfirm();
@@ -275,7 +277,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
       !manageable ||
       snapshotId ||
       loading ||
-      batchDeleting ||
+      entriesDeleting ||
       !selectedEntryIds.length
     )
       return;
@@ -307,6 +309,44 @@ export default function LeaderboardsPanel({ mapId, can }) {
       setBatchError(error.message);
     } finally {
       setBatchDeleting(false);
+    }
+  };
+
+  const clearEntries = async () => {
+    const target = leaderboards.find((item) => item.id === selectedId);
+    if (
+      !target ||
+      !manageable ||
+      snapshotId ||
+      loading ||
+      entriesDeleting ||
+      blockingEntryId !== null
+    )
+      return;
+    if (
+      !(await confirmAction({
+        title: "清空实时榜",
+        description: `确认清空“${target.name}”的全部实时候选记录？`,
+        detail:
+          "将删除所有实时候选记录，包括当前未显示和因榜单封禁隐藏的记录。已发布历史快照和每日采集记录保持不变；实时策略下，玩家再次上报后可能重新入榜。",
+        confirmLabel: "确认清空",
+      }))
+    )
+      return;
+    setClearingEntries(true);
+    setBatchError("");
+    try {
+      const result = await api(
+        `/api/maps/${mapId}/leaderboards/${selectedId}/entries/clear`,
+        { method: "POST", body: { confirm: true } },
+      );
+      setSelectedEntryIds([]);
+      toast(`已清空 ${result.count} 条实时榜记录`);
+      await Promise.all([loadEntries(), loadLeaderboards()]);
+    } catch (error) {
+      setBatchError(error.message);
+    } finally {
+      setClearingEntries(false);
     }
   };
 
@@ -346,7 +386,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
               <button
                 key={item.id}
                 className={item.id === selectedId ? "active" : ""}
-                disabled={batchDeleting}
+                disabled={entriesDeleting}
                 onClick={() => selectLeaderboard(item.id)}
               >
                 <span className="rail-rank-mark">
@@ -375,7 +415,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
                   <Search size={16} />
                   <input
                     value={query}
-                    disabled={batchDeleting}
+                    disabled={entriesDeleting}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="玩家 UID 或名称"
                     aria-label="搜索排行榜玩家 UID 或名称"
@@ -396,7 +436,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
                         variant="primary"
                         icon={Save}
                         onClick={publish}
-                        disabled={!current.entryCount || batchDeleting}
+                        disabled={!current.entryCount || entriesDeleting}
                         title="将当前实时候选池的前 100 名发布为不可变快照"
                       >
                         发布前 100 名
@@ -454,7 +494,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
                 <div className="segmented-switch compact-switch">
                   <button
                     type="button"
-                    disabled={batchDeleting}
+                    disabled={entriesDeleting}
                     className={!snapshotId ? "active" : ""}
                     onClick={() => setSnapshotId("")}
                     aria-pressed={!snapshotId}
@@ -464,7 +504,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
                   <button
                     type="button"
                     className={snapshotId ? "active" : ""}
-                    disabled={!snapshots.length || batchDeleting}
+                    disabled={!snapshots.length || entriesDeleting}
                     onClick={() =>
                       setSnapshotId(String(snapshots[0]?.id || ""))
                     }
@@ -521,26 +561,41 @@ export default function LeaderboardsPanel({ mapId, can }) {
                   <span>
                     已选 {selectedEntryIds.length} 条 · 全选仅包含当前显示的记录
                   </span>
-                  <Button
-                    icon={Trash2}
-                    variant="danger"
-                    disabled={
-                      !selectedEntryIds.length ||
-                      loading ||
-                      Boolean(detailLoadError) ||
-                      batchDeleting ||
-                      blockingEntryId !== null
-                    }
-                    onClick={removeSelectedEntries}
-                  >
-                    {batchDeleting ? "正在移除…" : "批量移除"}
-                  </Button>
+                  <div className="section-actions">
+                    <Button
+                      icon={Trash2}
+                      variant="danger"
+                      disabled={
+                        loading ||
+                        Boolean(detailLoadError) ||
+                        entriesDeleting ||
+                        blockingEntryId !== null
+                      }
+                      onClick={clearEntries}
+                    >
+                      {clearingEntries ? "正在清空…" : "清空实时榜"}
+                    </Button>
+                    <Button
+                      icon={Trash2}
+                      variant="danger"
+                      disabled={
+                        !selectedEntryIds.length ||
+                        loading ||
+                        Boolean(detailLoadError) ||
+                        entriesDeleting ||
+                        blockingEntryId !== null
+                      }
+                      onClick={removeSelectedEntries}
+                    >
+                      {batchDeleting ? "正在移除…" : "批量移除"}
+                    </Button>
+                  </div>
                 </div>
               )}
               {batchError && (
                 <InlineAlert
                   tone="danger"
-                  title="批量移除失败"
+                  title="实时榜移除失败"
                   description={batchError}
                 />
               )}
@@ -576,7 +631,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
                                 }}
                                 disabled={
                                   loading ||
-                                  batchDeleting ||
+                                  entriesDeleting ||
                                   Boolean(detailLoadError)
                                 }
                                 onChange={(event) =>
@@ -616,7 +671,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
                                   checked={selectedEntryIds.includes(entry.id)}
                                   disabled={
                                     loading ||
-                                    batchDeleting ||
+                                    entriesDeleting ||
                                     Boolean(detailLoadError)
                                   }
                                   onChange={(event) =>
@@ -658,7 +713,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
                                   className="table-action danger"
                                   disabled={
                                     blockingEntryId === entry.id ||
-                                    batchDeleting ||
+                                    entriesDeleting ||
                                     loading
                                   }
                                   onClick={() => removeEntry(entry)}
@@ -670,7 +725,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
                                   className="table-action danger"
                                   disabled={
                                     blockingEntryId === entry.id ||
-                                    batchDeleting ||
+                                    entriesDeleting ||
                                     loading
                                   }
                                   onClick={() => blockEntryPlayer(entry)}

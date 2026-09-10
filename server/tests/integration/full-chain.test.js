@@ -1840,6 +1840,80 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(200);
   });
 
+  it("排行榜整榜清空会删除全部实时候选并保留快照与采集事实", async () => {
+    const board = await admin
+      .post(`/api/maps/${mapId}/leaderboards`)
+      .send({
+        leaderboardKey: "clear_entries_test",
+        name: "整榜清空测试",
+        scoreUpdateMode: "realtime_latest",
+      })
+      .expect(201);
+    const boardId = board.body.data.id;
+    const base = `/api/maps/${mapId}/leaderboards/${boardId}`;
+    const entries = Array.from({ length: 105 }, (_, index) => ({
+      uid: `clear-${String(index).padStart(3, "0")}`,
+      name: `清空玩家${index}`,
+      score: 105 - index,
+    }));
+    await request(app)
+      .post("/api/fq/leaderboards/clear_entries_test/entries")
+      .set("fq-map-key", gameToken)
+      .send({ entries })
+      .expect(200);
+    const before = await admin.get(`${base}/entries?limit=100`).expect(200);
+    expect(before.body.data.entries).toHaveLength(100);
+    expect(before.body.pagination.total).toBe(105);
+    const snapshot = await admin
+      .post(`${base}/publish`)
+      .send({ limit: 100 })
+      .expect(201);
+
+    await normalUser
+      .post(`${base}/entries/clear`)
+      .send({ confirm: true })
+      .expect(403);
+    await admin.post(`${base}/entries/clear`).send({}).expect(400);
+    await admin
+      .post(`/api/maps/${mapId + 100000}/leaderboards/${boardId}/entries/clear`)
+      .send({ confirm: true })
+      .expect(404);
+
+    const cleared = await admin
+      .post(`${base}/entries/clear`)
+      .send({ confirm: true })
+      .expect(200);
+    expect(cleared.body.data.count).toBe(105);
+    const liveAfterClear = await admin.get(`${base}/entries`).expect(200);
+    expect(liveAfterClear.body.data.entries).toEqual([]);
+    expect(liveAfterClear.body.pagination.total).toBe(0);
+    const history = await admin
+      .get(`${base}/entries?snapshotId=${snapshot.body.data.id}&limit=100`)
+      .expect(200);
+    expect(history.body.data.entries).toHaveLength(100);
+    const collections = await query(
+      "SELECT count(*)::int AS count FROM leaderboard_daily_collections WHERE leaderboard_id=$1",
+      [boardId],
+    );
+    expect(collections.rows[0].count).toBe(105);
+    const audit = await query(
+      "SELECT details FROM audit_logs WHERE action='leaderboard.entries.clear' AND map_id=$1 AND resource_id=$2",
+      [mapId, String(boardId)],
+    );
+    expect(audit.rows).toHaveLength(1);
+    expect(audit.rows[0].details).toEqual({ count: 105 });
+
+    await request(app)
+      .post("/api/fq/leaderboards/clear_entries_test/entries")
+      .set("fq-map-key", gameToken)
+      .send({ entries: [entries[0]] })
+      .expect(200);
+    expect(
+      (await admin.get(`${base}/entries`).expect(200)).body.data.entries,
+    ).toHaveLength(1);
+    await admin.delete(base).expect(200);
+  });
+
   it("排行榜大整数边界精确入库、排序和发布，越界拒绝整批", async () => {
     const created = await admin
       .post(`/api/maps/${mapId}/leaderboards`)
