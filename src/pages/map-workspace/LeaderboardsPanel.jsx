@@ -15,7 +15,11 @@ import {
   useConfirm,
   useToast,
 } from "../../components/ui";
-import { formatDate, formatNumber } from "../../utils/format";
+import {
+  formatDate,
+  formatLeaderboardScore,
+  formatNumber,
+} from "../../utils/format";
 
 export default function LeaderboardsPanel({ mapId, can }) {
   const [viewParams, setViewParams] = useSearchParams();
@@ -700,7 +704,9 @@ export default function LeaderboardsPanel({ mapId, can }) {
                           </td>
                           <td>{entry.gameLevel || "—"}</td>
                           <td>
-                            <strong>{formatNumber(entry.score)}</strong>
+                            <strong title={String(entry.score)}>
+                              {formatLeaderboardScore(entry.score)}
+                            </strong>
                           </td>
                           <td>{formatNumber(entry.gameCount)}</td>
                           <td className="muted-cell">
