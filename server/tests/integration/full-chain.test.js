@@ -817,6 +817,73 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(200);
   });
 
+  it("玩家列表按正常和三类封禁状态在服务端筛选", async () => {
+    const rows = [
+      { uid: "filter-scope-normal", name: "筛选正常" },
+      { uid: "filter-scope-item", name: "筛选物品", itemBan: true },
+      { uid: "filter-scope-data", name: "筛选存档", dataBan: true },
+      { uid: "filter-scope-rank", name: "筛选榜单", rankBan: true },
+      {
+        uid: "filter-scope-overlap",
+        name: "筛选重叠",
+        itemBan: true,
+        rankBan: true,
+      },
+    ];
+    try {
+      for (const row of rows) {
+        await admin.post(`/api/maps/${mapId}/players`).send(row).expect(201);
+      }
+
+      const all = await admin
+        .get(`/api/maps/${mapId}/players?q=filter-scope&limit=100`)
+        .expect(200);
+      expect(all.body.pagination.total).toBe(5);
+
+      const normal = await admin
+        .get(
+          `/api/maps/${mapId}/players?q=filter-scope&banStatus=normal&limit=100`,
+        )
+        .expect(200);
+      expect(normal.body.data.map((player) => player.uid)).toEqual([
+        "filter-scope-normal",
+      ]);
+
+      const item = await admin
+        .get(`/api/maps/${mapId}/players?q=filter-scope&banStatus=item&limit=1`)
+        .expect(200);
+      expect(item.body.data).toHaveLength(1);
+      expect(item.body.pagination.total).toBe(2);
+
+      const data = await admin
+        .get(
+          `/api/maps/${mapId}/players?q=filter-scope&banStatus=data&limit=100`,
+        )
+        .expect(200);
+      expect(data.body.data.map((player) => player.uid)).toEqual([
+        "filter-scope-data",
+      ]);
+
+      const rank = await admin
+        .get(
+          `/api/maps/${mapId}/players?q=filter-scope&banStatus=rank&limit=100`,
+        )
+        .expect(200);
+      expect(new Set(rank.body.data.map((player) => player.uid))).toEqual(
+        new Set(["filter-scope-rank", "filter-scope-overlap"]),
+      );
+
+      await admin
+        .get(`/api/maps/${mapId}/players?banStatus=invalid`)
+        .expect(400);
+    } finally {
+      await query("DELETE FROM players WHERE map_id=$1 AND uid LIKE $2", [
+        mapId,
+        "filter-scope-%",
+      ]);
+    }
+  });
+
   it("FQ 存档支持首次读取、版本写入、幂等重放、冲突保护和存档封禁", async () => {
     const empty = await request(app)
       .post("/api/fq/bootstrap")
