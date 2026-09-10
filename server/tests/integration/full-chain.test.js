@@ -817,6 +817,73 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(200);
   });
 
+  it("玩家列表按正常和三类封禁状态在服务端筛选", async () => {
+    const rows = [
+      { uid: "filter-scope-normal", name: "筛选正常" },
+      { uid: "filter-scope-item", name: "筛选物品", itemBan: true },
+      { uid: "filter-scope-data", name: "筛选存档", dataBan: true },
+      { uid: "filter-scope-rank", name: "筛选榜单", rankBan: true },
+      {
+        uid: "filter-scope-overlap",
+        name: "筛选重叠",
+        itemBan: true,
+        rankBan: true,
+      },
+    ];
+    try {
+      for (const row of rows) {
+        await admin.post(`/api/maps/${mapId}/players`).send(row).expect(201);
+      }
+
+      const all = await admin
+        .get(`/api/maps/${mapId}/players?q=filter-scope&limit=100`)
+        .expect(200);
+      expect(all.body.pagination.total).toBe(5);
+
+      const normal = await admin
+        .get(
+          `/api/maps/${mapId}/players?q=filter-scope&banStatus=normal&limit=100`,
+        )
+        .expect(200);
+      expect(normal.body.data.map((player) => player.uid)).toEqual([
+        "filter-scope-normal",
+      ]);
+
+      const item = await admin
+        .get(`/api/maps/${mapId}/players?q=filter-scope&banStatus=item&limit=1`)
+        .expect(200);
+      expect(item.body.data).toHaveLength(1);
+      expect(item.body.pagination.total).toBe(2);
+
+      const data = await admin
+        .get(
+          `/api/maps/${mapId}/players?q=filter-scope&banStatus=data&limit=100`,
+        )
+        .expect(200);
+      expect(data.body.data.map((player) => player.uid)).toEqual([
+        "filter-scope-data",
+      ]);
+
+      const rank = await admin
+        .get(
+          `/api/maps/${mapId}/players?q=filter-scope&banStatus=rank&limit=100`,
+        )
+        .expect(200);
+      expect(new Set(rank.body.data.map((player) => player.uid))).toEqual(
+        new Set(["filter-scope-rank", "filter-scope-overlap"]),
+      );
+
+      await admin
+        .get(`/api/maps/${mapId}/players?banStatus=invalid`)
+        .expect(400);
+    } finally {
+      await query("DELETE FROM players WHERE map_id=$1 AND uid LIKE $2", [
+        mapId,
+        "filter-scope-%",
+      ]);
+    }
+  });
+
   it("FQ 存档支持首次读取、版本写入、幂等重放、冲突保护和存档封禁", async () => {
     const empty = await request(app)
       .post("/api/fq/bootstrap")
@@ -1771,6 +1838,80 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     await admin
       .delete(`/api/maps/${mapId}/leaderboards/${otherBoard.body.data.id}`)
       .expect(200);
+  });
+
+  it("排行榜整榜清空会删除全部实时候选并保留快照与采集事实", async () => {
+    const board = await admin
+      .post(`/api/maps/${mapId}/leaderboards`)
+      .send({
+        leaderboardKey: "clear_entries_test",
+        name: "整榜清空测试",
+        scoreUpdateMode: "realtime_latest",
+      })
+      .expect(201);
+    const boardId = board.body.data.id;
+    const base = `/api/maps/${mapId}/leaderboards/${boardId}`;
+    const entries = Array.from({ length: 105 }, (_, index) => ({
+      uid: `clear-${String(index).padStart(3, "0")}`,
+      name: `清空玩家${index}`,
+      score: 105 - index,
+    }));
+    await request(app)
+      .post("/api/fq/leaderboards/clear_entries_test/entries")
+      .set("fq-map-key", gameToken)
+      .send({ entries })
+      .expect(200);
+    const before = await admin.get(`${base}/entries?limit=100`).expect(200);
+    expect(before.body.data.entries).toHaveLength(100);
+    expect(before.body.pagination.total).toBe(105);
+    const snapshot = await admin
+      .post(`${base}/publish`)
+      .send({ limit: 100 })
+      .expect(201);
+
+    await normalUser
+      .post(`${base}/entries/clear`)
+      .send({ confirm: true })
+      .expect(403);
+    await admin.post(`${base}/entries/clear`).send({}).expect(400);
+    await admin
+      .post(`/api/maps/${mapId + 100000}/leaderboards/${boardId}/entries/clear`)
+      .send({ confirm: true })
+      .expect(404);
+
+    const cleared = await admin
+      .post(`${base}/entries/clear`)
+      .send({ confirm: true })
+      .expect(200);
+    expect(cleared.body.data.count).toBe(105);
+    const liveAfterClear = await admin.get(`${base}/entries`).expect(200);
+    expect(liveAfterClear.body.data.entries).toEqual([]);
+    expect(liveAfterClear.body.pagination.total).toBe(0);
+    const history = await admin
+      .get(`${base}/entries?snapshotId=${snapshot.body.data.id}&limit=100`)
+      .expect(200);
+    expect(history.body.data.entries).toHaveLength(100);
+    const collections = await query(
+      "SELECT count(*)::int AS count FROM leaderboard_daily_collections WHERE leaderboard_id=$1",
+      [boardId],
+    );
+    expect(collections.rows[0].count).toBe(105);
+    const audit = await query(
+      "SELECT details FROM audit_logs WHERE action='leaderboard.entries.clear' AND map_id=$1 AND resource_id=$2",
+      [mapId, String(boardId)],
+    );
+    expect(audit.rows).toHaveLength(1);
+    expect(audit.rows[0].details).toEqual({ count: 105 });
+
+    await request(app)
+      .post("/api/fq/leaderboards/clear_entries_test/entries")
+      .set("fq-map-key", gameToken)
+      .send({ entries: [entries[0]] })
+      .expect(200);
+    expect(
+      (await admin.get(`${base}/entries`).expect(200)).body.data.entries,
+    ).toHaveLength(1);
+    await admin.delete(base).expect(200);
   });
 
   it("排行榜大整数边界精确入库、排序和发布，越界拒绝整批", async () => {

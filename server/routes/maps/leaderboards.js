@@ -290,6 +290,40 @@ export function registerLeaderboardRoutes(router) {
   );
 
   router.post(
+    "/:mapId/leaderboards/:leaderboardId/entries/clear",
+    requireMapPermission(PERMISSIONS.LEADERBOARDS_MANAGE),
+    validate(z.object({ confirm: z.literal(true) })),
+    async (req, res) => {
+      const mapId = idSchema.parse(req.params.mapId);
+      const leaderboardId = idSchema.parse(req.params.leaderboardId);
+      const count = await transaction(async (client) => {
+        const leaderboard = await client.query(
+          "SELECT id FROM leaderboards WHERE id=$1 AND map_id=$2 FOR UPDATE",
+          [leaderboardId, mapId],
+        );
+        if (!leaderboard.rows[0]) throw notFound("排行榜不存在");
+        const deleted = await client.query(
+          "DELETE FROM leaderboard_entries WHERE leaderboard_id=$1",
+          [leaderboardId],
+        );
+        await writeAudit(
+          req,
+          {
+            action: "leaderboard.entries.clear",
+            resourceType: "leaderboard",
+            resourceId: leaderboardId,
+            mapId,
+            details: { count: deleted.rowCount },
+          },
+          client,
+        );
+        return deleted.rowCount;
+      });
+      res.json({ success: true, data: { count } });
+    },
+  );
+
+  router.post(
     "/:mapId/leaderboards/:leaderboardId/entries/batch-delete",
     requireMapPermission(PERMISSIONS.LEADERBOARDS_MANAGE),
     validate(

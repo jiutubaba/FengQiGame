@@ -22,6 +22,14 @@ export function registerPlayerRoutes(router) {
         .enum(["asc", "desc"])
         .default("desc")
         .parse(req.query.sortDirection);
+      const banStatusResult = z
+        .enum(["normal", "item", "data", "rank"])
+        .optional()
+        .safeParse(req.query.banStatus);
+      if (!banStatusResult.success) {
+        throw new HttpError(400, "封禁状态不符合要求", "VALIDATION_ERROR");
+      }
+      const banStatus = banStatusResult.data;
       const sortColumn = sortBy === "level" ? "level" : "last_active_at";
       const sortSql = sortDirection === "asc" ? "ASC" : "DESC";
       const params = [mapId];
@@ -30,6 +38,13 @@ export function registerPlayerRoutes(router) {
         params.push(`%${q}%`);
         where += ` AND (p.uid ILIKE $${params.length} OR p.name ILIKE $${params.length})`;
       }
+      const banWhere = {
+        normal: "p.item_ban=FALSE AND p.data_ban=FALSE AND p.rank_ban=FALSE",
+        item: "p.item_ban=TRUE",
+        data: "p.data_ban=TRUE",
+        rank: "p.rank_ban=TRUE",
+      }[banStatus];
+      if (banWhere) where += ` AND ${banWhere}`;
       const count = await query(
         `SELECT COUNT(*)::int AS count FROM players p WHERE ${where}`,
         params,

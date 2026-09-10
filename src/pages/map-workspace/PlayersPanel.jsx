@@ -27,12 +27,23 @@ import {
 import { formatDate, formatNumber } from "../../utils/format";
 import PaginationControls from "./PaginationControls";
 
+const banStatusLabels = {
+  normal: "正常",
+  item: "物品封禁",
+  data: "存档封禁",
+  rank: "榜单封禁",
+};
+
 export default function PlayersPanel({ mapId, can }) {
   const [viewParams, setViewParams] = useSearchParams();
   const [players, setPlayers] = useState([]),
     [messages, setMessages] = useState([]),
     [query, setQuery] = useState(() => viewParams.get("q") || ""),
     [loading, setLoading] = useState(true);
+  const [banStatus, setBanStatus] = useState(() => {
+    const value = viewParams.get("banStatus");
+    return Object.hasOwn(banStatusLabels, value) ? value : "";
+  });
   const [loadError, setLoadError] = useState("");
   const [messageLoadError, setMessageLoadError] = useState("");
   const [page, setPage] = useState(() => {
@@ -74,6 +85,7 @@ export default function PlayersPanel({ mapId, can }) {
         sortBy,
         sortDirection,
       });
+      if (banStatus) params.set("banStatus", banStatus);
       const result = await apiPage(`/api/maps/${mapId}/players?${params}`);
       if (requestId !== playerRequestId.current) return;
       const totalPages = Math.max(
@@ -91,7 +103,7 @@ export default function PlayersPanel({ mapId, can }) {
     } finally {
       if (requestId === playerRequestId.current) setLoading(false);
     }
-  }, [mapId, page, query, sortBy, sortDirection, toast]);
+  }, [banStatus, mapId, page, query, sortBy, sortDirection, toast]);
   const loadMessages = useCallback(async () => {
     const requestId = ++messageRequestId.current;
     setMessageLoadError("");
@@ -115,6 +127,7 @@ export default function PlayersPanel({ mapId, can }) {
     setSelected([]);
     if (mapChanged) {
       setQuery("");
+      setBanStatus("");
       setPage(1);
       setSortBy("lastActiveAt");
       setSortDirection("desc");
@@ -125,11 +138,12 @@ export default function PlayersPanel({ mapId, can }) {
   useEffect(() => {
     const next = new URLSearchParams();
     if (query.trim()) next.set("q", query.trim());
+    if (banStatus) next.set("banStatus", banStatus);
     if (page > 1) next.set("page", String(page));
     if (sortBy !== "lastActiveAt") next.set("sort", sortBy);
     if (sortDirection !== "desc") next.set("direction", sortDirection);
     setViewParams(next, { replace: true });
-  }, [page, query, setViewParams, sortBy, sortDirection]);
+  }, [banStatus, page, query, setViewParams, sortBy, sortDirection]);
   useEffect(() => {
     const timer = setTimeout(loadPlayers, 200);
     return () => {
@@ -220,18 +234,37 @@ export default function PlayersPanel({ mapId, can }) {
   return (
     <>
       <div className="module-toolbar">
-        <div className="search-box">
-          <Search size={16} />
-          <input
-            value={query}
+        <div className="section-actions filter-actions">
+          <div className="search-box">
+            <Search size={16} />
+            <input
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(1);
+                setSelected([]);
+              }}
+              placeholder="玩家 UID 或玩家名"
+              aria-label="搜索玩家 UID 或玩家名"
+            />
+          </div>
+          <select
+            className="input status-filter"
+            value={banStatus}
+            aria-label="按玩家封禁状态筛选"
             onChange={(event) => {
-              setQuery(event.target.value);
+              setBanStatus(event.target.value);
               setPage(1);
               setSelected([]);
             }}
-            placeholder="玩家 UID 或玩家名"
-            aria-label="搜索玩家 UID 或玩家名"
-          />
+          >
+            <option value="">全部状态</option>
+            {Object.entries(banStatusLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="section-actions">
           {manageable && (
@@ -268,6 +301,7 @@ export default function PlayersPanel({ mapId, can }) {
       <FilterSummary
         items={[
           ...(query.trim() ? [`搜索：${query.trim()}`] : []),
+          `状态：${banStatus ? banStatusLabels[banStatus] : "全部状态"}`,
           `排序：${sortBy === "level" ? "等级" : "最后活跃"} · ${sortDirection === "asc" ? "升序" : "降序"}`,
           ...(selected.length ? [`已选 ${selected.length} 位`] : []),
         ]}
@@ -278,11 +312,13 @@ export default function PlayersPanel({ mapId, can }) {
         }
         onClear={
           query.trim() ||
+          banStatus ||
           selected.length ||
           sortBy !== "lastActiveAt" ||
           sortDirection !== "desc"
             ? () => {
                 setQuery("");
+                setBanStatus("");
                 setPage(1);
                 setSortBy("lastActiveAt");
                 setSortDirection("desc");
