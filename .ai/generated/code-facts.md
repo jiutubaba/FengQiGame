@@ -212,6 +212,10 @@
 - 管理员运维、审计、清理、凭据停用和地图归档完整生效
 - 永久删除地图经过双重服务端校验并清除数据库与上传目录
 
+### `server/tests/unit/format.test.js`
+
+- 排行榜数值沿用地图 math.format 的单位门槛并固定保留两位小数
+
 ### `server/tests/unit/logging.test.js`
 
 - 请求凭据和响应 Set-Cookie 不写入日志
