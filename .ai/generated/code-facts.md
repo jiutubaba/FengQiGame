@@ -214,7 +214,7 @@
 
 ### `server/tests/unit/format.test.js`
 
-- 排行榜数值沿用地图 math.format 的单位门槛并固定保留两位小数
+- 排行榜整数不补小数，单位换算与非整数保留两位小数
 
 ### `server/tests/unit/logging.test.js`
 
