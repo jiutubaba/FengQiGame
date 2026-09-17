@@ -6,9 +6,23 @@ import { hashToken } from "../lib/security.js";
 import { loadApiKey, requireApiPermission } from "../middleware/auth.js";
 import { validate } from "../middleware/validation.js";
 import { recordMetricSessionEvent } from "../services/metrics.js";
+import {
+  analyticsEventSchema,
+  recordAnalyticsEvent,
+} from "../services/analytics.js";
 
 const router = Router();
 router.use(loadApiKey);
+
+router.post(
+  "/analytics/events",
+  requireApiPermission("game.metrics.write"),
+  validate(analyticsEventSchema),
+  async (req, res) => {
+    await recordAnalyticsEvent(req.apiKey.map_id, req.body);
+    res.json({ success: true });
+  },
+);
 
 const playerUidSchema = z.string().trim().min(1).max(128);
 const metricSessionSchema = z.object({

@@ -286,6 +286,9 @@ export function registerMessageRoutes(router) {
 function playerUidLockSql(alias) {
   return `(
     ${alias}.last_active_at IS NOT NULL
+    OR EXISTS (SELECT 1 FROM analytics_attempts aa WHERE aa.map_id=${alias}.map_id AND aa.uids @> ARRAY[${alias}.uid]::text[])
+    OR EXISTS (SELECT 1 FROM analytics_choices ac WHERE ac.map_id=${alias}.map_id AND ac.player_uid=${alias}.uid)
+    OR EXISTS (SELECT 1 FROM analytics_difficulty_runs ad WHERE ad.map_id=${alias}.map_id AND ad.player_uid=${alias}.uid)
     OR EXISTS (SELECT 1 FROM player_messages pm WHERE pm.map_id=${alias}.map_id AND pm.player_id=${alias}.id)
     OR EXISTS (SELECT 1 FROM gift_entitlements ge WHERE ge.map_id=${alias}.map_id AND ge.player_id=${alias}.id)
     OR EXISTS (SELECT 1 FROM fq_player_archives fa WHERE fa.map_id=${alias}.map_id AND fa.player_uid=${alias}.uid)

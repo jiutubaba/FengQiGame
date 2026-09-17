@@ -112,7 +112,7 @@ export function registerMapLifecycleRoutes(router) {
       where += " AND 'map.view'=ANY(mp.permissions)";
     }
     const result = await query(
-      `SELECT m.id,m.name,m.description,m.status,m.platform,m.cover_path,m.created_at,m.updated_at,
+      `SELECT m.id,m.name,m.description,m.status,m.platform,m.cover_path,m.created_at,m.updated_at,m.analytics_features,m.analytics_revision,
               u.display_name AS owner_name,${accessSelect},
               (SELECT COUNT(*)::int FROM players p WHERE p.map_id=m.id) AS player_count,
               COALESCE(
@@ -588,14 +588,15 @@ export function registerRuntimeRoutes(router) {
     ),
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
-      const mapResult = await query("SELECT name FROM maps WHERE id=$1", [
-        mapId,
-      ]);
-      const map = mapResult.rows[0];
-      if (!map) throw notFound("地图不存在");
-      if (req.body.confirmName !== map.name)
-        throw conflict("地图名称确认不匹配");
       const counts = await transaction(async (client) => {
+        const mapResult = await client.query(
+          "SELECT name FROM maps WHERE id=$1 FOR UPDATE",
+          [mapId],
+        );
+        const map = mapResult.rows[0];
+        if (!map) throw notFound("地图不存在");
+        if (req.body.confirmName !== map.name)
+          throw conflict("地图名称确认不匹配");
         const messages = await client.query(
           "DELETE FROM player_messages WHERE map_id=$1",
           [mapId],
@@ -643,6 +644,21 @@ export function registerRuntimeRoutes(router) {
           "DELETE FROM map_metrics WHERE map_id=$1",
           [mapId],
         );
+        const analyticsDifficultyRuns = await client.query(
+          "DELETE FROM analytics_difficulty_runs WHERE map_id=$1",
+          [mapId],
+        );
+        const analyticsAttempts = await client.query(
+          "DELETE FROM analytics_attempts WHERE map_id=$1",
+          [mapId],
+        );
+        const analyticsChoices = await client.query(
+          "DELETE FROM analytics_choices WHERE map_id=$1",
+          [mapId],
+        );
+        await client.query("DELETE FROM analytics_events WHERE map_id=$1", [
+          mapId,
+        ]);
         const automaticMetricSessions = await client.query(
           "DELETE FROM fq_metric_sessions WHERE map_id=$1",
           [mapId],
@@ -663,6 +679,9 @@ export function registerRuntimeRoutes(router) {
           players: players.rowCount,
           logs: logs.rowCount,
           metrics: metrics.rowCount,
+          analyticsAttempts: analyticsAttempts.rowCount,
+          analyticsDifficultyRuns: analyticsDifficultyRuns.rowCount,
+          analyticsChoices: analyticsChoices.rowCount,
           automaticMetricSessions: automaticMetricSessions.rowCount,
         };
       });
@@ -690,6 +709,8 @@ function mapConfigData(row) {
 }
 function mapRow(row) {
   return {
+    analyticsFeatures: row.analytics_features || [],
+    analyticsRevision: row.analytics_revision || 0,
     id: Number(row.id),
     name: row.name,
     description: row.description || "",

@@ -8,6 +8,7 @@ import {
   InlineAlert,
 } from "../../components/ui";
 import { formatDate, formatNumber } from "../../utils/format";
+import { AnalyticsLinks } from "./AnalyticsPanel";
 
 const metricDefinitions = [
   {
@@ -136,7 +137,7 @@ function areAdjacentMetricDates(currentDate, previousDate) {
   );
 }
 
-export default function MetricsPanel({ mapId }) {
+export default function MetricsPanel({ mapId, map }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -248,6 +249,7 @@ export default function MetricsPanel({ mapId }) {
   };
   return (
     <>
+      <AnalyticsLinks map={map} mapId={mapId} />
       {loadError && (
         <InlineAlert
           tone="danger"

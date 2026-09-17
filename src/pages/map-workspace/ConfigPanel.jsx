@@ -25,6 +25,7 @@ import {
   preloadWorkspaceBytes,
 } from "../../../shared/preload-workspace.js";
 import PreloadWorkspace from "./PreloadWorkspace";
+import AnalyticsFeatures from "./AnalyticsFeatures";
 import { PROJECT_PLATFORMS } from "../../utils/projects";
 
 const configSections = [
@@ -46,6 +47,7 @@ export default function ConfigPanel({
   refreshMaps,
 }) {
   const [active, setActive] = useState("basic");
+  const [featuresChanged, setFeaturesChanged] = useState(false);
   const [config, setConfig] = useState(null);
   const [mapForm, setMapForm] = useState({
     name: map.name,
@@ -90,7 +92,7 @@ export default function ConfigPanel({
     load();
   }, [load]);
   useEffect(() => {
-    if (!config || active === "basic") return;
+    if (!config || active === "basic" || active === "features") return;
     if (active === "preloadCode") {
       setPreloadWorkspace(configPreloadWorkspace(config));
     } else {
@@ -124,7 +126,11 @@ export default function ConfigPanel({
   const selectSection = async (nextSection) => {
     if (nextSection === active) return;
     if (
-      (active === "basic" ? mapChanged : sectionChanged) &&
+      (active === "basic"
+        ? mapChanged
+        : active === "features"
+          ? featuresChanged
+          : sectionChanged) &&
       !(await confirmAction({
         title: "放弃未保存修改",
         description: "当前板块还有未保存修改，确认切换吗？",
@@ -286,9 +292,24 @@ export default function ConfigPanel({
             {label}
           </button>
         ))}
+        <button
+          className={active === "features" ? "active" : ""}
+          onClick={() => selectSection("features")}
+        >
+          <Settings2 size={16} />
+          开放功能
+        </button>
       </aside>
       <section className="config-surface">
-        {active === "basic" ? (
+        {active === "features" ? (
+          <AnalyticsFeatures
+            map={map}
+            mapId={mapId}
+            isAdmin={isAdmin}
+            refreshMap={refreshMap}
+            onDirtyChange={setFeaturesChanged}
+          />
+        ) : active === "basic" ? (
           <>
             <div className="config-surface-head">
               <div>
@@ -563,7 +584,7 @@ export default function ConfigPanel({
           />
         )}
         <p className="warning-note">
-          将删除当前地图的玩家、礼包资格、消息、日志、指标、排行榜实时数据与快照、风控事件，并把埋点次数归零。排行榜定义、风控规则、地图配置和文件不会删除，操作会写入审计日志。
+          将删除当前地图的玩家、礼包资格、消息、日志、指标、玩法分析记录、排行榜实时数据与快照、风控事件，并把埋点次数归零。排行榜定义、风控规则、地图配置、开放功能和文件不会删除，操作会写入审计日志。
         </p>
         <Field label={`输入地图名称“${map.name}”确认`}>
           <input

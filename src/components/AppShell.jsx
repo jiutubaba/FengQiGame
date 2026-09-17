@@ -33,10 +33,18 @@ import {
   X,
 } from "lucide-react";
 import { api } from "../api/client";
+import { ANALYTICS_FEATURES } from "../../shared/analytics.js";
 import { useAuth } from "../auth/AuthContext";
 import { projectPlatform } from "../utils/projects";
 
 const workspaceNavigation = [
+  ...ANALYTICS_FEATURES.map(({ key, name }) => ({
+    id: `analysis-${key}`,
+    label: name,
+    icon: Activity,
+    permission: "metrics.view",
+    feature: key,
+  })),
   {
     id: "metrics",
     label: "项目数据",
@@ -90,7 +98,13 @@ const workspaceGroups = [
   {
     id: "insights",
     label: "数据监控",
-    items: ["metrics", "leaderboards", "risk", "logs"],
+    items: [
+      "metrics",
+      ...ANALYTICS_FEATURES.map(({ key }) => `analysis-${key}`),
+      "leaderboards",
+      "risk",
+      "logs",
+    ],
   },
   {
     id: "operations",
@@ -153,7 +167,9 @@ export default function AppShell() {
   );
   const permissions = selectedMap?.permissions || [];
   const visibleWorkspaceNavigation = workspaceNavigation.filter(
-    (item) => isAdmin || permissions.includes(item.permission),
+    (item) =>
+      (isAdmin || permissions.includes(item.permission)) &&
+      (!item.feature || selectedMap?.analyticsFeatures?.includes(item.feature)),
   );
   const visibleWorkspaceGroups = workspaceGroups
     .map((group) => ({
