@@ -149,6 +149,15 @@
       "guards": []
     },
     {
+      "method": "POST",
+      "path": "/api/fq/analytics/events",
+      "source": "server/routes/game.js",
+      "guards": [
+        "api:game.metrics.write",
+        "loadApiKey"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/fq/archives/global",
       "source": "server/routes/game.js",
@@ -341,6 +350,23 @@
       "source": "server/routes/maps/map-lifecycle.js",
       "guards": [
         "map:MAP_EDIT"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/maps/:mapId/analytics-features",
+      "source": "server/routes/maps/analytics.js",
+      "guards": [
+        "map:MAP_VIEW",
+        "requireAdmin"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/maps/:mapId/analytics/:feature",
+      "source": "server/routes/maps/analytics.js",
+      "guards": [
+        "map:METRICS_VIEW"
       ]
     },
     {
@@ -1001,6 +1027,7 @@
     "lottery.create",
     "lottery.delete",
     "lottery.draw",
+    "map.analytics.configure",
     "map.archive",
     "map.config.update",
     "map.create",
@@ -1095,6 +1122,14 @@
       "alteredTables": [
         "leaderboards"
       ]
+    },
+    {
+      "file": "server/db/migrations/006_optional_analytics.sql",
+      "sha256": "d67ab9f1c7a7bfd9d9cdf01c3fca1006400ea90adacddc5ebb4f11deddeb4894",
+      "tables": [],
+      "alteredTables": [
+        "maps"
+      ]
     }
   ],
   "environmentVariables": {
@@ -1152,6 +1187,8 @@
         "客户端上报日志和指标并进入后台查询链路",
         "自动指标会话幂等、隔离、在线状态及 11 项公式均按北京时间聚合",
         "地图局部编辑、地图配置和系统设置均能持久化",
+        "可选分析默认关闭，管理员配置带并发校验，普通用户与客户端不能绕过开关",
+        "选择偏好记录候选曝光与选择，挑战和阶段区分明确退出、失败与未结算",
         "主播和埋点支持增改查，游戏客户端可上报埋点",
         "排行榜四种采集策略支持升降序、同日重报、策略切换和快照隔离",
         "排行榜批量移除校验权限和归属，原子删除且保留快照与采集事实",
@@ -1266,6 +1303,10 @@
       "lines": 5
     },
     {
+      "file": "server/db/migrations/006_optional_analytics.sql",
+      "lines": 47
+    },
+    {
       "file": "server/index.js",
       "lines": 52
     },
@@ -1303,11 +1344,15 @@
     },
     {
       "file": "server/routes/game.js",
-      "lines": 929
+      "lines": 943
     },
     {
       "file": "server/routes/maps.js",
-      "lines": 31
+      "lines": 33
+    },
+    {
+      "file": "server/routes/maps/analytics.js",
+      "lines": 96
     },
     {
       "file": "server/routes/maps/api-keys.js",
@@ -1331,11 +1376,11 @@
     },
     {
       "file": "server/routes/maps/map-lifecycle.js",
-      "lines": 767
+      "lines": 783
     },
     {
       "file": "server/routes/maps/players.js",
-      "lines": 348
+      "lines": 350
     },
     {
       "file": "server/routes/maps/resources.js",
@@ -1370,6 +1415,10 @@
       "lines": 69
     },
     {
+      "file": "server/services/analytics.js",
+      "lines": 239
+    },
+    {
       "file": "server/services/map-deletion.js",
       "lines": 146
     },
@@ -1383,7 +1432,7 @@
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 3074
+      "lines": 3383
     },
     {
       "file": "server/tests/unit/format.test.js",
@@ -1423,7 +1472,7 @@
     },
     {
       "file": "src/components/AppShell.jsx",
-      "lines": 534
+      "lines": 550
     },
     {
       "file": "src/components/Galaxy.jsx",
@@ -1462,8 +1511,16 @@
       "lines": 176
     },
     {
+      "file": "src/pages/map-workspace/AnalyticsFeatures.jsx",
+      "lines": 105
+    },
+    {
+      "file": "src/pages/map-workspace/AnalyticsPanel.jsx",
+      "lines": 349
+    },
+    {
       "file": "src/pages/map-workspace/ConfigPanel.jsx",
-      "lines": 654
+      "lines": 675
     },
     {
       "file": "src/pages/map-workspace/FeedbackPanel.jsx",
@@ -1479,7 +1536,7 @@
     },
     {
       "file": "src/pages/map-workspace/MetricsPanel.jsx",
-      "lines": 503
+      "lines": 505
     },
     {
       "file": "src/pages/map-workspace/PaginationControls.jsx",
@@ -1507,7 +1564,7 @@
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 192
+      "lines": 226
     },
     {
       "file": "src/pages/ProfilePage.jsx",
@@ -1519,7 +1576,7 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 7316
+      "lines": 7456
     },
     {
       "file": "src/utils/format.js",

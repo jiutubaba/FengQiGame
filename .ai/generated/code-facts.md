@@ -4,10 +4,10 @@
 
 - 项目：`fengqi-game-admin`
 - 版本：`1.0.0`
-- API 路由：104
+- API 路由：107
 - 地图权限：17
 - 客户端权限：11
-- 数据库迁移：5
+- 数据库迁移：6
 
 ## 地图权限
 
@@ -64,6 +64,7 @@
 | POST | `/api/auth/password` | requireAuth | `server/routes/auth.js` |
 | PATCH | `/api/auth/profile` | requireAuth | `server/routes/auth.js` |
 | POST | `/api/auth/register` | public | `server/routes/auth.js` |
+| POST | `/api/fq/analytics/events` | api:game.metrics.write, loadApiKey | `server/routes/game.js` |
 | GET | `/api/fq/archives/global` | api:game.archives.read, loadApiKey | `server/routes/game.js` |
 | POST | `/api/fq/archives/global/save` | api:game.archives.write, loadApiKey | `server/routes/game.js` |
 | GET | `/api/fq/archives/players/:uid` | api:game.archives.read, loadApiKey | `server/routes/game.js` |
@@ -86,6 +87,8 @@
 | DELETE | `/api/maps/:mapId` | requireAdmin, requireAuth | `server/routes/maps/map-lifecycle.js` |
 | GET | `/api/maps/:mapId` | map:MAP_VIEW | `server/routes/maps/map-lifecycle.js` |
 | PATCH | `/api/maps/:mapId` | map:MAP_EDIT | `server/routes/maps/map-lifecycle.js` |
+| PUT | `/api/maps/:mapId/analytics-features` | map:MAP_VIEW, requireAdmin | `server/routes/maps/analytics.js` |
+| GET | `/api/maps/:mapId/analytics/:feature` | map:METRICS_VIEW | `server/routes/maps/analytics.js` |
 | GET | `/api/maps/:mapId/anchors` | map:ANCHORS_MANAGE | `server/routes/maps/resources.js` |
 | POST | `/api/maps/:mapId/anchors` | map:ANCHORS_MANAGE | `server/routes/maps/resources.js` |
 | DELETE | `/api/maps/:mapId/anchors/:resourceId` | map:ANCHORS_MANAGE | `server/routes/maps/resources.js` |
@@ -178,6 +181,7 @@
 | `server/db/migrations/003_project_platforms_and_feedback.sql` | feedback_responses | maps | `6d73818d778c` |
 | `server/db/migrations/004_feedback_management.sql` | — | feedback_responses | `620307cbf477` |
 | `server/db/migrations/005_leaderboard_realtime_modes.sql` | — | leaderboards | `71869d9f0068` |
+| `server/db/migrations/006_optional_analytics.sql` | — | maps | `d67ab9f1c7a7` |
 
 ## 环境变量
 
@@ -199,6 +203,8 @@
 - 客户端上报日志和指标并进入后台查询链路
 - 自动指标会话幂等、隔离、在线状态及 11 项公式均按北京时间聚合
 - 地图局部编辑、地图配置和系统设置均能持久化
+- 可选分析默认关闭，管理员配置带并发校验，普通用户与客户端不能绕过开关
+- 选择偏好记录候选曝光与选择，挑战和阶段区分明确退出、失败与未结算
 - 主播和埋点支持增改查，游戏客户端可上报埋点
 - 排行榜四种采集策略支持升降序、同日重报、策略切换和快照隔离
 - 排行榜批量移除校验权限和归属，原子删除且保留快照与采集事实
@@ -292,6 +298,7 @@
 - `lottery.create`
 - `lottery.delete`
 - `lottery.draw`
+- `map.analytics.configure`
 - `map.archive`
 - `map.config.update`
 - `map.create`

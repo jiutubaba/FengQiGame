@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { useNavigate, useOutletContext, useParams } from "react-router";
 import { ShieldAlert } from "lucide-react";
 import { api } from "../api/client";
+import { ANALYTICS_FEATURES } from "../../shared/analytics.js";
 import { useAuth } from "../auth/AuthContext";
 import {
   Button,
@@ -12,6 +13,7 @@ import {
 } from "../components/ui";
 
 const MetricsPanel = lazy(() => import("./map-workspace/MetricsPanel"));
+const AnalyticsPanel = lazy(() => import("./map-workspace/AnalyticsPanel"));
 const ConfigPanel = lazy(() => import("./map-workspace/ConfigPanel"));
 const PlayersPanel = lazy(() => import("./map-workspace/PlayersPanel"));
 const LeaderboardsPanel = lazy(
@@ -42,6 +44,12 @@ const ApiKeysPanel = lazy(() =>
 );
 
 const sectionTitles = {
+  ...Object.fromEntries(
+    ANALYTICS_FEATURES.map(({ key, name, description }) => [
+      `analysis-${key}`,
+      [name, description, "metrics.view"],
+    ]),
+  ),
   metrics: ["项目数据", "查看游戏客户端上报的真实指标。", "metrics.view"],
   config: ["项目配置", "维护项目基础信息与共享配置。", "map.view"],
   players: [
@@ -126,7 +134,23 @@ export default function MapWorkspace() {
     );
   if (!map && loadError)
     return <ErrorState description={loadError} onRetry={loadMap} />;
-  if (!map) return <div className="loading-state">正在读取项目与权限…</div>;
+  if (!map || map.id !== Number(mapId))
+    return <div className="loading-state">正在读取项目与权限…</div>;
+  const analysisFeature = ANALYTICS_FEATURES.find(
+    ({ key }) => section === `analysis-${key}`,
+  );
+  if (analysisFeature && !map.analyticsFeatures?.includes(analysisFeature.key))
+    return (
+      <EmptyState
+        title="此功能尚未开放"
+        description="请由管理员在项目配置的开放功能中启用。"
+        action={
+          <Button onClick={() => navigate(`/maps/${mapId}/metrics`)}>
+            返回项目数据
+          </Button>
+        }
+      />
+    );
   if (!allowed)
     return (
       <EmptyState
@@ -150,8 +174,18 @@ export default function MapWorkspace() {
     refreshMaps,
   };
   const panels = {
+    ...Object.fromEntries(
+      ANALYTICS_FEATURES.map(({ key }) => [
+        `analysis-${key}`,
+        <AnalyticsPanel
+          key={`${mapId}-${key}`}
+          {...panelProps}
+          feature={key}
+        />,
+      ]),
+    ),
     metrics: <MetricsPanel {...panelProps} />,
-    config: <ConfigPanel {...panelProps} />,
+    config: <ConfigPanel key={mapId} {...panelProps} />,
     players: <PlayersPanel {...panelProps} />,
     leaderboards: <LeaderboardsPanel {...panelProps} />,
     risk: <RiskPanel {...panelProps} />,

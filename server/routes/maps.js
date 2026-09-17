@@ -11,10 +11,12 @@ import { registerFeedbackRoutes } from "./maps/feedback.js";
 import { registerResourceRoutes } from "./maps/resources.js";
 import { registerFileRoutes } from "./maps/files.js";
 import { registerApiKeyRoutes } from "./maps/api-keys.js";
+import { registerAnalyticsRoutes } from "./maps/analytics.js";
 
 const router = Router();
 
 registerMapLifecycleRoutes(router);
+registerAnalyticsRoutes(router);
 registerPlayerRoutes(router);
 registerLeaderboardRoutes(router);
 registerRiskRoutes(router);

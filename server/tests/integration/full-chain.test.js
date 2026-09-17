@@ -1588,6 +1588,284 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(settings.body.data.maintenance).toBe(false);
   });
 
+  it("可选分析默认关闭，管理员配置带并发校验，普通用户与客户端不能绕过开关", async () => {
+    const map = (await admin.get(`/api/maps/${mapId}`).expect(200)).body.data;
+    expect(map.analyticsFeatures).toEqual([]);
+    const start = {
+      type: "start",
+      feature: "progression",
+      eventId: "analytics-start-1",
+      runId: "run-1",
+      objectKey: "level-1",
+      objectName: "关卡一",
+      version: "v1",
+      difficulty: "normal",
+      uids: ["analysis-a", "analysis-b"],
+    };
+    const post = (body) =>
+      request(app)
+        .post("/api/fq/analytics/events")
+        .set("fq-map-key", gameToken)
+        .send(body);
+    expect((await post(start).expect(403)).body.error.code).toBe(
+      "FEATURE_DISABLED",
+    );
+    await admin
+      .get(`/api/maps/${mapId}/analytics/progression?date=2026-09-17`)
+      .expect(403);
+    await normalUser
+      .put(`/api/maps/${mapId}/analytics-features`)
+      .send({ features: ["progression"], revision: 0 })
+      .expect(403);
+    await admin
+      .put(`/api/maps/${mapId}/analytics-features`)
+      .send({ features: ["unknown"], revision: 0 })
+      .expect(400);
+    await admin
+      .put(`/api/maps/${mapId}/analytics-features`)
+      .send({
+        features: ["progression", "choices", "challenges", "stages"],
+        revision: 0,
+      })
+      .expect(200);
+    await admin
+      .put(`/api/maps/${mapId}/analytics-features`)
+      .send({ features: [], revision: 0 })
+      .expect(409);
+    await post({ ...start, mapId: 999 }).expect(400);
+    await post({ ...start, uids: ["a", "a"] }).expect(400);
+    await Promise.all([post(start).expect(200), post(start).expect(200)]);
+    await post({ ...start, objectName: "改写" }).expect(409);
+    const end = {
+      type: "end",
+      feature: "progression",
+      eventId: "analytics-end-1",
+      runId: "run-1",
+      outcome: "success",
+      durationSeconds: 120,
+    };
+    await post({ ...end, runId: "missing" }).expect(409);
+    await post(end).expect(200);
+    await post(end).expect(200);
+    await post({ ...end, eventId: "another-end" }).expect(409);
+    await post({
+      ...start,
+      eventId: "analytics-start-2",
+      runId: "run-2",
+      uids: ["analysis-a"],
+    }).expect(200);
+    await post({
+      ...end,
+      eventId: "analytics-end-2",
+      runId: "run-2",
+      outcome: "failure",
+      durationSeconds: 60,
+      reason: "超时",
+    }).expect(200);
+    await post({
+      ...start,
+      eventId: "analytics-start-3",
+      runId: "run-3",
+      uids: ["analysis-c"],
+    }).expect(200);
+    await query(
+      "UPDATE analytics_attempts SET started_at='2026-09-16T16:00:00Z' WHERE map_id=$1 AND feature='progression'",
+      [mapId],
+    );
+    const stats = (
+      await admin
+        .get(
+          `/api/maps/${mapId}/analytics/progression?date=2026-09-17&version=v1&difficulty=normal`,
+        )
+        .expect(200)
+    ).body.data;
+    expect(stats.rows).toHaveLength(1);
+    expect(stats.rows[0]).toMatchObject({
+      attempts: 3,
+      users: 3,
+      successful_users: 2,
+      successes: 1,
+      failures: 1,
+      unresolved: 1,
+      median_seconds: 120,
+    });
+    expect(stats.reasons[0]).toMatchObject({ reason: "超时", count: 1 });
+    expect(
+      (
+        await admin
+          .get(`/api/maps/${mapId}/analytics/progression?date=2026-09-16`)
+          .expect(200)
+      ).body.data.rows,
+    ).toEqual([]);
+    expect(
+      (
+        await admin
+          .get(
+            `/api/maps/${mapId}/analytics/progression?date=2026-09-17&version=v2`,
+          )
+          .expect(200)
+      ).body.data.rows,
+    ).toEqual([]);
+    await admin
+      .get(`/api/maps/${mapId}/analytics/progression?date=2026-02-30`)
+      .expect(400);
+    await admin
+      .put(`/api/maps/${mapId}/analytics-features`)
+      .send({ features: [], revision: 1 })
+      .expect(200);
+    await post(start).expect(403);
+    await admin
+      .get(`/api/maps/${mapId}/analytics/progression?date=2026-09-17`)
+      .expect(403);
+    await admin
+      .put(`/api/maps/${mapId}/analytics-features`)
+      .send({
+        features: ["progression", "choices", "challenges", "stages"],
+        revision: 2,
+      })
+      .expect(200);
+    expect(
+      (
+        await admin
+          .get(`/api/maps/${mapId}/analytics/progression?date=2026-09-17`)
+          .expect(200)
+      ).body.data.rows[0].attempts,
+    ).toBe(3);
+  });
+
+  it("选择偏好记录候选曝光与选择，挑战和阶段区分明确退出、失败与未结算", async () => {
+    const post = (body) =>
+      request(app)
+        .post("/api/fq/analytics/events")
+        .set("fq-map-key", gameToken)
+        .send(body);
+    const choice = {
+      type: "choice",
+      feature: "choices",
+      eventId: "choice-1",
+      choiceId: "choice-1",
+      uid: "analysis-a",
+      objectKey: "equipment",
+      objectName: "装备选择",
+      version: "v1",
+      position: 1,
+      candidates: [
+        { key: "a", name: "装备甲" },
+        { key: "b", name: "装备乙" },
+      ],
+      selectedKey: "b",
+    };
+    await post({ ...choice, selectedKey: "c" }).expect(400);
+    await post({
+      ...choice,
+      candidates: [choice.candidates[0], choice.candidates[0]],
+    }).expect(400);
+    await post(choice).expect(200);
+    await post(choice).expect(200);
+    await post({
+      ...choice,
+      eventId: "choice-2",
+      choiceId: "choice-2",
+      selectedKey: null,
+    }).expect(200);
+    await post({
+      ...choice,
+      eventId: "choice-3",
+      choiceId: "choice-3",
+      position: 2,
+      selectedKey: "a",
+    }).expect(200);
+    await query(
+      "UPDATE analytics_choices SET created_at='2026-09-17T04:00:00Z' WHERE map_id=$1",
+      [mapId],
+    );
+    const stats = (
+      await admin
+        .get(`/api/maps/${mapId}/analytics/choices?date=2026-09-17`)
+        .expect(200)
+    ).body.data.rows;
+    expect(stats).toHaveLength(4);
+    expect(
+      stats.find((row) => row.position === 1 && row.candidate_key === "b"),
+    ).toMatchObject({
+      offered: 2,
+      selected: 1,
+      offered_users: 1,
+      selected_users: 1,
+    });
+    for (const feature of ["challenges", "stages"]) {
+      const start = {
+        type: "start",
+        feature,
+        eventId: `${feature}-start`,
+        runId: "generic-run",
+        objectKey: "target",
+        objectName: "通用目标",
+        version: "v1",
+        uids: ["analysis-a"],
+      };
+      await post(start).expect(200);
+      await post({
+        type: "end",
+        feature,
+        eventId: `${feature}-end`,
+        runId: "generic-run",
+        outcome: feature === "stages" ? "exit" : "failure",
+        durationSeconds: 80,
+        reason: "地图自定义原因",
+        remainingPercent: 25,
+      }).expect(200);
+      await query(
+        "UPDATE analytics_attempts SET started_at='2026-09-17T00:00:00Z' WHERE map_id=$1 AND feature=$2",
+        [mapId, feature],
+      );
+      const row = (
+        await admin
+          .get(`/api/maps/${mapId}/analytics/${feature}?date=2026-09-17`)
+          .expect(200)
+      ).body.data.rows[0];
+      expect(row.attempts).toBe(1);
+      expect(row.unresolved).toBe(0);
+      expect(feature === "stages" ? row.exits : row.failures).toBe(1);
+      if (feature === "challenges") expect(row.remaining_percent).toBe(25);
+    }
+    const isolated = (
+      await admin.post("/api/maps").send({ name: "分析隔离项目" }).expect(201)
+    ).body.data.id;
+    await admin
+      .put(`/api/maps/${isolated}/analytics-features`)
+      .send({ features: ["choices"], revision: 0 })
+      .expect(200);
+    expect(
+      (
+        await admin
+          .get(`/api/maps/${isolated}/analytics/choices?date=2026-09-17`)
+          .expect(200)
+      ).body.data.rows,
+    ).toEqual([]);
+    await normalUser
+      .get(`/api/maps/${isolated}/analytics/choices?date=2026-09-17`)
+      .expect(403);
+    const restricted = (
+      await admin
+        .post(`/api/maps/${isolated}/api-keys`)
+        .send({ name: "只读分析验收", permissions: ["game.archives.read"] })
+        .expect(201)
+    ).body.data;
+    await request(app)
+      .post("/api/fq/analytics/events")
+      .set("fq-map-key", restricted.token)
+      .send(choice)
+      .expect(403);
+    const audits = await query(
+      "SELECT details FROM audit_logs WHERE map_id=$1 AND action='map.analytics.configure'",
+      [mapId],
+    );
+    expect(audits.rows.length).toBe(3);
+    expect(JSON.stringify(audits.rows)).not.toContain("analysis-a");
+    await admin.delete(`/api/maps/${isolated}`).expect(200);
+  });
+
   it("主播和埋点支持增改查，游戏客户端可上报埋点", async () => {
     const anchor = await admin
       .post(`/api/maps/${mapId}/anchors`)
@@ -2723,11 +3001,19 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .expect(403);
     await admin.get("/api/system/status").expect(200);
     const audit = await admin.get("/api/system/audit?limit=100").expect(200);
-    expect(audit.body.data.some((item) => item.action === "lottery.draw")).toBe(
-      true,
-    );
+    const auditRows = [...audit.body.data];
+    for (let page = 2; (page - 1) * 100 < audit.body.pagination.total; page++) {
+      auditRows.push(
+        ...(
+          await admin
+            .get(`/api/system/audit?limit=100&page=${page}`)
+            .expect(200)
+        ).body.data,
+      );
+    }
+    expect(auditRows.some((item) => item.action === "lottery.draw")).toBe(true);
     expect(
-      audit.body.data.some((item) => item.action === "gift.entitlements.set"),
+      auditRows.some((item) => item.action === "gift.entitlements.set"),
     ).toBe(true);
     await admin
       .post(`/api/maps/${mapId}/runtime/clear`)
@@ -2741,6 +3027,26 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(cleared.body.data.logs).toBe(1);
     expect(cleared.body.data.metrics).toBe(1);
     expect(cleared.body.data.automaticMetricSessions).toBe(15);
+    expect(cleared.body.data.analyticsAttempts).toBe(5);
+    expect(cleared.body.data.analyticsChoices).toBe(3);
+    for (const table of [
+      "analytics_attempts",
+      "analytics_choices",
+      "analytics_events",
+    ]) {
+      expect(
+        (
+          await query(
+            `SELECT COUNT(*)::int AS count FROM ${table} WHERE map_id=$1`,
+            [mapId],
+          )
+        ).rows[0].count,
+      ).toBe(0);
+    }
+    expect(
+      (await admin.get(`/api/maps/${mapId}`).expect(200)).body.data
+        .analyticsFeatures,
+    ).toHaveLength(4);
     expect(cleared.body.data.leaderboardEntries).toBe(2);
     expect(cleared.body.data.leaderboardSnapshots).toBe(2);
     expect(cleared.body.data.leaderboardDailyCollections).toBe(4);
@@ -2988,6 +3294,9 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       "map_logs",
       "map_files",
       "map_metrics",
+      "analytics_attempts",
+      "analytics_choices",
+      "analytics_events",
       "fq_metric_session_activity",
       "fq_metric_sessions",
       "api_keys",
