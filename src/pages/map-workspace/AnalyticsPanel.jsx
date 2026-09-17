@@ -30,11 +30,166 @@ export function AnalyticsLinks({ map, mapId }) {
   );
 }
 
+function DifficultyChart({ rows, percentages }) {
+  const series = percentages
+    ? ["人数通关率", "次数通关率"]
+    : ["选择人数", "通关人数"];
+  const maxCount = Math.max(...rows.map((row) => row.selected_users));
+  const ceiling = percentages ? 100 : Math.max(5, Math.ceil(maxCount / 5) * 5);
+  const width = Math.max(480, rows.length * 50 + 64);
+  const plotHeight = 220;
+  const groupWidth = (width - 64) / rows.length;
+  const colors = percentages ? ["#4487eb", "#63a78e"] : ["#a8afb8", "#4487eb"];
+  return (
+    <section className="analytics-chart difficulty-chart">
+      <h3>{percentages ? "各难度通关率" : "选择人数与通关人数"}</h3>
+      <div
+        className="difficulty-chart-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label={`${percentages ? "通关率" : "人数"}图表，可横向滚动，精确数值见下方表格`}
+      >
+        <svg
+          style={{ minWidth: rows.length > 12 ? width : 360 }}
+          viewBox={`0 0 ${width} 285`}
+          role="img"
+          aria-label={series.join("与")}
+        >
+          {Array.from({ length: 6 }, (_, index) => {
+            const value = (ceiling * (5 - index)) / 5;
+            const y = 18 + (plotHeight * index) / 5;
+            return (
+              <g key={index}>
+                <line
+                  x1={52}
+                  y1={y}
+                  x2={width - 12}
+                  y2={y}
+                  stroke="var(--line-soft)"
+                />
+                <text x={44} y={y + 4} textAnchor="end">
+                  {value.toLocaleString("zh-CN")}
+                  {percentages ? "%" : ""}
+                </text>
+              </g>
+            );
+          })}
+          {rows.map((row, index) => {
+            const values = percentages
+              ? [
+                  (100 * row.cleared_users) / row.selected_users,
+                  (100 * row.cleared_count) / row.selected_count,
+                ]
+              : [row.selected_users, row.cleared_users];
+            const center = 52 + groupWidth * (index + 0.5);
+            return (
+              <g key={row.difficulty}>
+                {values.map((value, position) => {
+                  const height = (value / ceiling) * plotHeight;
+                  return (
+                    <rect
+                      key={position}
+                      x={center - 23 + position * 24}
+                      y={18 + plotHeight - height}
+                      width={21}
+                      height={height}
+                      rx={3}
+                      fill={colors[position]}
+                    >
+                      <title>
+                        难度 {row.difficulty} · {series[position]}：
+                        {percentages
+                          ? `${value.toFixed(2)}%`
+                          : value.toLocaleString("zh-CN")}
+                      </title>
+                    </rect>
+                  );
+                })}
+                <text x={center} y={262} textAnchor="middle">
+                  难度 {row.difficulty}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      <div className="difficulty-legend">
+        {series.map((label, index) => (
+          <span key={label}>
+            <i style={{ background: colors[index] }} />
+            {label}
+            {percentages ? " %" : ""}
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DifficultyResults({ rows }) {
+  return (
+    <>
+      <div className="difficulty-charts">
+        <DifficultyChart rows={rows} percentages />
+        <DifficultyChart rows={rows} />
+      </div>
+      <section className="difficulty-details">
+        <h3>各难度明细</h3>
+        <p className="analytics-muted">
+          人数通关率 = 通关人数 ÷ 选择人数；次数通关率 = 通关次数 ÷ 选择次数。
+        </p>
+        <div className="table-shell">
+          <table className="data-table difficulty-table">
+            <thead>
+              <tr>
+                {[
+                  "难度",
+                  "选择人数",
+                  "通关人数",
+                  "人数通关率",
+                  "选择次数",
+                  "通关次数",
+                  "次数通关率",
+                ].map((label) => (
+                  <th key={label}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.difficulty}>
+                  <td>
+                    <strong>难度 {row.difficulty}</strong>
+                  </td>
+                  <td>{row.selected_users.toLocaleString("zh-CN")}</td>
+                  <td>{row.cleared_users.toLocaleString("zh-CN")}</td>
+                  <td className="difficulty-rate">
+                    {rate(row.cleared_users, row.selected_users)}
+                  </td>
+                  <td>{row.selected_count.toLocaleString("zh-CN")}</td>
+                  <td>{row.cleared_count.toLocaleString("zh-CN")}</td>
+                  <td>{rate(row.cleared_count, row.selected_count)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="analytics-muted">
+          例如：同一玩家当天选择难度 1 三次、通关一次，计选择 1 人、通关 1
+          人、选择 3 次、通关 1
+          次。跨日通关归入选择难度当天；未通关记录仍计入选择次数。
+        </p>
+      </section>
+    </>
+  );
+}
+
 export default function AnalyticsPanel({ map, mapId, feature }) {
   const [params, setParams] = useSearchParams();
   const date = params.get("date") || today();
   const version = params.get("version") || "";
-  const difficulty = params.get("difficulty") || "";
+  const difficulty =
+    feature === "difficulty" ? "" : params.get("difficulty") || "";
   const [form, setForm] = useState({ date, version, difficulty });
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -67,7 +222,7 @@ export default function AnalyticsPanel({ map, mapId, feature }) {
     return () => controller.abort();
   }, [mapId, feature, date, version, difficulty, reload]);
   const choices = feature === "choices";
-  const stages = feature === "stages";
+  const isDifficulty = feature === "difficulty";
   const rows = data?.rows || [];
   const visibleRows = rows.slice((page - 1) * 25, page * 25);
   const columns = choices
@@ -82,20 +237,18 @@ export default function AnalyticsPanel({ map, mapId, feature }) {
         "选择人数",
       ]
     : [
-        "统计对象",
-        "参与人数",
-        "成功人数",
-        "人数成功率",
-        "尝试次数",
-        "成功",
-        "失败",
-        "明确退出",
-        "未结算",
-        "次数成功率",
-        ...(feature === "challenges" ? ["失败率"] : []),
-        ...(stages ? ["退出率"] : []),
-        "成功耗时中位数",
-        ...(feature === "challenges" ? ["失败剩余进度均值", "进度样本数"] : []),
+        "阶段",
+        "进入人数",
+        "完成人数",
+        "人数完成率",
+        "进入次数",
+        "完成次数",
+        "失败次数",
+        "主动退出次数",
+        "未结束次数",
+        "次数完成率",
+        "退出率",
+        "完成耗时中位数",
       ];
   return (
     <>
@@ -106,7 +259,8 @@ export default function AnalyticsPanel({ map, mapId, feature }) {
           e.preventDefault();
           const next = new URLSearchParams();
           Object.entries(form).forEach(([key, value]) => {
-            if (value) next.set(key, value);
+            if (value && !(isDifficulty && key === "difficulty"))
+              next.set(key, value.trim());
           });
           setParams(next);
           setReload((value) => value + 1);
@@ -132,25 +286,29 @@ export default function AnalyticsPanel({ map, mapId, feature }) {
             onChange={(e) => setForm({ ...form, version: e.target.value })}
           />
         </Field>
-        <Field label="难度">
-          <input
-            aria-label="难度"
-            className="input"
-            maxLength={64}
-            placeholder="全部难度"
-            value={form.difficulty}
-            onChange={(e) => setForm({ ...form, difficulty: e.target.value })}
-          />
-        </Field>
+        {!isDifficulty && (
+          <Field label="难度">
+            <input
+              aria-label="难度"
+              className="input"
+              maxLength={64}
+              placeholder="全部难度"
+              value={form.difficulty}
+              onChange={(e) => setForm({ ...form, difficulty: e.target.value })}
+            />
+          </Field>
+        )}
         <Button type="submit" disabled={loading}>
           {loading ? "查询中…" : "查询"}
         </Button>
       </form>
       <p className="analytics-muted">
         {date} · {version || "全部版本"} · {difficulty || "全部难度"}。
-        {choices
-          ? "被选率 = 选择次数 ÷ 候选出现次数；人数按当日、场景、轮次与候选去重。"
-          : "按开始日统计；人数按对象去重，次数按尝试计算。未结算包含进行中或未收到结束事件，不推断为失败。"}
+        {isDifficulty
+          ? "按选择难度的日期统计。同一玩家当天在同一难度只计 1 人，每局选择与通关分别计次；多人局按各玩家分别计次。"
+          : choices
+            ? "被选率 = 选择次数 ÷ 候选出现次数；人数按当日、场景、轮次与候选去重。"
+            : "按进入阶段的日期统计；同一玩家在同一阶段只计 1 人。进入一次阶段计 1 次；未结束表示仍在进行或尚未上报结果，不计为失败。"}
       </p>
       {loading ? (
         <div className="loading-state">正在读取分析数据…</div>
@@ -165,29 +323,19 @@ export default function AnalyticsPanel({ map, mapId, feature }) {
           title="当前筛选下暂无数据"
           description="此功能已开放。请由地图端接入事件上报，或调整日期、版本与难度。"
         />
+      ) : isDifficulty ? (
+        <DifficultyResults rows={rows} />
       ) : (
         <>
           <section className="analytics-chart">
             <h3>
-              {choices
-                ? "候选被选率"
-                : stages
-                  ? "阶段退出率"
-                  : feature === "challenges"
-                    ? "挑战失败率"
-                    : "次数成功率"}{" "}
+              {choices ? "候选被选率" : "阶段退出率"}{" "}
               <small className="analytics-muted">
                 前 12 项 · 完整数据见下表
               </small>
             </h3>
             {rows.slice(0, 12).map((row, index) => {
-              const numerator = choices
-                ? row.selected
-                : stages
-                  ? row.exits
-                  : feature === "challenges"
-                    ? row.failures
-                    : row.successes;
+              const numerator = choices ? row.selected : row.exits;
               const denominator = choices ? row.offered : row.attempts;
               const label = choices
                 ? `${row.object_name} · 第 ${row.position} 次 · ${row.candidate_name}`
@@ -224,17 +372,11 @@ export default function AnalyticsPanel({ map, mapId, feature }) {
                   <tr key={index}>
                     <td>
                       <strong>{row.object_name}</strong>
-                      <small className="analytics-key">{row.object_key}</small>
                     </td>
                     {choices ? (
                       <>
                         <td>{row.position}</td>
-                        <td>
-                          {row.candidate_name}
-                          <small className="analytics-key">
-                            {row.candidate_key}
-                          </small>
-                        </td>
+                        <td>{row.candidate_name}</td>
                         <td>{row.offered}</td>
                         <td>{row.selected}</td>
                         <td>{rate(row.selected, row.offered)}</td>
@@ -252,21 +394,8 @@ export default function AnalyticsPanel({ map, mapId, feature }) {
                         <td>{row.exits}</td>
                         <td>{row.unresolved}</td>
                         <td>{rate(row.successes, row.attempts)}</td>
-                        {feature === "challenges" && (
-                          <td>{rate(row.failures, row.attempts)}</td>
-                        )}
-                        {stages && <td>{rate(row.exits, row.attempts)}</td>}
+                        <td>{rate(row.exits, row.attempts)}</td>
                         <td>{seconds(row.median_seconds)}</td>
-                        {feature === "challenges" && (
-                          <>
-                            <td>
-                              {row.remaining_percent == null
-                                ? "—"
-                                : `${Number(row.remaining_percent).toFixed(2)}%`}
-                            </td>
-                            <td>{row.remaining_samples}</td>
-                          </>
-                        )}
                       </>
                     )}
                   </tr>
@@ -291,7 +420,7 @@ export default function AnalyticsPanel({ map, mapId, feature }) {
           </div>
           {!choices && (
             <p className="analytics-muted">
-              成功率以全部尝试为分母，未结算会影响当日结果。耗时由地图上报；失败剩余进度仅统计有上报的失败样本。
+              完成率、退出率以进入次数为分母，未结束记录也包含在内。耗时仅统计已完成的阶段。
             </p>
           )}
           {data.reasons.length > 0 && (
@@ -334,9 +463,11 @@ export default function AnalyticsPanel({ map, mapId, feature }) {
           /api/fq/analytics/events。统计对象、版本和难度由地图定义。
         </p>
         <p>
-          {choices
-            ? "一次已结束的选择提交候选集合和最终选择；主动放弃时 selectedKey 传 null。position 表示第几次选择。"
-            : "每次尝试先上报 start，确认成功后再上报 end。共同结算的多人挑战只报一份，开始时提交全部参与者 UID。"}
+          {isDifficulty
+            ? "玩家确定本局难度时上报 difficulty_select，确认成功后，通关时上报 difficulty_clear。两条记录使用同一个 playId 和 uid；同一局中每位玩家分别上报。难度使用 1～1000 的整数，按地图实际难度编号上报。"
+            : choices
+              ? "一次已结束的选择提交候选集合和最终选择；主动放弃时 selectedKey 传 null。position 表示第几次选择。"
+              : "进入阶段上报 start，确认成功后在完成、失败或主动退出时上报 end。共同结算的多人阶段只报一份，进入时提交全部参与者 UID。"}
         </p>
         <p>
           网络重试保留原 eventId

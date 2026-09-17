@@ -15,9 +15,29 @@ const dimensions = {
 export const analyticsEventSchema = z.discriminatedUnion("type", [
   z
     .object({
+      type: z.literal("difficulty_select"),
+      eventId: key,
+      feature: z.literal("difficulty"),
+      playId: key,
+      uid: key,
+      difficulty: z.number().int().min(1).max(1000),
+      version: z.string().trim().min(1).max(64),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("difficulty_clear"),
+      eventId: key,
+      feature: z.literal("difficulty"),
+      playId: key,
+      uid: key,
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal("start"),
       eventId: key,
-      feature: z.enum(["progression", "challenges", "stages"]),
+      feature: z.literal("stages"),
       runId: key,
       ...dimensions,
       uids: z
@@ -34,12 +54,11 @@ export const analyticsEventSchema = z.discriminatedUnion("type", [
     .object({
       type: z.literal("end"),
       eventId: key,
-      feature: z.enum(["progression", "challenges", "stages"]),
+      feature: z.literal("stages"),
       runId: key,
       outcome: z.enum(["success", "failure", "exit"]),
       durationSeconds: z.number().finite().min(0).max(604800),
       reason: z.string().trim().max(160).default(""),
-      remainingPercent: z.number().finite().min(0).max(100).optional(),
     })
     .strict(),
   z
@@ -103,7 +122,31 @@ export async function recordAnalyticsEvent(mapId, event) {
         throw new HttpError(409, "相同事件 ID 不能修改内容", "EVENT_CONFLICT");
       return;
     }
-    if (event.type === "start") {
+    if (event.type === "difficulty_select") {
+      const result = await client.query(
+        `INSERT INTO analytics_difficulty_runs(map_id,play_id,player_uid,difficulty,version)
+         VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING play_id`,
+        [mapId, event.playId, event.uid, event.difficulty, event.version],
+      );
+      if (!result.rowCount)
+        throw new HttpError(
+          409,
+          "该玩家本局已选择难度，请使用原事件 ID 重试",
+          "DIFFICULTY_CONFLICT",
+        );
+    } else if (event.type === "difficulty_clear") {
+      const result = await client.query(
+        `UPDATE analytics_difficulty_runs SET cleared_at=NOW()
+         WHERE map_id=$1 AND play_id=$2 AND player_uid=$3 AND cleared_at IS NULL RETURNING play_id`,
+        [mapId, event.playId, event.uid],
+      );
+      if (!result.rowCount)
+        throw new HttpError(
+          409,
+          "请先确认该玩家本局选择难度成功，已通关记录不能重复结算",
+          "DIFFICULTY_NOT_OPEN",
+        );
+    } else if (event.type === "start") {
       const result = await client.query(
         `INSERT INTO analytics_attempts(map_id,feature,run_id,object_key,object_name,version,difficulty,uids)
          VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING run_id`,
@@ -121,12 +164,12 @@ export async function recordAnalyticsEvent(mapId, event) {
       if (!result.rowCount)
         throw new HttpError(
           409,
-          "该尝试已开始，请使用原事件 ID 重试",
+          "该阶段已开始，请使用原事件 ID 重试",
           "RUN_CONFLICT",
         );
     } else if (event.type === "end") {
       const result = await client.query(
-        `UPDATE analytics_attempts SET ended_at=NOW(),outcome=$4,duration_seconds=$5,reason=$6,remaining_percent=$7
+        `UPDATE analytics_attempts SET ended_at=NOW(),outcome=$4,duration_seconds=$5,reason=$6
          WHERE map_id=$1 AND feature=$2 AND run_id=$3 AND ended_at IS NULL RETURNING run_id`,
         [
           mapId,
@@ -135,13 +178,12 @@ export async function recordAnalyticsEvent(mapId, event) {
           event.outcome,
           event.durationSeconds,
           event.reason,
-          event.remainingPercent ?? null,
         ],
       );
       if (!result.rowCount)
         throw new HttpError(
           409,
-          "请先确认开始事件成功，已结算的尝试不能再次结算",
+          "请先确认阶段进入事件成功，已结束的阶段不能再次结算",
           "RUN_NOT_OPEN",
         );
     } else {
@@ -175,6 +217,21 @@ export async function getAnalytics(mapId, feature, filters) {
   z.enum(ANALYTICS_KEYS).parse(feature);
   return transaction(async (client) => {
     await lockAnalyticsFeature(client, mapId, feature);
+    if (feature === "difficulty") {
+      const result = await client.query(
+        `SELECT difficulty,COUNT(DISTINCT player_uid)::int AS selected_users,
+          COUNT(DISTINCT player_uid) FILTER(WHERE cleared_at IS NOT NULL)::int AS cleared_users,
+          COUNT(*)::int AS selected_count,
+          COUNT(*) FILTER(WHERE cleared_at IS NOT NULL)::int AS cleared_count
+         FROM analytics_difficulty_runs
+         WHERE map_id=$1 AND selected_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Shanghai')
+          AND selected_at < (($2::date+1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+          AND ($3::text IS NULL OR version=$3)
+         GROUP BY difficulty ORDER BY difficulty`,
+        [mapId, filters.date, filters.version ?? null],
+      );
+      return { feature, date: filters.date, rows: result.rows, reasons: [] };
+    }
     const params = [
       mapId,
       filters.date,
@@ -213,8 +270,6 @@ export async function getAnalytics(mapId, feature, filters) {
            COUNT(*) FILTER(WHERE outcome='exit')::int AS exits,
            COUNT(*) FILTER(WHERE outcome IS NULL)::int AS unresolved,
            percentile_cont(0.5) WITHIN GROUP(ORDER BY duration_seconds) FILTER(WHERE outcome='success') AS median_seconds,
-           AVG(remaining_percent) FILTER(WHERE outcome='failure') AS remaining_percent,
-           COUNT(remaining_percent) FILTER(WHERE outcome='failure')::int AS remaining_samples,
            MAX(p.users) AS users,MAX(p.successful_users) AS successful_users
          FROM attempts a JOIN people p ON p.object_key=a.object_key
          GROUP BY a.object_key ORDER BY a.object_key`,

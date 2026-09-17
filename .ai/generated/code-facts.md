@@ -7,7 +7,7 @@
 - API 路由：107
 - 地图权限：17
 - 客户端权限：11
-- 数据库迁移：6
+- 数据库迁移：7
 
 ## 地图权限
 
@@ -182,6 +182,7 @@
 | `server/db/migrations/004_feedback_management.sql` | — | feedback_responses | `620307cbf477` |
 | `server/db/migrations/005_leaderboard_realtime_modes.sql` | — | leaderboards | `71869d9f0068` |
 | `server/db/migrations/006_optional_analytics.sql` | — | maps | `d67ab9f1c7a7` |
+| `server/db/migrations/007_difficulty_analytics.sql` | — | maps | `6e8ab154b182` |
 
 ## 环境变量
 
@@ -203,8 +204,8 @@
 - 客户端上报日志和指标并进入后台查询链路
 - 自动指标会话幂等、隔离、在线状态及 11 项公式均按北京时间聚合
 - 地图局部编辑、地图配置和系统设置均能持久化
-- 可选分析默认关闭，管理员配置带并发校验，普通用户与客户端不能绕过开关
-- 选择偏好记录候选曝光与选择，挑战和阶段区分明确退出、失败与未结算
+- 难度通关率按玩家及局计数，校验开关、幂等、并发、跨日与版本
+- 选项记录候选曝光与选择，阶段记录主动退出，分析数据按地图隔离
 - 主播和埋点支持增改查，游戏客户端可上报埋点
 - 排行榜四种采集策略支持升降序、同日重报、策略切换和快照隔离
 - 排行榜批量移除校验权限和归属，原子删除且保留快照与采集事实

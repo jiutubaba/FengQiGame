@@ -644,6 +644,10 @@ export function registerRuntimeRoutes(router) {
           "DELETE FROM map_metrics WHERE map_id=$1",
           [mapId],
         );
+        const analyticsDifficultyRuns = await client.query(
+          "DELETE FROM analytics_difficulty_runs WHERE map_id=$1",
+          [mapId],
+        );
         const analyticsAttempts = await client.query(
           "DELETE FROM analytics_attempts WHERE map_id=$1",
           [mapId],
@@ -676,6 +680,7 @@ export function registerRuntimeRoutes(router) {
           logs: logs.rowCount,
           metrics: metrics.rowCount,
           analyticsAttempts: analyticsAttempts.rowCount,
+          analyticsDifficultyRuns: analyticsDifficultyRuns.rowCount,
           analyticsChoices: analyticsChoices.rowCount,
           automaticMetricSessions: automaticMetricSessions.rowCount,
         };

@@ -1170,4 +1170,4 @@ end)
 
 ## 可选玩法分析
 
-新增 `POST /api/fq/analytics/events`，复用 `game.metrics.write`，需管理员先为地图开启模块。完整 start/end/choice 字段、样例、幂等错误码、关闭与统计规则见 [可选玩法分析接入](游戏客户端接入.md#可选玩法分析接入)。未接入模块不需要上报，后台不推导不存在的玩法。
+新增 `POST /api/fq/analytics/events`，复用 `game.metrics.write`，需管理员先为地图开启模块。完整 difficulty_select/difficulty_clear/choice/start/end 字段、样例、幂等错误码、关闭与统计规则见 [可选玩法分析接入](游戏客户端接入.md#可选玩法分析接入)。未接入模块不需要上报，后台不推导不存在的玩法。

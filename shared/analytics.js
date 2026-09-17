@@ -1,23 +1,18 @@
 export const ANALYTICS_FEATURES = Object.freeze([
   {
-    key: "progression",
-    name: "关卡表现",
-    description: "按关卡或难度统计参与、通关、失败与耗时。",
+    key: "difficulty",
+    name: "难度通关率",
+    description: "按难度对比选择人数、通关人数、选择次数、通关次数及通关率。",
   },
   {
     key: "choices",
-    name: "选择偏好",
+    name: "选项选择统计",
     description: "比较候选出现与实际选择，适用于技能、装备、路线等选择。",
   },
   {
-    key: "challenges",
-    name: "挑战表现",
-    description: "统计挑战结果、失败原因、耗时和失败时剩余目标进度。",
-  },
-  {
     key: "stages",
-    name: "阶段流失",
-    description: "统计各阶段的到达、完成、明确退出与未结算。",
+    name: "阶段退出统计",
+    description: "按地图定义的阶段统计进入、完成、失败与主动退出。",
   },
 ]);
 export const ANALYTICS_KEYS = ANALYTICS_FEATURES.map((feature) => feature.key);

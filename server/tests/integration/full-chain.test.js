@@ -1588,152 +1588,150 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(settings.body.data.maintenance).toBe(false);
   });
 
-  it("可选分析默认关闭，管理员配置带并发校验，普通用户与客户端不能绕过开关", async () => {
+  it("难度通关率按玩家及局计数，校验开关、幂等、并发、跨日与版本", async () => {
     const map = (await admin.get(`/api/maps/${mapId}`).expect(200)).body.data;
     expect(map.analyticsFeatures).toEqual([]);
-    const start = {
-      type: "start",
-      feature: "progression",
-      eventId: "analytics-start-1",
-      runId: "run-1",
-      objectKey: "level-1",
-      objectName: "关卡一",
+    const selection = {
+      type: "difficulty_select",
+      feature: "difficulty",
+      eventId: "difficulty-select-1",
+      playId: "play-1",
+      uid: "analysis-a",
+      difficulty: 1,
       version: "v1",
-      difficulty: "normal",
-      uids: ["analysis-a", "analysis-b"],
+    };
+    const clear = {
+      type: "difficulty_clear",
+      feature: "difficulty",
+      eventId: "difficulty-clear-1",
+      playId: "play-1",
+      uid: "analysis-a",
     };
     const post = (body) =>
       request(app)
         .post("/api/fq/analytics/events")
         .set("fq-map-key", gameToken)
         .send(body);
-    expect((await post(start).expect(403)).body.error.code).toBe(
+    const get = (suffix = "") =>
+      admin.get(
+        `/api/maps/${mapId}/analytics/difficulty?date=2026-09-17${suffix}`,
+      );
+    expect((await post(selection).expect(403)).body.error.code).toBe(
       "FEATURE_DISABLED",
     );
-    await admin
-      .get(`/api/maps/${mapId}/analytics/progression?date=2026-09-17`)
-      .expect(403);
+    await get().expect(403);
     await normalUser
       .put(`/api/maps/${mapId}/analytics-features`)
-      .send({ features: ["progression"], revision: 0 })
+      .send({ features: ["difficulty"], revision: 0 })
       .expect(403);
+    for (const feature of ["unknown", "progression", "challenges"]) {
+      await admin
+        .put(`/api/maps/${mapId}/analytics-features`)
+        .send({ features: [feature], revision: 0 })
+        .expect(400);
+      await admin
+        .get(`/api/maps/${mapId}/analytics/${feature}?date=2026-09-17`)
+        .expect(400);
+    }
     await admin
       .put(`/api/maps/${mapId}/analytics-features`)
-      .send({ features: ["unknown"], revision: 0 })
-      .expect(400);
-    await admin
-      .put(`/api/maps/${mapId}/analytics-features`)
-      .send({
-        features: ["progression", "choices", "challenges", "stages"],
-        revision: 0,
-      })
+      .send({ features: ["difficulty", "choices", "stages"], revision: 0 })
       .expect(200);
     await admin
       .put(`/api/maps/${mapId}/analytics-features`)
       .send({ features: [], revision: 0 })
       .expect(409);
-    await post({ ...start, mapId: 999 }).expect(400);
-    await post({ ...start, uids: ["a", "a"] }).expect(400);
-    await Promise.all([post(start).expect(200), post(start).expect(200)]);
-    await post({ ...start, objectName: "改写" }).expect(409);
-    const end = {
-      type: "end",
-      feature: "progression",
-      eventId: "analytics-end-1",
-      runId: "run-1",
-      outcome: "success",
-      durationSeconds: 120,
-    };
-    await post({ ...end, runId: "missing" }).expect(409);
-    await post(end).expect(200);
-    await post(end).expect(200);
-    await post({ ...end, eventId: "another-end" }).expect(409);
+    await post({ ...selection, mapId: 999 }).expect(400);
+    for (const difficulty of [0, -1, 1.5, 1001, "normal"])
+      await post({ ...selection, difficulty }).expect(400);
+    await post({ ...clear, uid: "missing" }).expect(409);
+    await Promise.all([
+      post(selection).expect(200),
+      post(selection).expect(200),
+    ]);
+    await post({ ...selection, difficulty: 2 }).expect(409);
     await post({
-      ...start,
-      eventId: "analytics-start-2",
-      runId: "run-2",
-      uids: ["analysis-a"],
+      ...selection,
+      eventId: "another-selection",
+      difficulty: 2,
+    }).expect(409);
+    await post(clear).expect(200);
+    await post(clear).expect(200);
+    await post({ ...clear, eventId: "another-clear" }).expect(409);
+    await post({
+      ...selection,
+      eventId: "select-second-player",
+      uid: "analysis-b",
     }).expect(200);
     await post({
-      ...end,
-      eventId: "analytics-end-2",
-      runId: "run-2",
-      outcome: "failure",
-      durationSeconds: 60,
-      reason: "超时",
+      ...clear,
+      eventId: "clear-second-player",
+      uid: "analysis-b",
     }).expect(200);
     await post({
-      ...start,
-      eventId: "analytics-start-3",
-      runId: "run-3",
-      uids: ["analysis-c"],
+      ...selection,
+      eventId: "select-second-play",
+      playId: "play-2",
     }).expect(200);
+    await post({
+      ...selection,
+      eventId: "select-third-player",
+      playId: "play-3",
+      uid: "analysis-c",
+    }).expect(200);
+    for (const difficulty of [10, 2])
+      await post({
+        ...selection,
+        eventId: `select-difficulty-${difficulty}`,
+        playId: `play-difficulty-${difficulty}`,
+        difficulty,
+      }).expect(200);
     await query(
-      "UPDATE analytics_attempts SET started_at='2026-09-16T16:00:00Z' WHERE map_id=$1 AND feature='progression'",
+      "UPDATE analytics_difficulty_runs SET selected_at='2026-09-16T16:00:00Z',cleared_at=CASE WHEN cleared_at IS NOT NULL THEN '2026-09-18T01:00:00Z'::timestamptz END WHERE map_id=$1",
       [mapId],
     );
-    const stats = (
-      await admin
-        .get(
-          `/api/maps/${mapId}/analytics/progression?date=2026-09-17&version=v1&difficulty=normal`,
-        )
-        .expect(200)
-    ).body.data;
-    expect(stats.rows).toHaveLength(1);
-    expect(stats.rows[0]).toMatchObject({
-      attempts: 3,
-      users: 3,
-      successful_users: 2,
-      successes: 1,
-      failures: 1,
-      unresolved: 1,
-      median_seconds: 120,
+    const stats = (await get("&version=v1").expect(200)).body.data;
+    expect(stats.rows.map((row) => row.difficulty)).toEqual([1, 2, 10]);
+    expect(stats.rows[0]).toEqual({
+      difficulty: 1,
+      selected_users: 3,
+      cleared_users: 2,
+      selected_count: 4,
+      cleared_count: 2,
     });
-    expect(stats.reasons[0]).toMatchObject({ reason: "超时", count: 1 });
-    expect(
-      (
-        await admin
-          .get(`/api/maps/${mapId}/analytics/progression?date=2026-09-16`)
-          .expect(200)
-      ).body.data.rows,
-    ).toEqual([]);
-    expect(
-      (
-        await admin
-          .get(
-            `/api/maps/${mapId}/analytics/progression?date=2026-09-17&version=v2`,
-          )
-          .expect(200)
-      ).body.data.rows,
-    ).toEqual([]);
+    expect(stats.rows[1]).toEqual({
+      difficulty: 2,
+      selected_users: 1,
+      cleared_users: 0,
+      selected_count: 1,
+      cleared_count: 0,
+    });
+    expect((await get("&version=v2").expect(200)).body.data.rows).toEqual([]);
+    for (const date of ["2026-09-16", "2026-09-18"])
+      expect(
+        (
+          await admin
+            .get(`/api/maps/${mapId}/analytics/difficulty?date=${date}`)
+            .expect(200)
+        ).body.data.rows,
+      ).toEqual([]);
     await admin
-      .get(`/api/maps/${mapId}/analytics/progression?date=2026-02-30`)
+      .get(`/api/maps/${mapId}/analytics/difficulty?date=2026-02-30`)
       .expect(400);
     await admin
       .put(`/api/maps/${mapId}/analytics-features`)
       .send({ features: [], revision: 1 })
       .expect(200);
-    await post(start).expect(403);
-    await admin
-      .get(`/api/maps/${mapId}/analytics/progression?date=2026-09-17`)
-      .expect(403);
+    await post(selection).expect(403);
+    await get().expect(403);
     await admin
       .put(`/api/maps/${mapId}/analytics-features`)
-      .send({
-        features: ["progression", "choices", "challenges", "stages"],
-        revision: 2,
-      })
+      .send({ features: ["difficulty", "choices", "stages"], revision: 2 })
       .expect(200);
-    expect(
-      (
-        await admin
-          .get(`/api/maps/${mapId}/analytics/progression?date=2026-09-17`)
-          .expect(200)
-      ).body.data.rows[0].attempts,
-    ).toBe(3);
+    expect((await get().expect(200)).body.data.rows).toEqual(stats.rows);
   });
 
-  it("选择偏好记录候选曝光与选择，挑战和阶段区分明确退出、失败与未结算", async () => {
+  it("选项记录候选曝光与选择，阶段记录主动退出，分析数据按地图隔离", async () => {
     const post = (body) =>
       request(app)
         .post("/api/fq/analytics/events")
@@ -1793,7 +1791,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       offered_users: 1,
       selected_users: 1,
     });
-    for (const feature of ["challenges", "stages"]) {
+    for (const feature of ["stages"]) {
       const start = {
         type: "start",
         feature,
@@ -1810,10 +1808,9 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
         feature,
         eventId: `${feature}-end`,
         runId: "generic-run",
-        outcome: feature === "stages" ? "exit" : "failure",
+        outcome: "exit",
         durationSeconds: 80,
         reason: "地图自定义原因",
-        remainingPercent: 25,
       }).expect(200);
       await query(
         "UPDATE analytics_attempts SET started_at='2026-09-17T00:00:00Z' WHERE map_id=$1 AND feature=$2",
@@ -1826,15 +1823,14 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       ).body.data.rows[0];
       expect(row.attempts).toBe(1);
       expect(row.unresolved).toBe(0);
-      expect(feature === "stages" ? row.exits : row.failures).toBe(1);
-      if (feature === "challenges") expect(row.remaining_percent).toBe(25);
+      expect(row.exits).toBe(1);
     }
     const isolated = (
       await admin.post("/api/maps").send({ name: "分析隔离项目" }).expect(201)
     ).body.data.id;
     await admin
       .put(`/api/maps/${isolated}/analytics-features`)
-      .send({ features: ["choices"], revision: 0 })
+      .send({ features: ["choices", "difficulty"], revision: 0 })
       .expect(200);
     expect(
       (
@@ -1843,6 +1839,16 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
           .expect(200)
       ).body.data.rows,
     ).toEqual([]);
+    expect(
+      (
+        await admin
+          .get(`/api/maps/${isolated}/analytics/difficulty?date=2026-09-17`)
+          .expect(200)
+      ).body.data.rows,
+    ).toEqual([]);
+    await normalUser
+      .get(`/api/maps/${isolated}/analytics/difficulty?date=2026-09-17`)
+      .expect(403);
     await normalUser
       .get(`/api/maps/${isolated}/analytics/choices?date=2026-09-17`)
       .expect(403);
@@ -3027,9 +3033,11 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(cleared.body.data.logs).toBe(1);
     expect(cleared.body.data.metrics).toBe(1);
     expect(cleared.body.data.automaticMetricSessions).toBe(15);
-    expect(cleared.body.data.analyticsAttempts).toBe(5);
+    expect(cleared.body.data.analyticsAttempts).toBe(1);
+    expect(cleared.body.data.analyticsDifficultyRuns).toBe(6);
     expect(cleared.body.data.analyticsChoices).toBe(3);
     for (const table of [
+      "analytics_difficulty_runs",
       "analytics_attempts",
       "analytics_choices",
       "analytics_events",
@@ -3046,7 +3054,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     expect(
       (await admin.get(`/api/maps/${mapId}`).expect(200)).body.data
         .analyticsFeatures,
-    ).toHaveLength(4);
+    ).toHaveLength(3);
     expect(cleared.body.data.leaderboardEntries).toBe(2);
     expect(cleared.body.data.leaderboardSnapshots).toBe(2);
     expect(cleared.body.data.leaderboardDailyCollections).toBe(4);
@@ -3294,6 +3302,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       "map_logs",
       "map_files",
       "map_metrics",
+      "analytics_difficulty_runs",
       "analytics_attempts",
       "analytics_choices",
       "analytics_events",
