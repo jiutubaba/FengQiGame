@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ArrowUpRight,
   Grid2X2,
@@ -49,6 +55,7 @@ export default function MapCenter() {
   const toast = useToast();
   const { isAdmin } = useAuth();
   const { syncMaps } = useOutletContext();
+  const deferredSearch = useDeferredValue(search);
 
   const loadMaps = useCallback(async () => {
     setLoading(true);
@@ -78,10 +85,10 @@ export default function MapCenter() {
     () =>
       maps.filter(
         (item) =>
-          item.name.toLowerCase().includes(search.toLowerCase()) ||
-          String(item.id).includes(search),
+          item.name.toLowerCase().includes(deferredSearch.toLowerCase()) ||
+          String(item.id).includes(deferredSearch),
       ),
-    [maps, search],
+    [deferredSearch, maps],
   );
   const platformGroups = useMemo(
     () =>
@@ -209,6 +216,7 @@ export default function MapCenter() {
                         src={map.coverPath || "/assets/fengqi-mark.svg?v=attio"}
                         alt={map.coverPath ? `${map.name} 封面` : ""}
                         loading="lazy"
+                        decoding="async"
                       />
                       <div className="map-cover-shade" />
                       <span className="map-open-icon" aria-hidden="true">

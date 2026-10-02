@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, BarChart3, CircleHelp, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BarChart3, CircleHelp, RefreshCw } from "lucide-react";
 import { api } from "../../api/client";
 import {
   Button,
@@ -8,7 +8,6 @@ import {
   InlineAlert,
 } from "../../components/ui";
 import { formatDate, formatNumber } from "../../utils/format";
-import { AnalyticsLinks } from "./AnalyticsPanel";
 
 const metricDefinitions = [
   {
@@ -137,7 +136,7 @@ function areAdjacentMetricDates(currentDate, previousDate) {
   );
 }
 
-export default function MetricsPanel({ mapId, map }) {
+export default function MetricsPanel({ mapId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -177,8 +176,7 @@ export default function MetricsPanel({ mapId, map }) {
   const metricGroups = [
     {
       id: "core",
-      title: "核心经营指标",
-      description: "先确认当前规模、活跃与有效对局，再进入留存分析。",
+      title: "活跃与对局",
       keys: [
         "onlineUsers",
         "dailyActiveUsers",
@@ -188,14 +186,12 @@ export default function MetricsPanel({ mapId, map }) {
     },
     {
       id: "flow",
-      title: "用户规模与流动",
-      description: "累计规模以及流失、回流变化。",
+      title: "用户规模",
       keys: ["cumulativeUsers", "lostUserCount", "returnUserCount"],
     },
     {
       id: "retention",
       title: "留存与复玩",
-      description: "判断用户是否愿意持续回到地图。",
       keys: [
         "activeUserRetentionRate",
         "newUserRetentionRate",
@@ -232,24 +228,20 @@ export default function MetricsPanel({ mapId, map }) {
             onClick={() => setSelectedMetricKey(metric.key)}
           >
             <strong>{metricCardValue(metric, summary, automatic)}</strong>
-            <small>
-              {metricCardContext(metric, summary, previous, automatic)}
-            </small>
           </button>
         ) : (
           <div className="metric-static-content">
             <strong>{metricCardValue(metric, summary, automatic)}</strong>
-            <small>
-              {metricCardContext(metric, summary, previous, automatic)}
-            </small>
           </div>
         )}
+        <small className="metric-context">
+          {metricCardContext(metric, summary, previous, automatic)}
+        </small>
       </article>
     );
   };
   return (
     <>
-      <AnalyticsLinks map={map} mapId={mapId} />
       {loadError && (
         <InlineAlert
           tone="danger"
@@ -259,37 +251,50 @@ export default function MetricsPanel({ mapId, map }) {
         />
       )}
       <div className="metrics-toolbar">
-        <div>
-          <span className="pulse-dot" />
-          {automatic ? "自动聚合" : "快照兼容"} · 北京时间
-          {data?.epochDate ? ` · 统计起始 ${data.epochDate}` : ""}
-          {data?.calculatedAt
-            ? ` · 统计至 ${formatDate(data.calculatedAt)}`
-            : ""}
+        <div className="metrics-freshness">
+          <span>
+            <span className="pulse-dot" />
+            {automatic ? "自动聚合" : "历史快照"}
+          </span>
+          <span>
+            北京时间
+            {data?.calculatedAt ? ` · ${formatDate(data.calculatedAt)}` : ""}
+          </span>
         </div>
         <Button icon={RefreshCw} onClick={load} disabled={loading}>
           {loading ? "统计中…" : "刷新统计"}
         </Button>
       </div>
-      {metricGroups.map((group) => (
-        <section className="metric-group" key={group.id}>
-          <div className="metric-group-head">
-            <h3>{group.title}</h3>
-            <p>{group.description}</p>
-          </div>
-          <div className={`metric-grid metric-grid-${group.id}`}>
-            {group.keys.map((key) =>
-              renderMetricCard(
-                metricDefinitions.find((metric) => metric.key === key),
-              ),
-            )}
-          </div>
-        </section>
-      ))}
-      <TrendChart rows={trends} metric={selectedMetric} automatic={automatic} />
+      <div className="metrics-overview" aria-label="经营指标概览">
+        {metricGroups.map((group) => (
+          <section
+            className="metric-group"
+            key={group.id}
+            aria-label={group.title}
+          >
+            <div className="metric-group-head">
+              <h3>{group.title}</h3>
+            </div>
+            <div className="metric-grid">
+              {group.keys.map((key) =>
+                renderMetricCard(
+                  metricDefinitions.find((metric) => metric.key === key),
+                ),
+              )}
+            </div>
+          </section>
+        ))}
+      </div>
+      <TrendChart
+        key={selectedMetric.key}
+        rows={trends}
+        metric={selectedMetric}
+        automatic={automatic}
+      />
       <div className="data-footnote">
         <CircleHelp size={16} />
         <span>
+          {data?.epochDate ? `统计起始 ${data.epochDate} · ` : ""}
           {data?.source === "automatic"
             ? "指标由对局开始、60 秒心跳与结束事件实时聚合。"
             : "当前尚无自动会话数据，正在兼容显示客户端上报的历史快照。"}
@@ -301,17 +306,48 @@ export default function MetricsPanel({ mapId, map }) {
 
 function TrendChart({ rows, metric, automatic }) {
   const [activeIndex, setActiveIndex] = useState(null);
-  useEffect(() => setActiveIndex(null), [metric.key]);
-  const indexedRows = rows.map((item, sourceIndex) => ({
-    ...item,
-    sourceIndex,
-  }));
-  const chartRows =
-    metric.percentage && automatic
-      ? indexedRows.filter(
-          (item) => Number(item[metric.denominatorKey] || 0) > 0,
-        )
-      : indexedRows;
+  const [width, setWidth] = useState(680);
+  const chartRef = useRef(null);
+  const height = 224;
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width > 0) setWidth(entry.contentRect.width);
+    });
+    observer.observe(chart);
+    return () => observer.disconnect();
+  }, [rows, metric, automatic]);
+  const { indexedRows, chartRows, points, segments, min, max } = useMemo(() => {
+    const indexedRows = rows.map((item, sourceIndex) => ({
+      ...item,
+      sourceIndex,
+    }));
+    const chartRows =
+      metric.percentage && automatic
+        ? indexedRows.filter(
+            (item) => Number(item[metric.denominatorKey] || 0) > 0,
+          )
+        : indexedRows;
+    const values = chartRows.map((item) => Number(item[metric.key] || 0));
+    const lowest = Math.min(...values),
+      highest = Math.max(...values);
+    const min = lowest === highest ? Math.min(0, lowest) : lowest;
+    const max = lowest === highest ? Math.max(1, highest) : highest;
+    const points = chartRows.map((item, index) => ({
+      ...item,
+      x: 56 + item.sourceIndex * ((width - 88) / Math.max(1, rows.length - 1)),
+      y: 188 - ((values[index] - min) / (max - min)) * 160,
+    }));
+    const segments = points.reduce((groups, point) => {
+      const previous = groups.at(-1)?.at(-1);
+      if (!previous || point.sourceIndex !== previous.sourceIndex + 1)
+        groups.push([point]);
+      else groups.at(-1).push(point);
+      return groups;
+    }, []);
+    return { indexedRows, chartRows, points, segments, min, max };
+  }, [rows, metric, automatic, width]);
   if (metric.automaticOnly && !automatic)
     return (
       <EmptyState
@@ -332,25 +368,6 @@ function TrendChart({ rows, metric, automatic }) {
         }
       />
     );
-  const width = 920,
-    height = 248;
-  const values = chartRows.map((item) => Number(item[metric.key] || 0)),
-    min = Math.min(...values),
-    max = Math.max(...values);
-  const points = chartRows.map((item, index) => ({
-    ...item,
-    x: 34 + item.sourceIndex * ((width - 68) / Math.max(1, rows.length - 1)),
-    y: height - 40 - ((values[index] - min) / Math.max(1, max - min)) * 142,
-  }));
-  const segments = points.reduce((groups, point) => {
-    const previous = groups.at(-1)?.at(-1);
-    if (!previous || point.sourceIndex !== previous.sourceIndex + 1) {
-      groups.push([point]);
-    } else {
-      groups.at(-1).push(point);
-    }
-    return groups;
-  }, []);
   const activePoint = activeIndex === null ? null : points[activeIndex];
   const activeValue = activePoint
     ? metric.percentage
@@ -381,17 +398,21 @@ function TrendChart({ rows, metric, automatic }) {
     <div className="chart-wrap">
       <div className="chart-head">
         <div>
-          <span className="eyebrow">METRIC TREND</span>
           <h3>{metric.label}趋势</h3>
+          <p>
+            {rows[0]?.date} — {rows.at(-1)?.date}
+          </p>
         </div>
-        <div className="chart-legend">
-          <span>
-            <i className="legend-gold" />
-            {metric.label}
-          </span>
+        <div className="chart-summary">
+          <strong>
+            {metric.percentage
+              ? `${Number(chartRows.at(-1)[metric.key] || 0)}%`
+              : formatNumber(chartRows.at(-1)[metric.key])}
+          </strong>
+          <span>最近有效数据 · {chartRows.at(-1).date}</span>
         </div>
       </div>
-      <div className="trend-chart-stage">
+      <div className="trend-chart-stage" ref={chartRef}>
         <svg
           className="trend-chart"
           viewBox={`0 0 ${width} ${height}`}
@@ -421,18 +442,29 @@ function TrendChart({ rows, metric, automatic }) {
           }}
         >
           {[0, 1, 2, 3].map((index) => (
-            <line
-              key={index}
-              x1="34"
-              y1={44 + index * 48}
-              x2={width - 34}
-              y2={44 + index * 48}
-              className="chart-gridline"
-            />
+            <g key={index}>
+              <line
+                x1="56"
+                y1={28 + index * (160 / 3)}
+                x2={width - 32}
+                y2={28 + index * (160 / 3)}
+                className="chart-gridline"
+              />
+              <text
+                x="44"
+                y={32 + index * (160 / 3)}
+                textAnchor="end"
+                className="chart-label"
+              >
+                {metric.percentage
+                  ? `${(max - (index * (max - min)) / 3).toFixed(1)}%`
+                  : formatNumber(Math.round(max - (index * (max - min)) / 3))}
+              </text>
+            </g>
           ))}
           {segments.map((segment) => {
             const line = segment.map((item) => `${item.x},${item.y}`).join(" ");
-            const area = `${segment[0].x},${height - 40} ${line} ${segment.at(-1).x},${height - 40}`;
+            const area = `${segment[0].x},188 ${line} ${segment.at(-1).x},188`;
             return (
               <g key={`segment-${segment[0].sourceIndex}`}>
                 <polygon points={area} className="chart-area" />
@@ -443,9 +475,9 @@ function TrendChart({ rows, metric, automatic }) {
           {activePoint && (
             <line
               x1={activePoint.x}
-              y1="36"
+              y1="28"
               x2={activePoint.x}
-              y2={height - 40}
+              y2="188"
               className="chart-crosshair"
             />
           )}
@@ -455,22 +487,31 @@ function TrendChart({ rows, metric, automatic }) {
               cx={item.x}
               cy={item.y}
               r={
-                index === activeIndex ? 6 : index === points.length - 1 ? 5 : 3
+                index === activeIndex
+                  ? 5
+                  : index === points.length - 1
+                    ? 4
+                    : 2.5
               }
               className={`chart-point ${index === activeIndex ? "is-active" : ""}`}
             />
           ))}
           {indexedRows.map((item, index) => {
-            const step = Math.max(1, Math.ceil(indexedRows.length / 6));
+            const labelCount = width < 440 ? 2 : 4;
+            const step = Math.max(
+              1,
+              Math.ceil((indexedRows.length - 1) / labelCount),
+            );
             return (
               (index === 0 ||
                 index === indexedRows.length - 1 ||
-                index % step === 0) && (
+                (index % step === 0 &&
+                  index < indexedRows.length - 1 - step / 2)) && (
                 <text
                   key={`label-${item.date}-${index}`}
                   x={
-                    34 +
-                    index * ((width - 68) / Math.max(1, indexedRows.length - 1))
+                    56 +
+                    index * ((width - 88) / Math.max(1, indexedRows.length - 1))
                   }
                   y={height - 15}
                   textAnchor="middle"

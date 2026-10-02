@@ -1524,15 +1524,15 @@
     },
     {
       "file": "src/pages/map-workspace/AnalyticsFeatures.jsx",
-      "lines": 105
+      "lines": 116
     },
     {
       "file": "src/pages/map-workspace/AnalyticsPanel.jsx",
-      "lines": 480
+      "lines": 463
     },
     {
       "file": "src/pages/map-workspace/ConfigPanel.jsx",
-      "lines": 675
+      "lines": 713
     },
     {
       "file": "src/pages/map-workspace/FeedbackPanel.jsx",
@@ -1548,7 +1548,7 @@
     },
     {
       "file": "src/pages/map-workspace/MetricsPanel.jsx",
-      "lines": 505
+      "lines": 546
     },
     {
       "file": "src/pages/map-workspace/PaginationControls.jsx",
@@ -1572,11 +1572,11 @@
     },
     {
       "file": "src/pages/MapCenter.jsx",
-      "lines": 342
+      "lines": 350
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 226
+      "lines": 245
     },
     {
       "file": "src/pages/ProfilePage.jsx",
@@ -1584,11 +1584,11 @@
     },
     {
       "file": "src/pages/PublicHome.jsx",
-      "lines": 87
+      "lines": 86
     },
     {
       "file": "src/styles.css",
-      "lines": 7513
+      "lines": 7737
     },
     {
       "file": "src/utils/format.js",

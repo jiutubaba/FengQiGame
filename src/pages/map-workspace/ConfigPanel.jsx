@@ -1,14 +1,29 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useNavigate } from "react-router";
 import {
   Download,
+  Braces,
+  ChevronRight,
+  Code2,
+  Database,
   Edit3,
+  Gift,
+  ListChecks,
   Save,
   Settings2,
   ShieldAlert,
+  Shuffle,
+  Trophy,
   Trash2,
 } from "lucide-react";
-import { api, download } from "../../api/client";
+import { api } from "../../api/client";
 import {
   Button,
   ErrorState,
@@ -24,18 +39,20 @@ import {
   normalizePreloadWorkspace,
   preloadWorkspaceBytes,
 } from "../../../shared/preload-workspace.js";
-import PreloadWorkspace from "./PreloadWorkspace";
 import AnalyticsFeatures from "./AnalyticsFeatures";
 import { PROJECT_PLATFORMS } from "../../utils/projects";
 
+const PreloadWorkspace = lazy(() => import("./PreloadWorkspace"));
 const configSections = [
-  ["ranks", "榜单配置"],
-  ["gifts", "礼包配置"],
-  ["anchorGifts", "主播福利礼包"],
-  ["globals", "全局存档"],
-  ["dayLimits", "存档每日上限"],
-  ["randomGroups", "随机数存档"],
-  ["preloadCode", "预加载代码"],
+  ["basic", "基础信息", Edit3, "项目设置"],
+  ["features", "开放功能", Settings2],
+  ["ranks", "榜单配置", Trophy, "运营配置"],
+  ["gifts", "礼包配置", Gift],
+  ["anchorGifts", "主播福利礼包", Gift],
+  ["globals", "全局存档", Database, "数据与代码"],
+  ["dayLimits", "存档每日上限", ListChecks],
+  ["randomGroups", "随机数存档", Shuffle],
+  ["preloadCode", "预加载代码", Code2],
 ];
 
 export default function ConfigPanel({
@@ -105,21 +122,31 @@ export default function ConfigPanel({
     mapForm.description !== (map.description || "") ||
     mapForm.coverPath !== (map.coverPath || "") ||
     mapForm.platform !== map.platform;
-  const savedEditor =
-    !config || active === "basic"
-      ? ""
-      : JSON.stringify(config[active] || [], null, 2);
-  const savedPreloadWorkspace = config
-    ? configPreloadWorkspace(config)
-    : createPreloadWorkspace();
+  const savedEditor = useMemo(
+    () =>
+      !config || ["basic", "features", "preloadCode"].includes(active)
+        ? ""
+        : JSON.stringify(config[active] || [], null, 2),
+    [config, active],
+  );
+  const savedPreloadWorkspace = useMemo(
+    () => (config ? configPreloadWorkspace(config) : createPreloadWorkspace()),
+    [config],
+  );
+  const savedPreloadSource = useMemo(
+    () => JSON.stringify(savedPreloadWorkspace),
+    [savedPreloadWorkspace],
+  );
   const sectionChanged =
     active !== "basic" &&
     Boolean(config) &&
     (active === "preloadCode"
-      ? JSON.stringify(preloadWorkspace) !==
-        JSON.stringify(savedPreloadWorkspace)
+      ? JSON.stringify(preloadWorkspace) !== savedPreloadSource
       : editor !== savedEditor);
-  const preloadCodeBytes = preloadWorkspaceBytes(preloadWorkspace);
+  const preloadCodeBytes = useMemo(
+    () => preloadWorkspaceBytes(preloadWorkspace),
+    [preloadWorkspace],
+  );
   const preloadCodeOverLimit =
     active === "preloadCode" && preloadCodeBytes > PRELOAD_CODE_LIMIT_BYTES;
 
@@ -273,33 +300,23 @@ export default function ConfigPanel({
 
   return (
     <div className="config-layout">
-      <aside className="config-sidebar">
-        <span className="nav-label">配置板块</span>
-        <button
-          className={active === "basic" ? "active" : ""}
-          onClick={() => selectSection("basic")}
-        >
-          <Edit3 size={16} />
-          基础信息
-        </button>
-        {configSections.map(([key, label]) => (
-          <button
-            key={key}
-            className={active === key ? "active" : ""}
-            onClick={() => selectSection(key)}
-          >
-            <Settings2 size={16} />
-            {label}
-          </button>
+      <nav className="config-sidebar" aria-label="项目配置分类">
+        {configSections.map(([key, label, Icon, group]) => (
+          <div className="config-nav-item" key={key}>
+            {group && <span className="nav-label">{group}</span>}
+            <button
+              type="button"
+              className={active === key ? "active" : ""}
+              aria-current={active === key ? "page" : undefined}
+              onClick={() => selectSection(key)}
+            >
+              <Icon size={16} />
+              <span>{label}</span>
+              {active === key && <ChevronRight size={13} />}
+            </button>
+          </div>
         ))}
-        <button
-          className={active === "features" ? "active" : ""}
-          onClick={() => selectSection("features")}
-        >
-          <Settings2 size={16} />
-          开放功能
-        </button>
-      </aside>
+      </nav>
       <section className="config-surface">
         {active === "features" ? (
           <AnalyticsFeatures
@@ -313,9 +330,8 @@ export default function ConfigPanel({
           <>
             <div className="config-surface-head">
               <div>
-                <span className="eyebrow">MAP SETTINGS</span>
                 <h3>项目基础信息</h3>
-                <p>项目名称全局唯一，平台分组不改变项目的数据隔离边界。</p>
+                <p>管理项目名称、所属平台和展示信息。</p>
               </div>
               {editable && (
                 <Button
@@ -354,7 +370,7 @@ export default function ConfigPanel({
                 action={<Button onClick={saveMap}>重新保存</Button>}
               />
             )}
-            <div className="form-grid">
+            <div className="form-grid config-basic-form">
               <Field label="所属平台">
                 <select
                   className="input"
@@ -381,7 +397,7 @@ export default function ConfigPanel({
                   readOnly={!editable}
                 />
               </Field>
-              <Field label="封面路径">
+              <Field label="封面路径" className="config-full-width">
                 <input
                   className="input"
                   value={mapForm.coverPath}
@@ -392,10 +408,10 @@ export default function ConfigPanel({
                   placeholder="例如 /api/maps/.../files/.../download?inline=1"
                 />
               </Field>
-              <Field label="说明">
+              <Field label="项目说明" className="config-full-width">
                 <textarea
                   className="input"
-                  rows="4"
+                  rows="3"
                   value={mapForm.description}
                   onChange={(event) =>
                     setMapForm({ ...mapForm, description: event.target.value })
@@ -408,28 +424,6 @@ export default function ConfigPanel({
               <Button icon={Download} onClick={exportConfig} disabled={!config}>
                 导出完整配置
               </Button>
-              {isAdmin && (
-                <>
-                  <Button
-                    variant="danger"
-                    icon={ShieldAlert}
-                    onClick={() => {
-                      setClearError("");
-                      setClearOpen(true);
-                    }}
-                  >
-                    清理运行数据
-                  </Button>
-                  <Button
-                    variant="danger"
-                    icon={Trash2}
-                    onClick={archiveMap}
-                    disabled={archiving}
-                  >
-                    {archiving ? "正在归档…" : "归档地图"}
-                  </Button>
-                </>
-              )}
             </div>
             {archiveError && (
               <InlineAlert
@@ -440,35 +434,63 @@ export default function ConfigPanel({
               />
             )}
             {isAdmin && (
-              <div className="danger-zone map-delete-zone">
-                <div>
-                  <ShieldAlert size={19} />
-                  <span>
-                    <strong>永久删除地图</strong>
-                    <small>
-                      清除玩家、存档、配置、榜单、礼包、日志、API Key
-                      和上传文件， 不可撤销。
-                    </small>
-                  </span>
+              <section className="config-lifecycle" aria-label="项目生命周期">
+                <div className="config-lifecycle-head">
+                  <h4>项目生命周期</h4>
+                  <span>操作前请确认影响范围</span>
                 </div>
-                <Button
-                  variant="danger"
-                  icon={Trash2}
-                  onClick={() => {
-                    setDeleteError("");
-                    setDeleteStep(1);
-                  }}
-                >
-                  永久删除
-                </Button>
-              </div>
+                <div className="config-lifecycle-row">
+                  <div>
+                    <strong>清理运行数据</strong>
+                    <p>清理玩家与运行记录，保留项目配置、开放功能及文件。</p>
+                  </div>
+                  <Button
+                    onClick={() => {
+                      setClearError("");
+                      setClearOpen(true);
+                    }}
+                  >
+                    清理数据
+                  </Button>
+                </div>
+                <div className="config-lifecycle-row">
+                  <div>
+                    <strong>归档地图</strong>
+                    <p>退出活跃列表，保留关联业务数据。</p>
+                  </div>
+                  <Button onClick={archiveMap} disabled={archiving}>
+                    {archiving ? "正在归档…" : "归档地图"}
+                  </Button>
+                </div>
+                <div className="danger-zone map-delete-zone">
+                  <div>
+                    <ShieldAlert size={19} />
+                    <span>
+                      <strong>永久删除地图</strong>
+                      <small>
+                        清除玩家、存档、配置、榜单、礼包、日志、API Key
+                        和上传文件， 不可撤销。
+                      </small>
+                    </span>
+                  </div>
+                  <Button
+                    variant="danger"
+                    icon={Trash2}
+                    onClick={() => {
+                      setDeleteError("");
+                      setDeleteStep(1);
+                    }}
+                  >
+                    永久删除
+                  </Button>
+                </div>
+              </section>
             )}
           </>
         ) : (
           <>
             <div className="config-surface-head">
               <div>
-                <span className="eyebrow">CONFIGURATION DATA</span>
                 <h3>{configSections.find(([key]) => key === active)?.[1]}</h3>
                 <p>
                   {active === "preloadCode"
@@ -529,16 +551,32 @@ export default function ConfigPanel({
                   />
                 )}
                 {active === "preloadCode" ? (
-                  <PreloadWorkspace
-                    workspace={preloadWorkspace}
-                    onChange={setPreloadWorkspace}
-                    editable={sectionEditable}
-                    compiledBytes={preloadCodeBytes}
-                    overLimit={preloadCodeOverLimit}
-                  />
+                  <Suspense
+                    fallback={
+                      <div className="loading-state">正在加载代码编辑器…</div>
+                    }
+                  >
+                    <PreloadWorkspace
+                      workspace={preloadWorkspace}
+                      onChange={setPreloadWorkspace}
+                      editable={sectionEditable}
+                      compiledBytes={preloadCodeBytes}
+                      overLimit={preloadCodeOverLimit}
+                    />
+                  </Suspense>
                 ) : (
                   <div className="config-editor-stack">
+                    <div className="config-editor-label">
+                      <span>
+                        <Braces size={15} />
+                        {active}.json
+                      </span>
+                      <span>
+                        JSON 数组{sectionEditable ? " · 可编辑" : " · 只读"}
+                      </span>
+                    </div>
                     <textarea
+                      aria-label={`${configSections.find(([key]) => key === active)?.[1]} JSON`}
                       className="code-editor config-editor"
                       spellCheck="false"
                       value={editor}
