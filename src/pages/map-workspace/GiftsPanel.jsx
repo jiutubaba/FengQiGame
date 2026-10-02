@@ -72,6 +72,12 @@ export default function GiftsPanel({ mapId }) {
       drawAt: "",
       winnerCount: 1,
     });
+  const [creatingLottery, setCreatingLottery] = useState(false);
+  const [lotteryError, setLotteryError] = useState("");
+  const lotteryCreateInFlight = useRef(false);
+  const [savingGift, setSavingGift] = useState(false);
+  const [giftSaveError, setGiftSaveError] = useState("");
+  const giftSaveInFlight = useRef(false);
   const giftPlayerRequestId = useRef(0);
   const previousGiftMapId = useRef(mapId);
   const [moduleLoading, setModuleLoading] = useState(true);
@@ -142,12 +148,13 @@ export default function GiftsPanel({ mapId }) {
     load();
   }, [load]);
   useEffect(() => {
+    if (activeGiftView !== "entitlements") return;
     const timer = setTimeout(loadGiftPlayers, 200);
     return () => {
       clearTimeout(timer);
       giftPlayerRequestId.current += 1;
     };
-  }, [loadGiftPlayers]);
+  }, [activeGiftView, loadGiftPlayers]);
   useEffect(() => {
     if (previousGiftMapId.current === mapId) return;
     previousGiftMapId.current = mapId;
@@ -208,6 +215,10 @@ export default function GiftsPanel({ mapId }) {
     setSelectedPlayers(next);
   };
   const saveGift = async () => {
+    if (giftSaveInFlight.current) return;
+    giftSaveInFlight.current = true;
+    setSavingGift(true);
+    setGiftSaveError("");
     try {
       await api(
         `/api/maps/${mapId}/gifts${giftForm.id ? `/${giftForm.id}` : ""}`,
@@ -218,7 +229,10 @@ export default function GiftsPanel({ mapId }) {
       await load();
       toast(giftForm.id ? "礼包已更新" : "礼包已创建");
     } catch (error) {
-      toast(error.message, "danger");
+      setGiftSaveError(error.message);
+    } finally {
+      giftSaveInFlight.current = false;
+      setSavingGift(false);
     }
   };
   const removeGift = async (gift) => {
@@ -292,6 +306,10 @@ export default function GiftsPanel({ mapId }) {
     }
   };
   const createLottery = async () => {
+    if (lotteryCreateInFlight.current) return;
+    lotteryCreateInFlight.current = true;
+    setCreatingLottery(true);
+    setLotteryError("");
     try {
       const created = await api(`/api/maps/${mapId}/lotteries`, {
         method: "POST",
@@ -305,13 +323,20 @@ export default function GiftsPanel({ mapId }) {
       });
       setLotteryOpen(false);
       setLottery({ title: "", description: "", drawAt: "", winnerCount: 1 });
-      await navigator.clipboard?.writeText(
-        `${location.origin}${created.publicPath}`,
-      );
-      toast("群抽已创建，公开链接已复制");
-      load();
+      await load();
+      try {
+        await navigator.clipboard.writeText(
+          `${location.origin}${created.publicPath}`,
+        );
+        toast("群抽已创建，公开链接已复制");
+      } catch {
+        toast("群抽已创建；链接复制失败，请在活动列表中重新复制。", "info");
+      }
     } catch (error) {
-      toast(error.message, "danger");
+      setLotteryError(error.message);
+    } finally {
+      lotteryCreateInFlight.current = false;
+      setCreatingLottery(false);
     }
   };
   const draw = async (item) => {
@@ -803,7 +828,14 @@ export default function GiftsPanel({ mapId }) {
                   公开链接无需后台账号，参与者信息与开奖结果保存在当前地图。
                 </p>
               </div>
-              <Button icon={Sparkles} onClick={() => setLotteryOpen(true)}>
+              <Button
+                icon={Sparkles}
+                disabled={creatingLottery}
+                onClick={() => {
+                  setLotteryError("");
+                  setLotteryOpen(true);
+                }}
+              >
                 创建群抽
               </Button>
             </div>
@@ -858,11 +890,18 @@ export default function GiftsPanel({ mapId }) {
                           <td className="align-right">
                             <button
                               className="table-action"
-                              onClick={() => {
-                                navigator.clipboard?.writeText(
-                                  `${location.origin}${item.publicPath}`,
-                                );
-                                toast("公开链接已复制");
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(
+                                    `${location.origin}${item.publicPath}`,
+                                  );
+                                  toast("公开链接已复制");
+                                } catch {
+                                  toast(
+                                    "链接复制失败，请检查浏览器剪贴板权限后重试。",
+                                    "danger",
+                                  );
+                                }
                               }}
                             >
                               <Clipboard size={14} />
@@ -916,22 +955,41 @@ export default function GiftsPanel({ mapId }) {
       </div>
       <Modal
         open={giftOpen}
-        onClose={() => setGiftOpen(false)}
+        onClose={() => {
+          if (giftSaveInFlight.current) return;
+          setGiftOpen(false);
+          setGiftSaveError("");
+        }}
         title={giftForm.id ? `编辑礼包 · ${giftForm.name}` : "新建礼包"}
         eyebrow="GIFT DEFINITION"
         footer={
           <>
-            <Button onClick={() => setGiftOpen(false)}>取消</Button>
+            <Button
+              disabled={savingGift}
+              onClick={() => {
+                setGiftOpen(false);
+                setGiftSaveError("");
+              }}
+            >
+              取消
+            </Button>
             <Button
               variant="primary"
               onClick={saveGift}
-              disabled={!giftForm.giftKey || !giftForm.name}
+              disabled={savingGift || !giftForm.giftKey || !giftForm.name}
             >
-              {giftForm.id ? "保存" : "创建"}
+              {savingGift ? "正在保存…" : giftForm.id ? "保存" : "创建"}
             </Button>
           </>
         }
       >
+        {giftSaveError && (
+          <InlineAlert
+            tone="danger"
+            title="礼包保存失败"
+            description={giftSaveError}
+          />
+        )}
         <Field
           label="礼包 Key"
           hint="接入沧澜福利礼包时，必须与现役礼包名称完全一致"
@@ -979,22 +1037,36 @@ export default function GiftsPanel({ mapId }) {
       </Modal>
       <Modal
         open={lotteryOpen}
-        onClose={() => setLotteryOpen(false)}
+        onClose={() => {
+          if (!creatingLottery) setLotteryOpen(false);
+        }}
         title="创建群抽活动"
         eyebrow="LOTTERY"
         footer={
           <>
-            <Button onClick={() => setLotteryOpen(false)}>取消</Button>
+            <Button
+              onClick={() => setLotteryOpen(false)}
+              disabled={creatingLottery}
+            >
+              取消
+            </Button>
             <Button
               variant="primary"
               onClick={createLottery}
-              disabled={!lottery.title}
+              disabled={creatingLottery || !lottery.title}
             >
-              生成公开链接
+              {creatingLottery ? "正在创建…" : "生成公开链接"}
             </Button>
           </>
         }
       >
+        {lotteryError && (
+          <InlineAlert
+            tone="danger"
+            title="群抽创建失败"
+            description={lotteryError}
+          />
+        )}
         <Field label="活动标题">
           <input
             className="input"

@@ -72,14 +72,18 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
       "UPDATE users SET last_login_at=NOW(),updated_at=NOW() WHERE id=$1",
       [user.id],
     );
+    req.user = user;
+    await writeAudit(
+      req,
+      {
+        action: "auth.login",
+        resourceType: "user",
+        resourceId: user.id,
+      },
+      client,
+    );
   });
 
-  req.user = user;
-  await writeAudit(req, {
-    action: "auth.login",
-    resourceType: "user",
-    resourceId: user.id,
-  });
   res.cookie(config.SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     secure: config.cookieSecure,
@@ -92,12 +96,20 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req, res) => {
 
 router.post("/logout", requireAuth, async (req, res) => {
   const token = req.cookies?.[config.SESSION_COOKIE_NAME];
-  if (token)
-    await query("DELETE FROM sessions WHERE token_hash=$1", [hashToken(token)]);
-  await writeAudit(req, {
-    action: "auth.logout",
-    resourceType: "user",
-    resourceId: req.user.id,
+  await transaction(async (client) => {
+    if (token)
+      await client.query("DELETE FROM sessions WHERE token_hash=$1", [
+        hashToken(token),
+      ]);
+    await writeAudit(
+      req,
+      {
+        action: "auth.logout",
+        resourceType: "user",
+        resourceId: req.user.id,
+      },
+      client,
+    );
   });
   res.clearCookie(config.SESSION_COOKIE_NAME, {
     httpOnly: true,
@@ -155,24 +167,34 @@ router.patch(
     z.object({
       displayName: z.string().trim().min(1).max(100),
       phone: z.string().trim().max(32).nullable().optional(),
-      profile: z.record(z.string(), z.unknown()).optional().default({}),
+      profile: z.record(z.string(), z.unknown()).optional(),
     }),
   ),
   async (req, res) => {
-    const result = await query(
-      `UPDATE users SET display_name=$1,phone=$2,profile=$3::jsonb,updated_at=NOW()
+    const result = await transaction(async (client) => {
+      const result = await client.query(
+        `UPDATE users SET display_name=$1,
+        phone=CASE WHEN $5 THEN $2 ELSE phone END,
+        profile=COALESCE($3::jsonb,profile),updated_at=NOW()
       WHERE id=$4 RETURNING id,username,display_name,phone,role,status,profile,last_login_at,created_at`,
-      [
-        req.body.displayName,
-        req.body.phone || null,
-        JSON.stringify(req.body.profile),
-        req.user.id,
-      ],
-    );
-    await writeAudit(req, {
-      action: "profile.update",
-      resourceType: "user",
-      resourceId: req.user.id,
+        [
+          req.body.displayName,
+          req.body.phone || null,
+          JSON.stringify(req.body.profile),
+          req.user.id,
+          Object.hasOwn(req.body, "phone"),
+        ],
+      );
+      await writeAudit(
+        req,
+        {
+          action: "profile.update",
+          resourceType: "user",
+          resourceId: req.user.id,
+        },
+        client,
+      );
+      return result;
     });
     res.json({ success: true, data: { user: result.rows[0] } });
   },
@@ -212,12 +234,18 @@ router.post(
         "DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2",
         [req.user.id, currentToken ? hashToken(currentToken) : ""],
       );
+
+      await writeAudit(
+        req,
+        {
+          action: "auth.password_changed",
+          resourceType: "user",
+          resourceId: req.user.id,
+        },
+        client,
+      );
     });
-    await writeAudit(req, {
-      action: "auth.password_changed",
-      resourceType: "user",
-      resourceId: req.user.id,
-    });
+
     res.json({ success: true });
   },
 );

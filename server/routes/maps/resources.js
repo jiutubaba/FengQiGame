@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { query } from "../../db/index.js";
+import { query, transaction } from "../../db/index.js";
 import { writeAudit } from "../../lib/audit.js";
 import { notFound } from "../../lib/errors.js";
 import { PERMISSIONS, requireMapPermission } from "../../middleware/auth.js";
@@ -61,17 +61,26 @@ export function registerResourceRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId),
         logId = idSchema.parse(req.params.logId);
-      const result = await query(
-        "DELETE FROM map_logs WHERE id=$1 AND map_id=$2 RETURNING id",
-        [logId, mapId],
+      await transaction(
+        async (client) => {
+          const result = await client.query(
+            "DELETE FROM map_logs WHERE id=$1 AND map_id=$2 RETURNING id",
+            [logId, mapId],
+          );
+          if (!result.rows[0]) throw notFound("日志不存在");
+          await writeAudit(
+            req,
+            {
+              action: "log.delete",
+              resourceType: "map_log",
+              resourceId: logId,
+              mapId,
+            },
+            client,
+          );
+        },
+        { mapId },
       );
-      if (!result.rows[0]) throw notFound("日志不存在");
-      await writeAudit(req, {
-        action: "log.delete",
-        resourceType: "map_log",
-        resourceId: logId,
-        mapId,
-      });
       res.json({ success: true });
     },
   );
@@ -114,16 +123,26 @@ function addSimpleResourceRoutes({
         (_, index) =>
           `$${index + 2}${entries[index][0] === "giftConfig" ? "::jsonb" : ""}`,
       );
-      const result = await query(
-        `INSERT INTO ${table}(map_id,${entries.map(([, db]) => db).join(",")}) VALUES($1,${shiftedPlaceholders.join(",")}) RETURNING *`,
-        [mapId, ...values],
+      const result = await transaction(
+        async (client) => {
+          const result = await client.query(
+            `INSERT INTO ${table}(map_id,${entries.map(([, db]) => db).join(",")}) VALUES($1,${shiftedPlaceholders.join(",")}) RETURNING *`,
+            [mapId, ...values],
+          );
+          await writeAudit(
+            req,
+            {
+              action: `${pathName}.create`,
+              resourceType: table,
+              resourceId: result.rows[0].id,
+              mapId,
+            },
+            client,
+          );
+          return result;
+        },
+        { mapId },
       );
-      await writeAudit(req, {
-        action: `${pathName}.create`,
-        resourceType: table,
-        resourceId: result.rows[0].id,
-        mapId,
-      });
       res.status(201).json({ success: true, data: rowMapper(result.rows[0]) });
     },
   );
@@ -134,32 +153,42 @@ function addSimpleResourceRoutes({
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId),
         resourceId = idSchema.parse(req.params.resourceId);
-      const current = await query(
-        `SELECT * FROM ${table} WHERE id=$1 AND map_id=$2`,
-        [resourceId, mapId],
+      const result = await transaction(
+        async (client) => {
+          const current = await client.query(
+            `SELECT * FROM ${table} WHERE id=$1 AND map_id=$2`,
+            [resourceId, mapId],
+          );
+          if (!current.rows[0]) throw notFound("记录不存在");
+          const entries = Object.entries(columns);
+          const values = entries.map(([apiKey, dbKey]) =>
+            apiKey === "giftConfig"
+              ? JSON.stringify(req.body[apiKey] ?? current.rows[0][dbKey])
+              : (req.body[apiKey] ?? current.rows[0][dbKey]),
+          );
+          const assignments = entries.map(
+            ([, dbKey], index) =>
+              `${dbKey}=$${index + 1}${dbKey === "gift_config" ? "::jsonb" : ""}`,
+          );
+          const result = await client.query(
+            `UPDATE ${table} SET ${assignments.join(",")},updated_at=NOW() WHERE id=$${values.length + 1} AND map_id=$${values.length + 2} RETURNING *`,
+            [...values, resourceId, mapId],
+          );
+          await writeAudit(
+            req,
+            {
+              action: `${pathName}.update`,
+              resourceType: table,
+              resourceId,
+              mapId,
+              details: { fields: Object.keys(req.body) },
+            },
+            client,
+          );
+          return result;
+        },
+        { mapId },
       );
-      if (!current.rows[0]) throw notFound("记录不存在");
-      const entries = Object.entries(columns);
-      const values = entries.map(([apiKey, dbKey]) =>
-        apiKey === "giftConfig"
-          ? JSON.stringify(req.body[apiKey] ?? current.rows[0][dbKey])
-          : (req.body[apiKey] ?? current.rows[0][dbKey]),
-      );
-      const assignments = entries.map(
-        ([, dbKey], index) =>
-          `${dbKey}=$${index + 1}${dbKey === "gift_config" ? "::jsonb" : ""}`,
-      );
-      const result = await query(
-        `UPDATE ${table} SET ${assignments.join(",")},updated_at=NOW() WHERE id=$${values.length + 1} AND map_id=$${values.length + 2} RETURNING *`,
-        [...values, resourceId, mapId],
-      );
-      await writeAudit(req, {
-        action: `${pathName}.update`,
-        resourceType: table,
-        resourceId,
-        mapId,
-        details: { fields: Object.keys(req.body) },
-      });
       res.json({ success: true, data: rowMapper(result.rows[0]) });
     },
   );
@@ -169,17 +198,26 @@ function addSimpleResourceRoutes({
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId),
         resourceId = idSchema.parse(req.params.resourceId);
-      const result = await query(
-        `DELETE FROM ${table} WHERE id=$1 AND map_id=$2 RETURNING id`,
-        [resourceId, mapId],
+      await transaction(
+        async (client) => {
+          const result = await client.query(
+            `DELETE FROM ${table} WHERE id=$1 AND map_id=$2 RETURNING id`,
+            [resourceId, mapId],
+          );
+          if (!result.rows[0]) throw notFound("记录不存在");
+          await writeAudit(
+            req,
+            {
+              action: `${pathName}.delete`,
+              resourceType: table,
+              resourceId,
+              mapId,
+            },
+            client,
+          );
+        },
+        { mapId },
       );
-      if (!result.rows[0]) throw notFound("记录不存在");
-      await writeAudit(req, {
-        action: `${pathName}.delete`,
-        resourceType: table,
-        resourceId,
-        mapId,
-      });
       res.json({ success: true });
     },
   );

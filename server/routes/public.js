@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
-import { query } from "../db/index.js";
+import { query, transaction } from "../db/index.js";
 import { conflict, HttpError, notFound } from "../lib/errors.js";
 import { validate } from "../middleware/validation.js";
 
@@ -100,31 +100,33 @@ router.post(
     }),
   ),
   async (req, res) => {
-    const campaignResult = await query(
-      "SELECT id,status,draw_at FROM lottery_campaigns WHERE public_token=$1",
-      [req.params.token],
-    );
-    const campaign = campaignResult.rows[0];
-    if (!campaign) throw notFound("抽奖活动不存在");
-    if (campaign.status !== "open") throw conflict("抽奖活动已结束");
-    if (campaign.draw_at && new Date(campaign.draw_at) <= new Date())
-      throw new HttpError(409, "报名已截止，等待开奖", "LOTTERY_CLOSED");
     const participantKey = String(req.body.playerUid || req.body.playerName)
       .trim()
       .toLocaleLowerCase("zh-CN");
     try {
-      const result = await query(
-        `INSERT INTO lottery_entries(campaign_id,participant_key,player_name,player_uid,contact,ip)
-       VALUES($1,$2,$3,$4,$5,$6) RETURNING id,player_name,created_at`,
-        [
-          campaign.id,
-          participantKey,
-          req.body.playerName,
-          req.body.playerUid || null,
-          req.body.contact || null,
-          req.ip,
-        ],
-      );
+      const result = await transaction(async (client) => {
+        const campaignResult = await client.query(
+          "SELECT id,status,draw_at FROM lottery_campaigns WHERE public_token=$1 FOR SHARE",
+          [req.params.token],
+        );
+        const campaign = campaignResult.rows[0];
+        if (!campaign) throw notFound("抽奖活动不存在");
+        if (campaign.status !== "open") throw conflict("抽奖活动已结束");
+        if (campaign.draw_at && new Date(campaign.draw_at) <= new Date())
+          throw new HttpError(409, "报名已截止，等待开奖", "LOTTERY_CLOSED");
+        return client.query(
+          `INSERT INTO lottery_entries(campaign_id,participant_key,player_name,player_uid,contact,ip)
+           VALUES($1,$2,$3,$4,$5,$6) RETURNING id,player_name,created_at`,
+          [
+            campaign.id,
+            participantKey,
+            req.body.playerName,
+            req.body.playerUid || null,
+            req.body.contact || null,
+            req.ip,
+          ],
+        );
+      });
       res.status(201).json({ success: true, data: result.rows[0] });
     } catch (error) {
       if (error.code === "23505") throw conflict("该玩家已经参与过本次抽奖");

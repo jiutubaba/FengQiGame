@@ -131,7 +131,7 @@ export function registerMapLifecycleRoutes(router) {
               ) AS total_game_count,
               COALESCE(
                 CASE WHEN automatic_sessions.epoch IS NOT NULL
-                  THEN automatic_activity.online_users
+                  THEN automatic_online.online_users
                   ELSE snapshot.online_users
                 END,
                 0
@@ -148,18 +148,21 @@ export function registerMapLifecycleRoutes(router) {
             WHERE s.map_id=m.id
          ) automatic_sessions ON TRUE
          LEFT JOIN LATERAL (
-           SELECT COUNT(DISTINCT a.player_uid)::bigint AS cumulative_users,
-                  COUNT(DISTINCT a.player_uid) FILTER (
-                    WHERE s.ended_at IS NULL
-                      AND a.active_date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date
-                      AND a.last_seen_at>CURRENT_TIMESTAMP-INTERVAL '120 seconds'
-                  )::bigint AS online_users
+           SELECT COUNT(DISTINCT a.player_uid)::bigint AS cumulative_users
+             FROM fq_metric_session_activity a
+            WHERE a.map_id=m.id
+         ) automatic_activity ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT COUNT(DISTINCT a.player_uid)::bigint AS online_users
              FROM fq_metric_session_activity a
              JOIN fq_metric_sessions s
                ON s.map_id=a.map_id
               AND s.session_id=a.session_id
             WHERE a.map_id=m.id
-         ) automatic_activity ON TRUE
+              AND a.active_date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date
+              AND a.last_seen_at>CURRENT_TIMESTAMP-INTERVAL '120 seconds'
+              AND s.ended_at IS NULL
+         ) automatic_online ON TRUE
          LEFT JOIN LATERAL (
            SELECT cumulative_users,total_game_count,online_users
              FROM map_metrics mm
@@ -197,15 +200,22 @@ export function registerMapLifecycleRoutes(router) {
           "INSERT INTO map_configs(map_id,updated_by) VALUES($1,$2)",
           [created.rows[0].id, req.user.id],
         );
-        return created.rows[0];
+
+        const result = created.rows[0];
+        await writeAudit(
+          req,
+          {
+            action: "map.create",
+            resourceType: "map",
+            resourceId: result.id,
+            mapId: result.id,
+            details: { name: result.name },
+          },
+          client,
+        );
+        return result;
       });
-      await writeAudit(req, {
-        action: "map.create",
-        resourceType: "map",
-        resourceId: result.id,
-        mapId: result.id,
-        details: { name: result.name },
-      });
+
       res.status(201).json({
         success: true,
         data: mapRow({ ...result, permissions: ALL_MAP_PERMISSIONS }),
@@ -236,43 +246,55 @@ export function registerMapLifecycleRoutes(router) {
     validate(mapSchema.partial()),
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
-      const current = await query("SELECT * FROM maps WHERE id=$1", [mapId]);
-      if (!current.rows[0]) throw notFound("地图不存在");
-      const next = {
-        ...current.rows[0],
-        ...{
-          name: req.body.name ?? current.rows[0].name,
-          description: req.body.description ?? current.rows[0].description,
-          owner_user_id:
-            req.body.ownerUserId === undefined
-              ? current.rows[0].owner_user_id
-              : req.body.ownerUserId,
-          cover_path:
-            req.body.coverPath === undefined
-              ? current.rows[0].cover_path
-              : req.body.coverPath,
-          platform: req.body.platform ?? current.rows[0].platform,
-        },
-      };
-      const result = await query(
-        `UPDATE maps SET name=$1,description=$2,owner_user_id=$3,cover_path=$4,platform=$5,updated_at=NOW()
+      const result = await transaction(
+        async (client) => {
+          const current = await client.query("SELECT * FROM maps WHERE id=$1", [
+            mapId,
+          ]);
+          if (!current.rows[0]) throw notFound("地图不存在");
+          const next = {
+            ...current.rows[0],
+            ...{
+              name: req.body.name ?? current.rows[0].name,
+              description: req.body.description ?? current.rows[0].description,
+              owner_user_id:
+                req.body.ownerUserId === undefined
+                  ? current.rows[0].owner_user_id
+                  : req.body.ownerUserId,
+              cover_path:
+                req.body.coverPath === undefined
+                  ? current.rows[0].cover_path
+                  : req.body.coverPath,
+              platform: req.body.platform ?? current.rows[0].platform,
+            },
+          };
+          const result = await client.query(
+            `UPDATE maps SET name=$1,description=$2,owner_user_id=$3,cover_path=$4,platform=$5,updated_at=NOW()
         WHERE id=$6 RETURNING *`,
-        [
-          next.name,
-          next.description,
-          next.owner_user_id,
-          next.cover_path,
-          next.platform,
-          mapId,
-        ],
+            [
+              next.name,
+              next.description,
+              next.owner_user_id,
+              next.cover_path,
+              next.platform,
+              mapId,
+            ],
+          );
+          await writeAudit(
+            req,
+            {
+              action: "map.update",
+              resourceType: "map",
+              resourceId: mapId,
+              mapId,
+              details: req.body,
+            },
+            client,
+          );
+          return result;
+        },
+        { mapId },
       );
-      await writeAudit(req, {
-        action: "map.update",
-        resourceType: "map",
-        resourceId: mapId,
-        mapId,
-        details: req.body,
-      });
       res.json({
         success: true,
         data: mapRow({ ...result.rows[0], permissions: req.mapPermissions }),
@@ -282,18 +304,27 @@ export function registerMapLifecycleRoutes(router) {
 
   router.delete("/:mapId", requireAuth, requireAdmin, async (req, res) => {
     const mapId = idSchema.parse(req.params.mapId);
-    const result = await query(
-      "UPDATE maps SET status='archived',updated_at=NOW() WHERE id=$1 AND status<>'archived' RETURNING id,name",
-      [mapId],
+    await transaction(
+      async (client) => {
+        const result = await client.query(
+          "UPDATE maps SET status='archived',updated_at=NOW() WHERE id=$1 AND status<>'archived' RETURNING id,name",
+          [mapId],
+        );
+        if (!result.rows[0]) throw notFound("地图不存在或已经归档");
+        await writeAudit(
+          req,
+          {
+            action: "map.archive",
+            resourceType: "map",
+            resourceId: mapId,
+            mapId,
+            details: { name: result.rows[0].name },
+          },
+          client,
+        );
+      },
+      { mapId },
     );
-    if (!result.rows[0]) throw notFound("地图不存在或已经归档");
-    await writeAudit(req, {
-      action: "map.archive",
-      resourceType: "map",
-      resourceId: mapId,
-      mapId,
-      details: { name: result.rows[0].name },
-    });
     res.json({ success: true });
   });
 
@@ -532,42 +563,54 @@ export function registerMapLifecycleRoutes(router) {
           );
         }
       }
-      const result = await transaction(async (client) => {
-        const current = await client.query(
-          "SELECT updated_at FROM map_configs WHERE map_id=$1 FOR UPDATE",
-          [mapId],
-        );
-        if (!current.rows[0]) throw notFound("地图配置不存在");
-        if (
-          expectedUpdatedAt &&
-          new Date(current.rows[0].updated_at).toISOString() !==
-            new Date(expectedUpdatedAt).toISOString()
-        ) {
-          throw conflict("地图配置已被其他会话修改，请重新读取后再保存");
-        }
-        return client.query(
-          `UPDATE map_configs SET config=config || $1::jsonb,updated_by=$2,updated_at=NOW()
+      const result = await transaction(
+        async (client) => {
+          const current = await client.query(
+            "SELECT updated_at FROM map_configs WHERE map_id=$1 FOR UPDATE",
+            [mapId],
+          );
+          if (!current.rows[0]) throw notFound("地图配置不存在");
+          if (
+            expectedUpdatedAt &&
+            new Date(current.rows[0].updated_at).toISOString() !==
+              new Date(expectedUpdatedAt).toISOString()
+          ) {
+            throw conflict("地图配置已被其他会话修改，请重新读取后再保存");
+          }
+
+          await writeAudit(
+            req,
+            {
+              action: "map.config.update",
+              resourceType: "map_config",
+              resourceId: mapId,
+              mapId,
+              details: {
+                sections: Object.keys(updates),
+                ...(updatesPreload
+                  ? {
+                      preloadFiles: updates.preloadWorkspace.files.map(
+                        (file) => file.path,
+                      ),
+                      preloadBytes: Buffer.byteLength(
+                        updates.preloadCode,
+                        "utf8",
+                      ),
+                    }
+                  : {}),
+              },
+            },
+            client,
+          );
+          return client.query(
+            `UPDATE map_configs SET config=config || $1::jsonb,updated_by=$2,updated_at=NOW()
           WHERE map_id=$3 RETURNING config,updated_at`,
-          [JSON.stringify(updates), req.user.id, mapId],
-        );
-      });
-      await writeAudit(req, {
-        action: "map.config.update",
-        resourceType: "map_config",
-        resourceId: mapId,
-        mapId,
-        details: {
-          sections: Object.keys(updates),
-          ...(updatesPreload
-            ? {
-                preloadFiles: updates.preloadWorkspace.files.map(
-                  (file) => file.path,
-                ),
-                preloadBytes: Buffer.byteLength(updates.preloadCode, "utf8"),
-              }
-            : {}),
+            [JSON.stringify(updates), req.user.id, mapId],
+          );
         },
-      });
+        { mapId },
+      );
+
       res.json({
         success: true,
         data: mapConfigData(result.rows[0]),
@@ -667,7 +710,8 @@ export function registerRuntimeRoutes(router) {
           "UPDATE tracking_points SET trigger_count=0,updated_at=NOW() WHERE map_id=$1",
           [mapId],
         );
-        return {
+
+        const counts = {
           messages: messages.rowCount,
           entitlements: entitlements.rowCount,
           leaderboardSnapshots: leaderboardSnapshots.rowCount,
@@ -684,14 +728,20 @@ export function registerRuntimeRoutes(router) {
           analyticsChoices: analyticsChoices.rowCount,
           automaticMetricSessions: automaticMetricSessions.rowCount,
         };
+        await writeAudit(
+          req,
+          {
+            action: "map.runtime.clear",
+            resourceType: "map",
+            resourceId: mapId,
+            mapId,
+            details: { counts },
+          },
+          client,
+        );
+        return counts;
       });
-      await writeAudit(req, {
-        action: "map.runtime.clear",
-        resourceType: "map",
-        resourceId: mapId,
-        mapId,
-        details: { counts },
-      });
+
       res.json({ success: true, data: counts });
     },
   );

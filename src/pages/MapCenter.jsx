@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
   Grid2X2,
@@ -40,9 +34,6 @@ export default function MapCenter() {
     viewParams.get("view") === "list" ? "list" : "grid",
   );
   const [search, setSearch] = useState(() => viewParams.get("q") || "");
-  const [maps, setMaps] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
@@ -54,26 +45,17 @@ export default function MapCenter() {
   const navigate = useNavigate();
   const toast = useToast();
   const { isAdmin } = useAuth();
-  const { syncMaps } = useOutletContext();
+  const {
+    maps,
+    mapsLoading: loading,
+    mapsError: loadError,
+    refreshMaps,
+  } = useOutletContext();
   const deferredSearch = useDeferredValue(search);
 
-  const loadMaps = useCallback(async () => {
-    setLoading(true);
-    setLoadError("");
-    try {
-      const rows = await api("/api/maps");
-      setMaps(rows);
-      syncMaps(rows);
-    } catch (error) {
-      setLoadError(error.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [syncMaps]);
-
   useEffect(() => {
-    loadMaps();
-  }, [loadMaps]);
+    refreshMaps();
+  }, [refreshMaps]);
   useEffect(() => {
     const next = new URLSearchParams();
     if (search.trim()) next.set("q", search.trim());
@@ -109,7 +91,7 @@ export default function MapCenter() {
       setCreateOpen(false);
       setForm({ name: "", description: "", platform: "kk" });
       toast("项目已创建");
-      await loadMaps();
+      await refreshMaps();
       navigate(`/maps/${created.id}/metrics`);
     } catch (error) {
       setCreateError(error.message);
@@ -181,14 +163,14 @@ export default function MapCenter() {
           tone="danger"
           title="项目列表刷新失败"
           description={loadError}
-          action={<Button onClick={loadMaps}>重新尝试</Button>}
+          action={<Button onClick={refreshMaps}>重新尝试</Button>}
         />
       )}
 
       {loading && !maps.length ? (
         <div className="loading-state">正在读取项目数据…</div>
       ) : loadError && !maps.length ? (
-        <ErrorState description={loadError} onRetry={loadMaps} />
+        <ErrorState description={loadError} onRetry={refreshMaps} />
       ) : filtered.length ? (
         <div className="platform-groups">
           {platformGroups.map((platform, platformIndex) => (
@@ -300,7 +282,14 @@ export default function MapCenter() {
             description={createError}
           />
         )}
-        <Field label="所属平台">
+        <div
+          className="field"
+          role="radiogroup"
+          aria-labelledby="project-platform-label"
+        >
+          <span className="field-label" id="project-platform-label">
+            所属平台
+          </span>
           <div className="platform-choice-grid">
             {PROJECT_PLATFORMS.map((platform) => (
               <label
@@ -323,7 +312,7 @@ export default function MapCenter() {
               </label>
             ))}
           </div>
-        </Field>
+        </div>
         <Field label="项目名称">
           <input
             className="input"

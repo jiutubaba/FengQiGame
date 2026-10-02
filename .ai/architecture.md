@@ -35,6 +35,7 @@
 
 - 前端路由：`src/App.jsx`；页面路由使用 React 懒加载，后台壳层和功能权限菜单位于 `src/components/AppShell.jsx`。
 - 项目工作台壳层与权限门禁：`src/pages/MapWorkspace.jsx`；指标、配置、玩家、反馈问卷、排行榜、风控、礼包和资源管理面板按业务域拆分在 `src/pages/map-workspace/` 并按当前功能懒加载。
+- 项目列表由 `AppShell` 统一持有数据、加载和错误状态，并合并同一壳层的并发列表请求；返回项目中心仍重新读取。工作台业务面板按地图与功能重新挂载，地图详情和可切换的列表请求只允许最新请求更新界面。
 - 数据分类导航由工作台壳层渲染，指标页不静态导入分析面板；配置页按需加载 `PreloadWorkspace.jsx`，基础配置不加载 CodeMirror 编辑器。
 - 项目后台 API 组合入口：`server/routes/maps.js`；具体路由按项目生命周期、玩家、反馈问卷、排行榜、风控、礼包与群抽、运营资源、文件和 API Key 拆分在 `server/routes/maps/`，组合入口保持原有注册顺序和 `/api/maps` 对外挂载点。
 - 游戏客户端协议：`server/routes/game.js`；认证授权：`server/middleware/auth.js`。

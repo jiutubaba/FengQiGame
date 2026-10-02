@@ -240,36 +240,37 @@ router.post(
       req.params.uid,
       req.body,
     );
-    const result = await transaction(async (client) => {
-      const player = await client.query(
-        `SELECT data_ban FROM players
+    const result = await transaction(
+      async (client) => {
+        const player = await client.query(
+          `SELECT data_ban FROM players
           WHERE map_id=$1 AND uid=$2`,
-        [req.apiKey.map_id, req.params.uid],
-      );
-      if (player.rows[0]?.data_ban) {
-        throw new HttpError(403, "玩家存档已被后台封禁", "FQ_ARCHIVE_BANNED");
-      }
-      await client.query(
-        `INSERT INTO fq_player_archives(map_id,player_uid)
+          [req.apiKey.map_id, req.params.uid],
+        );
+        if (player.rows[0]?.data_ban) {
+          throw new HttpError(403, "玩家存档已被后台封禁", "FQ_ARCHIVE_BANNED");
+        }
+        await client.query(
+          `INSERT INTO fq_player_archives(map_id,player_uid)
          VALUES($1,$2)
          ON CONFLICT(map_id,player_uid) DO NOTHING`,
-        [req.apiKey.map_id, req.params.uid],
-      );
-      const currentResult = await client.query(
-        `SELECT revision,last_request_id,last_request_hash
+          [req.apiKey.map_id, req.params.uid],
+        );
+        const currentResult = await client.query(
+          `SELECT revision,last_request_id,last_request_hash
            FROM fq_player_archives
           WHERE map_id=$1 AND player_uid=$2
           FOR UPDATE`,
-        [req.apiKey.map_id, req.params.uid],
-      );
-      const current = currentResult.rows[0];
-      if (assertMatchingRequest(current, req.body.requestId, requestHash)) {
-        return archiveRevisionRow(current);
-      }
-      const currentRevision = Number(current.revision);
-      assertExpectedRevision(req.body.expectedRevision, currentRevision);
-      const saved = await client.query(
-        `UPDATE fq_player_archives
+          [req.apiKey.map_id, req.params.uid],
+        );
+        const current = currentResult.rows[0];
+        if (assertMatchingRequest(current, req.body.requestId, requestHash)) {
+          return archiveRevisionRow(current);
+        }
+        const currentRevision = Number(current.revision);
+        assertExpectedRevision(req.body.expectedRevision, currentRevision);
+        const saved = await client.query(
+          `UPDATE fq_player_archives
             SET archive_data=$3::jsonb,
                 revision=revision+1,
                 last_request_id=$4,
@@ -277,16 +278,18 @@ router.post(
                 updated_at=NOW()
           WHERE map_id=$1 AND player_uid=$2
           RETURNING revision`,
-        [
-          req.apiKey.map_id,
-          req.params.uid,
-          JSON.stringify(req.body.values),
-          req.body.requestId,
-          requestHash,
-        ],
-      );
-      return archiveRevisionRow(saved.rows[0]);
-    });
+          [
+            req.apiKey.map_id,
+            req.params.uid,
+            JSON.stringify(req.body.values),
+            req.body.requestId,
+            requestHash,
+          ],
+        );
+        return archiveRevisionRow(saved.rows[0]);
+      },
+      { mapId: req.apiKey.map_id },
+    );
     res.json({
       success: true,
       data: { archive: result },
@@ -314,28 +317,29 @@ router.post(
   validate(archiveSaveSchema),
   async (req, res) => {
     const requestHash = archiveRequestHash("global.save", "global", req.body);
-    const result = await transaction(async (client) => {
-      await client.query(
-        `INSERT INTO fq_global_archives(map_id)
+    const result = await transaction(
+      async (client) => {
+        await client.query(
+          `INSERT INTO fq_global_archives(map_id)
          VALUES($1)
          ON CONFLICT(map_id) DO NOTHING`,
-        [req.apiKey.map_id],
-      );
-      const currentResult = await client.query(
-        `SELECT revision,last_request_id,last_request_hash
+          [req.apiKey.map_id],
+        );
+        const currentResult = await client.query(
+          `SELECT revision,last_request_id,last_request_hash
            FROM fq_global_archives
           WHERE map_id=$1
           FOR UPDATE`,
-        [req.apiKey.map_id],
-      );
-      const current = currentResult.rows[0];
-      if (assertMatchingRequest(current, req.body.requestId, requestHash)) {
-        return archiveRevisionRow(current);
-      }
-      const currentRevision = Number(current.revision);
-      assertExpectedRevision(req.body.expectedRevision, currentRevision);
-      const saved = await client.query(
-        `UPDATE fq_global_archives
+          [req.apiKey.map_id],
+        );
+        const current = currentResult.rows[0];
+        if (assertMatchingRequest(current, req.body.requestId, requestHash)) {
+          return archiveRevisionRow(current);
+        }
+        const currentRevision = Number(current.revision);
+        assertExpectedRevision(req.body.expectedRevision, currentRevision);
+        const saved = await client.query(
+          `UPDATE fq_global_archives
             SET archive_data=$2::jsonb,
                 revision=revision+1,
                 last_request_id=$3,
@@ -343,15 +347,17 @@ router.post(
                 updated_at=NOW()
           WHERE map_id=$1
           RETURNING revision`,
-        [
-          req.apiKey.map_id,
-          JSON.stringify(req.body.values),
-          req.body.requestId,
-          requestHash,
-        ],
-      );
-      return archiveRevisionRow(saved.rows[0]);
-    });
+          [
+            req.apiKey.map_id,
+            JSON.stringify(req.body.values),
+            req.body.requestId,
+            requestHash,
+          ],
+        );
+        return archiveRevisionRow(saved.rows[0]);
+      },
+      { mapId: req.apiKey.map_id },
+    );
     res.json({
       success: true,
       data: { archive: result },
@@ -399,23 +405,15 @@ router.post(
       }),
   ),
   async (req, res) => {
-    await transaction(async (client) => {
-      for (const player of req.body.players) {
-        await client.query(
-          `INSERT INTO players(map_id,uid,name,level,game_level,profile,last_active_at)
-           VALUES($1,$2,$3,$4,$5,$6::jsonb,NOW())
-           ON CONFLICT(map_id,uid) DO UPDATE SET name=EXCLUDED.name,level=EXCLUDED.level,game_level=EXCLUDED.game_level,profile=EXCLUDED.profile,last_active_at=NOW(),updated_at=NOW()`,
-          [
-            req.apiKey.map_id,
-            player.uid,
-            player.name,
-            player.level,
-            player.gameLevel,
-            JSON.stringify(player.profile),
-          ],
-        );
-      }
-    });
+    await query(
+      `INSERT INTO players(map_id,uid,name,level,game_level,profile,last_active_at)
+       SELECT $1,p.uid,p.name,p.level,p."gameLevel",p.profile,NOW()
+         FROM jsonb_to_recordset($2::jsonb) AS p(
+           uid text,name text,level integer,"gameLevel" text,profile jsonb
+         ) ORDER BY p.uid
+       ON CONFLICT(map_id,uid) DO UPDATE SET name=EXCLUDED.name,level=EXCLUDED.level,game_level=EXCLUDED.game_level,profile=EXCLUDED.profile,last_active_at=NOW(),updated_at=NOW()`,
+      [req.apiKey.map_id, JSON.stringify(req.body.players)],
+    );
     res.json({ success: true });
   },
 );
@@ -717,57 +715,62 @@ router.post(
         },
       });
 
-    await transaction(async (client) => {
-      for (const entry of req.body.entries) {
+    await transaction(
+      async (client) => {
         const collection = await client.query(
-          `INSERT INTO leaderboard_daily_collections(
-             leaderboard_id,player_uid,collection_date
-           ) VALUES($1,$2,$3::date)
-           ON CONFLICT DO NOTHING
-           RETURNING player_uid`,
-          [leaderboard.id, entry.uid, leaderboard.collection_date],
+          `INSERT INTO leaderboard_daily_collections(leaderboard_id,player_uid,collection_date)
+         SELECT $1,uid,$3::date FROM unnest($2::text[]) AS uid ORDER BY uid
+         ON CONFLICT DO NOTHING RETURNING player_uid`,
+          [
+            leaderboard.id,
+            req.body.entries.map((entry) => entry.uid),
+            leaderboard.collection_date,
+          ],
         );
-        if (
-          !collection.rows[0] &&
-          ["latest", "best"].includes(leaderboard.score_update_mode)
+        const collectedUids = new Set(
+          collection.rows.map((row) => row.player_uid),
+        );
+        const acceptedEntries = ["latest", "best"].includes(
+          leaderboard.score_update_mode,
         )
-          continue;
+          ? req.body.entries.filter((entry) => collectedUids.has(entry.uid))
+          : req.body.entries;
+        if (!acceptedEntries.length) return;
         await client.query(
           `INSERT INTO leaderboard_entries(leaderboard_id,player_uid,player_name,game_level,score,game_count,metadata,last_submitted_on)
-           VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$10::date)
+         SELECT $1,e.uid,e.name,e."gameLevel",e.score,e."gameCount",e.metadata,$5::date
+           FROM jsonb_to_recordset($2::jsonb) AS e(
+             uid text,name text,"gameLevel" text,score numeric,"gameCount" bigint,metadata jsonb
+           ) ORDER BY e.uid
            ON CONFLICT(leaderboard_id,player_uid) DO UPDATE SET
               player_name=EXCLUDED.player_name,
               game_level=CASE
-                WHEN $8 IN ('latest','realtime_latest') OR ($8 IN ('best','realtime_best') AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                WHEN $3 IN ('latest','realtime_latest') OR ($3 IN ('best','realtime_best') AND (($4='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($4='asc' AND EXCLUDED.score<leaderboard_entries.score)))
                 THEN EXCLUDED.game_level ELSE leaderboard_entries.game_level END,
               score=CASE
-                WHEN $8 IN ('latest','realtime_latest') OR ($8 IN ('best','realtime_best') AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                WHEN $3 IN ('latest','realtime_latest') OR ($3 IN ('best','realtime_best') AND (($4='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($4='asc' AND EXCLUDED.score<leaderboard_entries.score)))
                 THEN EXCLUDED.score ELSE leaderboard_entries.score END,
               game_count=CASE
-                WHEN $8 IN ('latest','realtime_latest') OR ($8 IN ('best','realtime_best') AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                WHEN $3 IN ('latest','realtime_latest') OR ($3 IN ('best','realtime_best') AND (($4='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($4='asc' AND EXCLUDED.score<leaderboard_entries.score)))
                 THEN EXCLUDED.game_count ELSE leaderboard_entries.game_count END,
               metadata=CASE
-                WHEN $8 IN ('latest','realtime_latest') OR ($8 IN ('best','realtime_best') AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                WHEN $3 IN ('latest','realtime_latest') OR ($3 IN ('best','realtime_best') AND (($4='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($4='asc' AND EXCLUDED.score<leaderboard_entries.score)))
                 THEN EXCLUDED.metadata ELSE leaderboard_entries.metadata END,
               updated_at=CASE
-                WHEN $8 IN ('latest','realtime_latest') OR ($8 IN ('best','realtime_best') AND (($9='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($9='asc' AND EXCLUDED.score<leaderboard_entries.score)))
+                WHEN $3 IN ('latest','realtime_latest') OR ($3 IN ('best','realtime_best') AND (($4='desc' AND EXCLUDED.score>leaderboard_entries.score) OR ($4='asc' AND EXCLUDED.score<leaderboard_entries.score)))
                 THEN NOW() ELSE leaderboard_entries.updated_at END,
               last_submitted_on=EXCLUDED.last_submitted_on`,
           [
             leaderboard.id,
-            entry.uid,
-            entry.name,
-            entry.gameLevel,
-            entry.score,
-            entry.gameCount,
-            JSON.stringify(entry.metadata),
+            JSON.stringify(acceptedEntries),
             leaderboard.score_update_mode,
             leaderboard.sort_direction,
             leaderboard.collection_date,
           ],
         );
-      }
-    });
+      },
+      { mapId: req.apiKey.map_id },
+    );
     res.json({ success: true });
   },
 );
@@ -856,11 +859,7 @@ router.post(
       req.body.includeMessages &&
       !req.apiKey.permissions.includes("game.messages.read")
     ) {
-      throw new HttpError(
-        403,
-        "API Key 没有玩家消息读取权限",
-        "FORBIDDEN",
-      );
+      throw new HttpError(403, "API Key 没有玩家消息读取权限", "FORBIDDEN");
     }
     const [messages, gifts] = await Promise.all([
       req.body.includeMessages
@@ -921,6 +920,10 @@ router.post(
 router.post(
   "/messages/:messageId/ack",
   requireApiPermission("game.messages.read"),
+  validate(
+    z.object({ messageId: z.coerce.number().int().positive() }),
+    "params",
+  ),
   validate(z.object({ uid: z.string().trim().min(1).max(128) })),
   async (req, res) => {
     const result = await query(

@@ -40,24 +40,34 @@ export function registerGiftRoutes(router) {
     validate(giftSchema),
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
-      const result = await query(
-        "INSERT INTO gifts(map_id,gift_key,name,description,default_value,enabled) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
-        [
-          mapId,
-          req.body.giftKey,
-          req.body.name,
-          req.body.description,
-          req.body.defaultValue,
-          req.body.enabled,
-        ],
+      const result = await transaction(
+        async (client) => {
+          const result = await client.query(
+            "INSERT INTO gifts(map_id,gift_key,name,description,default_value,enabled) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
+            [
+              mapId,
+              req.body.giftKey,
+              req.body.name,
+              req.body.description,
+              req.body.defaultValue,
+              req.body.enabled,
+            ],
+          );
+          await writeAudit(
+            req,
+            {
+              action: "gift.create",
+              resourceType: "gift",
+              resourceId: result.rows[0].id,
+              mapId,
+              details: { giftKey: req.body.giftKey },
+            },
+            client,
+          );
+          return result;
+        },
+        { mapId },
       );
-      await writeAudit(req, {
-        action: "gift.create",
-        resourceType: "gift",
-        resourceId: result.rows[0].id,
-        mapId,
-        details: { giftKey: req.body.giftKey },
-      });
       res.status(201).json({ success: true, data: giftRow(result.rows[0]) });
     },
   );
@@ -68,30 +78,40 @@ export function registerGiftRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId),
         giftId = idSchema.parse(req.params.giftId);
-      const current = await query(
-        "SELECT * FROM gifts WHERE id=$1 AND map_id=$2",
-        [giftId, mapId],
+      const result = await transaction(
+        async (client) => {
+          const current = await client.query(
+            "SELECT * FROM gifts WHERE id=$1 AND map_id=$2",
+            [giftId, mapId],
+          );
+          if (!current.rows[0]) throw notFound("礼包不存在");
+          const row = current.rows[0];
+          const result = await client.query(
+            "UPDATE gifts SET gift_key=$1,name=$2,description=$3,default_value=$4,enabled=$5,updated_at=NOW() WHERE id=$6 RETURNING *",
+            [
+              req.body.giftKey ?? row.gift_key,
+              req.body.name ?? row.name,
+              req.body.description ?? row.description,
+              req.body.defaultValue ?? row.default_value,
+              req.body.enabled ?? row.enabled,
+              giftId,
+            ],
+          );
+          await writeAudit(
+            req,
+            {
+              action: "gift.update",
+              resourceType: "gift",
+              resourceId: giftId,
+              mapId,
+              details: { fields: Object.keys(req.body) },
+            },
+            client,
+          );
+          return result;
+        },
+        { mapId },
       );
-      if (!current.rows[0]) throw notFound("礼包不存在");
-      const row = current.rows[0];
-      const result = await query(
-        "UPDATE gifts SET gift_key=$1,name=$2,description=$3,default_value=$4,enabled=$5,updated_at=NOW() WHERE id=$6 RETURNING *",
-        [
-          req.body.giftKey ?? row.gift_key,
-          req.body.name ?? row.name,
-          req.body.description ?? row.description,
-          req.body.defaultValue ?? row.default_value,
-          req.body.enabled ?? row.enabled,
-          giftId,
-        ],
-      );
-      await writeAudit(req, {
-        action: "gift.update",
-        resourceType: "gift",
-        resourceId: giftId,
-        mapId,
-        details: { fields: Object.keys(req.body) },
-      });
       res.json({ success: true, data: giftRow(result.rows[0]) });
     },
   );
@@ -101,17 +121,26 @@ export function registerGiftRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId),
         giftId = idSchema.parse(req.params.giftId);
-      const result = await query(
-        "DELETE FROM gifts WHERE id=$1 AND map_id=$2 RETURNING id",
-        [giftId, mapId],
+      await transaction(
+        async (client) => {
+          const result = await client.query(
+            "DELETE FROM gifts WHERE id=$1 AND map_id=$2 RETURNING id",
+            [giftId, mapId],
+          );
+          if (!result.rows[0]) throw notFound("礼包不存在");
+          await writeAudit(
+            req,
+            {
+              action: "gift.delete",
+              resourceType: "gift",
+              resourceId: giftId,
+              mapId,
+            },
+            client,
+          );
+        },
+        { mapId },
       );
-      if (!result.rows[0]) throw notFound("礼包不存在");
-      await writeAudit(req, {
-        action: "gift.delete",
-        resourceType: "gift",
-        resourceId: giftId,
-        mapId,
-      });
       res.json({ success: true });
     },
   );
@@ -270,59 +299,76 @@ export function registerGiftRoutes(router) {
     ),
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
-      const counts = await transaction(async (client) => {
-        const players = await client.query(
-          "SELECT id FROM players WHERE map_id=$1 AND id=ANY($2::bigint[])",
-          [mapId, req.body.playerIds],
-        );
-        if (players.rowCount !== req.body.playerIds.length)
-          throw conflict("存在不属于当前地图的玩家");
-
-        const giftIds = req.body.gifts.map((gift) => gift.giftId);
-        const gifts = await client.query(
-          "SELECT id FROM gifts WHERE map_id=$1 AND id=ANY($2::bigint[])",
-          [mapId, giftIds],
-        );
-        if (gifts.rowCount !== giftIds.length)
-          throw conflict("存在不属于当前地图的礼包");
-
-        let upserted = 0;
-        let removed = 0;
-        for (const gift of req.body.gifts) {
-          if (gift.value === 0) {
-            const deleted = await client.query(
-              `DELETE FROM gift_entitlements
-                WHERE map_id=$1 AND gift_id=$2
-                  AND player_id=ANY($3::bigint[])`,
-              [mapId, gift.giftId, req.body.playerIds],
-            );
-            removed += deleted.rowCount;
-            continue;
-          }
-          const updated = await client.query(
-            `INSERT INTO gift_entitlements(map_id,gift_id,player_id,value,updated_by)
-             SELECT $1::bigint,$2::bigint,p.id,$3::numeric,$4::bigint
-               FROM players p
-              WHERE p.map_id=$1 AND p.id=ANY($5::bigint[])
-             ON CONFLICT(map_id,player_id,gift_id) DO UPDATE
-             SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=NOW()`,
-            [mapId, gift.giftId, gift.value, req.user.id, req.body.playerIds],
+      const counts = await transaction(
+        async (client) => {
+          const players = await client.query(
+            "SELECT id FROM players WHERE map_id=$1 AND id=ANY($2::bigint[])",
+            [mapId, req.body.playerIds],
           );
-          upserted += updated.rowCount;
-        }
-        return { upserted, removed };
-      });
-      await writeAudit(req, {
-        action: "gift.entitlements.set",
-        resourceType: "gift_entitlement",
-        mapId,
-        details: {
-          playerCount: req.body.playerIds.length,
-          giftCount: req.body.gifts.length,
-          values: req.body.gifts,
-          ...counts,
+          if (players.rowCount !== req.body.playerIds.length)
+            throw conflict("存在不属于当前地图的玩家");
+
+          const giftIds = req.body.gifts.map((gift) => gift.giftId);
+          const gifts = await client.query(
+            "SELECT id FROM gifts WHERE map_id=$1 AND id=ANY($2::bigint[])",
+            [mapId, giftIds],
+          );
+          if (gifts.rowCount !== giftIds.length)
+            throw conflict("存在不属于当前地图的礼包");
+
+          const removed = await client.query(
+            `DELETE FROM gift_entitlements
+            WHERE map_id=$1 AND gift_id=ANY($2::bigint[])
+              AND player_id=ANY($3::bigint[])`,
+            [
+              mapId,
+              req.body.gifts
+                .filter((gift) => gift.value === 0)
+                .map((gift) => gift.giftId),
+              req.body.playerIds,
+            ],
+          );
+          const positiveGifts = req.body.gifts.filter((gift) => gift.value > 0);
+          const upserted = await client.query(
+            `INSERT INTO gift_entitlements(map_id,gift_id,player_id,value,updated_by)
+           SELECT $1::bigint,g.gift_id,p.id,g.value,$2::bigint
+             FROM players p
+             CROSS JOIN unnest($4::bigint[],$5::numeric[]) AS g(gift_id,value)
+            WHERE p.map_id=$1 AND p.id=ANY($3::bigint[])
+            ORDER BY p.id,g.gift_id
+           ON CONFLICT(map_id,player_id,gift_id) DO UPDATE
+           SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=NOW()`,
+            [
+              mapId,
+              req.user.id,
+              req.body.playerIds,
+              positiveGifts.map((gift) => gift.giftId),
+              positiveGifts.map((gift) => gift.value),
+            ],
+          );
+          const changed = {
+            upserted: upserted.rowCount,
+            removed: removed.rowCount,
+          };
+          await writeAudit(
+            req,
+            {
+              action: "gift.entitlements.set",
+              resourceType: "gift_entitlement",
+              mapId,
+              details: {
+                playerCount: req.body.playerIds.length,
+                giftCount: req.body.gifts.length,
+                values: req.body.gifts,
+                ...changed,
+              },
+            },
+            client,
+          );
+          return changed;
         },
-      });
+        { mapId },
+      );
       res.json({
         success: true,
         data: {
@@ -374,27 +420,37 @@ export function registerLotteryRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
       const token = createOpaqueToken("lot_");
-      const result = await query(
-        `INSERT INTO lottery_campaigns(map_id,public_token,title,description,draw_at,winner_count,reward_config,created_by)
+      const result = await transaction(
+        async (client) => {
+          const result = await client.query(
+            `INSERT INTO lottery_campaigns(map_id,public_token,title,description,draw_at,winner_count,reward_config,created_by)
        VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8) RETURNING *`,
-        [
-          mapId,
-          token,
-          req.body.title,
-          req.body.description,
-          req.body.drawAt || null,
-          req.body.winnerCount,
-          JSON.stringify(req.body.rewardConfig),
-          req.user.id,
-        ],
+            [
+              mapId,
+              token,
+              req.body.title,
+              req.body.description,
+              req.body.drawAt || null,
+              req.body.winnerCount,
+              JSON.stringify(req.body.rewardConfig),
+              req.user.id,
+            ],
+          );
+          await writeAudit(
+            req,
+            {
+              action: "lottery.create",
+              resourceType: "lottery_campaign",
+              resourceId: result.rows[0].id,
+              mapId,
+              details: { title: req.body.title },
+            },
+            client,
+          );
+          return result;
+        },
+        { mapId },
       );
-      await writeAudit(req, {
-        action: "lottery.create",
-        resourceType: "lottery_campaign",
-        resourceId: result.rows[0].id,
-        mapId,
-        details: { title: req.body.title },
-      });
       res.status(201).json({
         success: true,
         data: {
@@ -411,37 +467,48 @@ export function registerLotteryRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
       const campaignId = idSchema.parse(req.params.campaignId);
-      const winners = await transaction(async (client) => {
-        const campaignResult = await client.query(
-          "SELECT * FROM lottery_campaigns WHERE id=$1 AND map_id=$2 FOR UPDATE",
-          [campaignId, mapId],
-        );
-        const campaign = campaignResult.rows[0];
-        if (!campaign) throw notFound("抽奖活动不存在");
-        if (campaign.status !== "open") throw conflict("该活动已经开奖或取消");
-        const selected = await client.query(
-          `SELECT id,player_name,player_uid FROM lottery_entries WHERE campaign_id=$1
+      const winners = await transaction(
+        async (client) => {
+          const campaignResult = await client.query(
+            "SELECT * FROM lottery_campaigns WHERE id=$1 AND map_id=$2 FOR UPDATE",
+            [campaignId, mapId],
+          );
+          const campaign = campaignResult.rows[0];
+          if (!campaign) throw notFound("抽奖活动不存在");
+          if (campaign.status !== "open")
+            throw conflict("该活动已经开奖或取消");
+          const selected = await client.query(
+            `SELECT id,player_name,player_uid FROM lottery_entries WHERE campaign_id=$1
          ORDER BY RANDOM() LIMIT $2`,
-          [campaignId, campaign.winner_count],
-        );
-        if (!selected.rowCount) throw conflict("当前没有参与者，无法开奖");
-        await client.query(
-          "UPDATE lottery_entries SET is_winner=TRUE WHERE id=ANY($1::bigint[])",
-          [selected.rows.map((row) => row.id)],
-        );
-        await client.query(
-          "UPDATE lottery_campaigns SET status='drawn',drawn_at=NOW(),updated_at=NOW() WHERE id=$1",
-          [campaignId],
-        );
-        return selected.rows;
-      });
-      await writeAudit(req, {
-        action: "lottery.draw",
-        resourceType: "lottery_campaign",
-        resourceId: campaignId,
-        mapId,
-        details: { winnerCount: winners.length },
-      });
+            [campaignId, campaign.winner_count],
+          );
+          if (!selected.rowCount) throw conflict("当前没有参与者，无法开奖");
+          await client.query(
+            "UPDATE lottery_entries SET is_winner=TRUE WHERE id=ANY($1::bigint[])",
+            [selected.rows.map((row) => row.id)],
+          );
+          await client.query(
+            "UPDATE lottery_campaigns SET status='drawn',drawn_at=NOW(),updated_at=NOW() WHERE id=$1",
+            [campaignId],
+          );
+
+          const winners = selected.rows;
+          await writeAudit(
+            req,
+            {
+              action: "lottery.draw",
+              resourceType: "lottery_campaign",
+              resourceId: campaignId,
+              mapId,
+              details: { winnerCount: winners.length },
+            },
+            client,
+          );
+          return winners;
+        },
+        { mapId },
+      );
+
       res.json({ success: true, data: winners });
     },
   );
@@ -452,17 +519,26 @@ export function registerLotteryRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
       const campaignId = idSchema.parse(req.params.campaignId);
-      const result = await query(
-        "UPDATE lottery_campaigns SET status='cancelled',updated_at=NOW() WHERE id=$1 AND map_id=$2 AND status='open' RETURNING id",
-        [campaignId, mapId],
+      await transaction(
+        async (client) => {
+          const result = await client.query(
+            "UPDATE lottery_campaigns SET status='cancelled',updated_at=NOW() WHERE id=$1 AND map_id=$2 AND status='open' RETURNING id",
+            [campaignId, mapId],
+          );
+          if (!result.rows[0]) throw conflict("活动不存在或不能取消");
+          await writeAudit(
+            req,
+            {
+              action: "lottery.cancel",
+              resourceType: "lottery_campaign",
+              resourceId: campaignId,
+              mapId,
+            },
+            client,
+          );
+        },
+        { mapId },
       );
-      if (!result.rows[0]) throw conflict("活动不存在或不能取消");
-      await writeAudit(req, {
-        action: "lottery.cancel",
-        resourceType: "lottery_campaign",
-        resourceId: campaignId,
-        mapId,
-      });
       res.json({ success: true });
     },
   );
@@ -473,53 +549,56 @@ export function registerLotteryRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
       const campaignId = idSchema.parse(req.params.campaignId);
-      const deleted = await transaction(async (client) => {
-        const campaignResult = await client.query(
-          `SELECT id,title,status,draw_at
+      const deleted = await transaction(
+        async (client) => {
+          const campaignResult = await client.query(
+            `SELECT id,title,status,draw_at
              FROM lottery_campaigns
             WHERE id=$1 AND map_id=$2
             FOR UPDATE`,
-          [campaignId, mapId],
-        );
-        const campaign = campaignResult.rows[0];
-        if (!campaign) throw notFound("抽奖活动不存在");
-        const canDelete =
-          campaign.status === "drawn" ||
-          campaign.status === "cancelled" ||
-          (campaign.status === "open" &&
-            campaign.draw_at &&
-            new Date(campaign.draw_at) <= new Date());
-        if (!canDelete) {
-          throw new HttpError(
-            409,
-            "抽奖活动仍在报名期内或未设置开奖时间，不能永久删除",
-            "LOTTERY_DELETE_NOT_ALLOWED",
-            { status: campaign.status, drawAt: campaign.draw_at },
+            [campaignId, mapId],
           );
-        }
-        const result = await client.query(
-          `DELETE FROM lottery_campaigns
+          const campaign = campaignResult.rows[0];
+          if (!campaign) throw notFound("抽奖活动不存在");
+          const canDelete =
+            campaign.status === "drawn" ||
+            campaign.status === "cancelled" ||
+            (campaign.status === "open" &&
+              campaign.draw_at &&
+              new Date(campaign.draw_at) <= new Date());
+          if (!canDelete) {
+            throw new HttpError(
+              409,
+              "抽奖活动仍在报名期内或未设置开奖时间，不能永久删除",
+              "LOTTERY_DELETE_NOT_ALLOWED",
+              { status: campaign.status, drawAt: campaign.draw_at },
+            );
+          }
+          const result = await client.query(
+            `DELETE FROM lottery_campaigns
             WHERE id=$1 AND map_id=$2
             RETURNING id,title,status,draw_at`,
-          [campaignId, mapId],
-        );
-        await writeAudit(
-          req,
-          {
-            action: "lottery.delete",
-            resourceType: "lottery_campaign",
-            resourceId: campaignId,
-            mapId,
-            details: {
-              title: campaign.title,
-              status: campaign.status,
-              drawAt: campaign.draw_at,
+            [campaignId, mapId],
+          );
+          await writeAudit(
+            req,
+            {
+              action: "lottery.delete",
+              resourceType: "lottery_campaign",
+              resourceId: campaignId,
+              mapId,
+              details: {
+                title: campaign.title,
+                status: campaign.status,
+                drawAt: campaign.draw_at,
+              },
             },
-          },
-          client,
-        );
-        return result.rows[0];
-      });
+            client,
+          );
+          return result.rows[0];
+        },
+        { mapId },
+      );
       res.json({ success: true, data: { id: Number(deleted.id) } });
     },
   );

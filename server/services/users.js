@@ -18,19 +18,17 @@ export async function ensureInitialAdmin(config) {
   );
 }
 
-export async function createUser({
-  username,
-  password,
-  displayName,
-  phone = null,
-  role = "user",
-}) {
-  const existing = await query("SELECT 1 FROM users WHERE username=$1", [
+export async function createUser(
+  { username, password, displayName, phone = null, role = "user" },
+  client = null,
+) {
+  const execute = client ? client.query.bind(client) : query;
+  const existing = await execute("SELECT 1 FROM users WHERE username=$1", [
     username,
   ]);
   if (existing.rowCount) throw conflict("用户名已存在");
   const passwordHash = await hashPassword(password);
-  const result = await query(
+  const result = await execute(
     `INSERT INTO users(username,password_hash,display_name,phone,role,status)
      VALUES($1,$2,$3,$4,$5,'active')
      RETURNING id,username,display_name,phone,role,status,created_at`,

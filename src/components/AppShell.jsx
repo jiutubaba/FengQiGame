@@ -138,6 +138,9 @@ export default function AppShell() {
   const navigate = useNavigate();
   const { user, isAdmin, logout } = useAuth();
   const [maps, setMaps] = useState([]);
+  const [mapsLoading, setMapsLoading] = useState(true);
+  const [mapsError, setMapsError] = useState("");
+  const mapsRequestRef = useRef(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [healthy, setHealthy] = useState(null);
@@ -145,13 +148,25 @@ export default function AppShell() {
   const profileMenuRef = useRef(null);
   const profileTriggerRef = useRef(null);
 
-  const refreshMaps = useCallback(
-    () =>
-      api("/api/maps")
-        .then(setMaps)
-        .catch(() => null),
-    [],
-  );
+  const refreshMaps = useCallback(() => {
+    if (mapsRequestRef.current) return mapsRequestRef.current;
+    setMapsLoading(true);
+    setMapsError("");
+    mapsRequestRef.current = api("/api/maps")
+      .then((items) => {
+        setMaps(items);
+        return items;
+      })
+      .catch((error) => {
+        setMapsError(error.message);
+        return null;
+      })
+      .finally(() => {
+        mapsRequestRef.current = null;
+        setMapsLoading(false);
+      });
+    return mapsRequestRef.current;
+  }, []);
   useEffect(() => {
     refreshMaps();
   }, [refreshMaps]);
@@ -188,7 +203,16 @@ export default function AppShell() {
   useEffect(() => {
     setMobileOpen(false);
     setProfileOpen(false);
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   }, [location.pathname]);
+  useEffect(() => {
+    const viewport = window.matchMedia("(max-width: 900px)");
+    const closeDesktopDrawer = () => {
+      if (!viewport.matches) setMobileOpen(false);
+    };
+    viewport.addEventListener("change", closeDesktopDrawer);
+    return () => viewport.removeEventListener("change", closeDesktopDrawer);
+  }, []);
   useEffect(() => {
     if (!mobileOpen) return undefined;
     const previousOverflow = document.body.style.overflow;
@@ -218,10 +242,11 @@ export default function AppShell() {
       }
     };
     document.addEventListener("keydown", closeOnEscape);
-    window.requestAnimationFrame(() =>
+    const focusFrame = window.requestAnimationFrame(() =>
       sidebarRef.current?.querySelector(".mobile-close")?.focus(),
     );
     return () => {
+      window.cancelAnimationFrame(focusFrame);
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", closeOnEscape);
       if (previousFocus?.isConnected) previousFocus.focus();
@@ -295,8 +320,11 @@ export default function AppShell() {
   return (
     <div className="app-frame">
       <aside
+        id="workspace-sidebar"
         ref={sidebarRef}
         className={`sidebar ${mobileOpen ? "is-open" : ""}`}
+        role={mobileOpen ? "dialog" : undefined}
+        aria-modal={mobileOpen ? true : undefined}
         aria-label="主导航"
       >
         <div className="sidebar-brand">
@@ -418,6 +446,7 @@ export default function AppShell() {
               onClick={() => setMobileOpen(true)}
               aria-label="打开导航"
               aria-expanded={mobileOpen}
+              aria-controls="workspace-sidebar"
             >
               <Menu size={19} />
             </button>
@@ -532,7 +561,14 @@ export default function AppShell() {
         )}
         <main className="page-content">
           <Outlet
-            context={{ maps, selectedMap, refreshMaps, syncMaps: setMaps }}
+            context={{
+              maps,
+              mapsLoading,
+              mapsError,
+              selectedMap,
+              refreshMaps,
+              syncMaps: setMaps,
+            }}
           />
         </main>
       </div>

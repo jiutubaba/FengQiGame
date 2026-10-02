@@ -16,6 +16,10 @@ const EMPTY_RATINGS = Object.freeze(
 
 export default function FeedbackPage() {
   const { token } = useParams();
+  return <FeedbackForm key={token} token={token} />;
+}
+
+function FeedbackForm({ token }) {
   const [project, setProject] = useState(null);
   const [ratings, setRatings] = useState({ ...EMPTY_RATINGS });
   const [form, setForm] = useState({

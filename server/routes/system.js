@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { query } from "../db/index.js";
 import { requireAdmin, requireAuth } from "../middleware/auth.js";
+import { pagination } from "./maps/shared.js";
 
 const router = Router();
 
@@ -33,14 +34,13 @@ router.get("/status", requireAuth, requireAdmin, async (_req, res) => {
 });
 
 router.get("/audit", requireAuth, requireAdmin, async (req, res) => {
-  const page = Math.max(1, Number(req.query.page) || 1);
-  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+  const { page, limit, offset } = pagination(req.query, 30);
   const result = await query(
     `SELECT a.id,a.action,a.resource_type,a.resource_id,a.map_id,a.ip,a.details,a.created_at,
             u.username,u.display_name
        FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id
       ORDER BY a.created_at DESC LIMIT $1 OFFSET $2`,
-    [limit, (page - 1) * limit],
+    [limit, offset],
   );
   const total = await query("SELECT COUNT(*)::int AS count FROM audit_logs");
   res.json({

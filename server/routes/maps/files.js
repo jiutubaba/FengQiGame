@@ -98,7 +98,11 @@ export function registerFileRoutes(router) {
       const result = await query(
         `SELECT * FROM map_files WHERE map_id=$1 AND relative_path LIKE $2
         AND POSITION('/' IN SUBSTRING(relative_path FROM $3::integer))=0 ORDER BY kind DESC,original_name`,
-        [mapId, `${prefix}%`, prefix.length + 1],
+        [
+          mapId,
+          `${prefix.replace(/[\\%_]/g, "\\$&")}%`,
+          [...prefix].length + 1,
+        ],
       );
       res.json({ success: true, data: result.rows.map(fileRow), folder });
     },
@@ -122,46 +126,53 @@ export function registerFileRoutes(router) {
             hash: await fileSha256(file.path),
           })),
         );
-        inserted = await transaction(async (client) => {
-          const rows = [];
-          for (const file of files) {
-            const relativePath = [folder, file.originalName]
-              .filter(Boolean)
-              .join("/");
-            const result = await client.query(
-              `INSERT INTO map_files(map_id,kind,original_name,storage_name,relative_path,mime_type,size_bytes,sha256,uploaded_by)
+        inserted = await transaction(
+          async (client) => {
+            const rows = [];
+            for (const file of files) {
+              const relativePath = [folder, file.originalName]
+                .filter(Boolean)
+                .join("/");
+              const result = await client.query(
+                `INSERT INTO map_files(map_id,kind,original_name,storage_name,relative_path,mime_type,size_bytes,sha256,uploaded_by)
              VALUES($1,'file',$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-              [
+                [
+                  mapId,
+                  file.originalName,
+                  file.filename,
+                  relativePath,
+                  file.mimetype,
+                  file.size,
+                  file.hash,
+                  req.user.id,
+                ],
+              );
+              rows.push(result.rows[0]);
+            }
+            await writeAudit(
+              req,
+              {
+                action: "file.upload",
+                resourceType: "map_file",
                 mapId,
-                file.originalName,
-                file.filename,
-                relativePath,
-                file.mimetype,
-                file.size,
-                file.hash,
-                req.user.id,
-              ],
+                details: {
+                  count: rows.length,
+                  folder,
+                  names: rows.map((item) => item.original_name),
+                },
+              },
+              client,
             );
-            rows.push(result.rows[0]);
-          }
-          return rows;
-        });
+            return rows;
+          },
+          { mapId },
+        );
       } catch (error) {
         await Promise.all(
           (req.files || []).map((file) => rm(file.path, { force: true })),
         );
         throw error;
       }
-      await writeAudit(req, {
-        action: "file.upload",
-        resourceType: "map_file",
-        mapId,
-        details: {
-          count: inserted.length,
-          folder,
-          names: inserted.map((item) => item.original_name),
-        },
-      });
       res.status(201).json({ success: true, data: inserted.map(fileRow) });
     },
   );
@@ -180,17 +191,27 @@ export function registerFileRoutes(router) {
       const name = sanitizeFileName(req.body.name),
         parent = normalizeRelativePath(req.body.parent);
       const relativePath = [parent, name].filter(Boolean).join("/");
-      const result = await query(
-        "INSERT INTO map_files(map_id,kind,original_name,relative_path,uploaded_by) VALUES($1,'folder',$2,$3,$4) RETURNING *",
-        [mapId, name, relativePath, req.user.id],
+      const result = await transaction(
+        async (client) => {
+          const result = await client.query(
+            "INSERT INTO map_files(map_id,kind,original_name,relative_path,uploaded_by) VALUES($1,'folder',$2,$3,$4) RETURNING *",
+            [mapId, name, relativePath, req.user.id],
+          );
+          await writeAudit(
+            req,
+            {
+              action: "folder.create",
+              resourceType: "map_file",
+              resourceId: result.rows[0].id,
+              mapId,
+              details: { relativePath },
+            },
+            client,
+          );
+          return result;
+        },
+        { mapId },
       );
-      await writeAudit(req, {
-        action: "folder.create",
-        resourceType: "map_file",
-        resourceId: result.rows[0].id,
-        mapId,
-        details: { relativePath },
-      });
       res.status(201).json({ success: true, data: fileRow(result.rows[0]) });
     },
   );
@@ -227,30 +248,59 @@ export function registerFileRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId),
         fileId = idSchema.parse(req.params.fileId);
-      const target = await query(
-        "SELECT * FROM map_files WHERE id=$1 AND map_id=$2",
-        [fileId, mapId],
+      const affected = await transaction(
+        async (client) => {
+          const target = await client.query(
+            "SELECT * FROM map_files WHERE id=$1 AND map_id=$2 FOR UPDATE",
+            [fileId, mapId],
+          );
+          if (!target.rows[0]) throw notFound("文件或文件夹不存在");
+          const row = target.rows[0];
+          const affected = await client.query(
+            "DELETE FROM map_files WHERE map_id=$1 AND (relative_path=$2 OR relative_path LIKE $3) RETURNING storage_name",
+            [
+              mapId,
+              row.relative_path,
+              `${row.relative_path.replace(/[\\%_]/g, "\\$&")}/%`,
+            ],
+          );
+          await writeAudit(
+            req,
+            {
+              action: "file.delete",
+              resourceType: "map_file",
+              resourceId: fileId,
+              mapId,
+              details: {
+                relativePath: row.relative_path,
+                count: affected.rowCount,
+              },
+            },
+            client,
+          );
+          return affected;
+        },
+        { mapId },
       );
-      if (!target.rows[0]) throw notFound("文件或文件夹不存在");
-      const row = target.rows[0];
-      const affected = await query(
-        "DELETE FROM map_files WHERE map_id=$1 AND (relative_path=$2 OR relative_path LIKE $3) RETURNING storage_name",
-        [mapId, row.relative_path, `${row.relative_path}/%`],
-      );
-      await Promise.all(
-        affected.rows
-          .filter((item) => item.storage_name)
-          .map((item) =>
-            rm(safeStoragePath(mapId, item.storage_name), { force: true }),
-          ),
-      );
-      await writeAudit(req, {
-        action: "file.delete",
-        resourceType: "map_file",
-        resourceId: fileId,
-        mapId,
-        details: { relativePath: row.relative_path, count: affected.rowCount },
-      });
+      try {
+        await Promise.all(
+          affected.rows
+            .filter((item) => item.storage_name)
+            .map((item) =>
+              rm(safeStoragePath(mapId, item.storage_name), { force: true }),
+            ),
+        );
+      } catch (error) {
+        req.log?.error(
+          { err: error, mapId, fileId },
+          "file delete cleanup failed",
+        );
+        throw new HttpError(
+          500,
+          "文件记录已删除，但服务器磁盘清理失败，请联系管理员检查残留文件",
+          "FILE_DELETE_CLEANUP_FAILED",
+        );
+      }
       res.json({ success: true });
     },
   );

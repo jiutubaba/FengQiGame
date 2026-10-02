@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
   KeyRound,
@@ -44,23 +44,29 @@ export default function AdminUsersPage() {
     [newPassword, setNewPassword] = useState("");
   const [submitting, setSubmitting] = useState("");
   const [modalError, setModalError] = useState("");
+  const requestId = useRef(0);
   const toast = useToast();
   const load = useCallback(async () => {
+    const currentRequest = ++requestId.current;
     setLoading(true);
     setLoadError("");
     try {
-      setUsers(
-        await api(`/api/admin/users?q=${encodeURIComponent(search)}&limit=100`),
+      const rows = await api(
+        `/api/admin/users?q=${encodeURIComponent(search)}&limit=100`,
       );
+      if (currentRequest === requestId.current) setUsers(rows);
     } catch (error) {
-      setLoadError(error.message);
+      if (currentRequest === requestId.current) setLoadError(error.message);
     } finally {
-      setLoading(false);
+      if (currentRequest === requestId.current) setLoading(false);
     }
   }, [search]);
   useEffect(() => {
     const timer = setTimeout(load, 200);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      requestId.current += 1;
+    };
   }, [load]);
   useEffect(() => {
     const next = new URLSearchParams();
@@ -478,6 +484,7 @@ export default function AdminUsersPage() {
         </Field>
       </Modal>
       <PermissionModal
+        key={permissionUser?.id || "closed"}
         user={permissionUser}
         onClose={() => setPermissionUser(null)}
         onSaved={load}

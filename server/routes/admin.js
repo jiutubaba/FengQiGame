@@ -11,6 +11,7 @@ import {
 } from "../middleware/auth.js";
 import { validate } from "../middleware/validation.js";
 import { createUser } from "../services/users.js";
+import { idSchema, pagination } from "./maps/shared.js";
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -26,8 +27,7 @@ router.get("/permissions", (_req, res) => {
 });
 
 router.get("/users", async (req, res) => {
-  const page = Math.max(1, Number(req.query.page) || 1);
-  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+  const { page, limit, offset } = pagination(req.query);
   const q = String(req.query.q || "").trim();
   const params = [];
   let where = "TRUE";
@@ -39,7 +39,7 @@ router.get("/users", async (req, res) => {
     `SELECT COUNT(*)::int AS count FROM users u WHERE ${where}`,
     params,
   );
-  params.push(limit, (page - 1) * limit);
+  params.push(limit, offset);
   const result = await query(
     `SELECT u.id,u.username,u.display_name,u.phone,u.role,u.status,u.profile,u.last_login_at,u.created_at,u.updated_at,
             COUNT(mp.map_id)::int AS map_count
@@ -66,12 +66,19 @@ router.post(
     }),
   ),
   async (req, res) => {
-    const user = await createUser(req.body);
-    await writeAudit(req, {
-      action: "user.create",
-      resourceType: "user",
-      resourceId: user.id,
-      details: { username: user.username, role: user.role },
+    const user = await transaction(async (client) => {
+      const user = await createUser(req.body, client);
+      await writeAudit(
+        req,
+        {
+          action: "user.create",
+          resourceType: "user",
+          resourceId: user.id,
+          details: { username: user.username, role: user.role },
+        },
+        client,
+      );
+      return user;
     });
     res.status(201).json({ success: true, data: userRow(user) });
   },
@@ -88,34 +95,41 @@ router.patch(
     }),
   ),
   async (req, res) => {
-    const userId = Number(req.params.userId);
-    if (!Number.isSafeInteger(userId) || userId <= 0)
-      throw notFound("用户不存在");
-    const current = await query("SELECT * FROM users WHERE id=$1", [userId]);
-    if (!current.rows[0]) throw notFound("用户不存在");
-    if (userId === Number(req.user.id) && req.body.status === "disabled")
-      throw conflict("不能停用当前登录账号");
-    if (userId === Number(req.user.id) && req.body.role === "user")
-      throw conflict("不能降低当前登录管理员的角色");
-    const row = current.rows[0];
-    const result = await query(
-      `UPDATE users SET display_name=$1,phone=$2,role=$3,status=$4,updated_at=NOW() WHERE id=$5
-     RETURNING id,username,display_name,phone,role,status,profile,last_login_at,created_at,updated_at`,
-      [
-        req.body.displayName ?? row.display_name,
-        req.body.phone === undefined ? row.phone : req.body.phone,
-        req.body.role ?? row.role,
-        req.body.status ?? row.status,
+    const userId = idSchema.parse(req.params.userId);
+    const result = await transaction(async (client) => {
+      const current = await client.query("SELECT * FROM users WHERE id=$1", [
         userId,
-      ],
-    );
-    if (req.body.status === "disabled")
-      await query("DELETE FROM sessions WHERE user_id=$1", [userId]);
-    await writeAudit(req, {
-      action: "user.update",
-      resourceType: "user",
-      resourceId: userId,
-      details: { fields: Object.keys(req.body) },
+      ]);
+      if (!current.rows[0]) throw notFound("用户不存在");
+      if (userId === Number(req.user.id) && req.body.status === "disabled")
+        throw conflict("不能停用当前登录账号");
+      if (userId === Number(req.user.id) && req.body.role === "user")
+        throw conflict("不能降低当前登录管理员的角色");
+      const row = current.rows[0];
+      const result = await client.query(
+        `UPDATE users SET display_name=$1,phone=$2,role=$3,status=$4,updated_at=NOW() WHERE id=$5
+     RETURNING id,username,display_name,phone,role,status,profile,last_login_at,created_at,updated_at`,
+        [
+          req.body.displayName ?? row.display_name,
+          req.body.phone === undefined ? row.phone : req.body.phone,
+          req.body.role ?? row.role,
+          req.body.status ?? row.status,
+          userId,
+        ],
+      );
+      if (req.body.status === "disabled")
+        await client.query("DELETE FROM sessions WHERE user_id=$1", [userId]);
+      await writeAudit(
+        req,
+        {
+          action: "user.update",
+          resourceType: "user",
+          resourceId: userId,
+          details: { fields: Object.keys(req.body) },
+        },
+        client,
+      );
+      return result;
     });
     res.json({ success: true, data: userRow(result.rows[0]) });
   },
@@ -125,28 +139,35 @@ router.post(
   "/users/:userId/password",
   validate(z.object({ password: z.string().min(6).max(256) })),
   async (req, res) => {
-    const userId = Number(req.params.userId);
+    const userId = idSchema.parse(req.params.userId);
     const passwordHash = await hashPassword(req.body.password);
-    const result = await transaction(async (client) => {
+    await transaction(async (client) => {
       const updated = await client.query(
         "UPDATE users SET password_hash=$1,updated_at=NOW() WHERE id=$2 RETURNING id",
         [passwordHash, userId],
       );
       if (!updated.rows[0]) throw notFound("用户不存在");
       await client.query("DELETE FROM sessions WHERE user_id=$1", [userId]);
-      return updated.rows[0];
+
+      const result = updated.rows[0];
+      await writeAudit(
+        req,
+        {
+          action: "user.password_reset",
+          resourceType: "user",
+          resourceId: result.id,
+        },
+        client,
+      );
+      return result;
     });
-    await writeAudit(req, {
-      action: "user.password_reset",
-      resourceType: "user",
-      resourceId: result.id,
-    });
+
     res.json({ success: true });
   },
 );
 
 router.get("/users/:userId/maps", async (req, res) => {
-  const userId = Number(req.params.userId);
+  const userId = idSchema.parse(req.params.userId);
   const result = await query(
     `SELECT m.id,m.name,m.status,m.platform,COALESCE(mp.permissions,ARRAY[]::TEXT[]) AS permissions
        FROM maps m LEFT JOIN map_permissions mp ON mp.map_id=m.id AND mp.user_id=$1
@@ -166,31 +187,42 @@ router.put(
     }),
   ),
   async (req, res) => {
-    const userId = Number(req.params.userId),
-      mapId = Number(req.params.mapId);
+    const userId = idSchema.parse(req.params.userId),
+      mapId = idSchema.parse(req.params.mapId);
     if (userId === Number(req.user.id))
       throw conflict("管理员自身不需要地图级授权");
-    if (!req.body.permissions.length) {
-      await query(
-        "DELETE FROM map_permissions WHERE user_id=$1 AND map_id=$2",
-        [userId, mapId],
-      );
-    } else {
-      const permissions = [...new Set(["map.view", ...req.body.permissions])];
-      await query(
-        `INSERT INTO map_permissions(map_id,user_id,permissions,granted_by)
+    await transaction(
+      async (client) => {
+        if (!req.body.permissions.length) {
+          await client.query(
+            "DELETE FROM map_permissions WHERE user_id=$1 AND map_id=$2",
+            [userId, mapId],
+          );
+        } else {
+          const permissions = [
+            ...new Set(["map.view", ...req.body.permissions]),
+          ];
+          await client.query(
+            `INSERT INTO map_permissions(map_id,user_id,permissions,granted_by)
        VALUES($1,$2,$3,$4)
        ON CONFLICT(map_id,user_id) DO UPDATE SET permissions=EXCLUDED.permissions,granted_by=EXCLUDED.granted_by,updated_at=NOW()`,
-        [mapId, userId, permissions, req.user.id],
-      );
-    }
-    await writeAudit(req, {
-      action: "user.map_permissions.update",
-      resourceType: "map_permission",
-      resourceId: `${userId}:${mapId}`,
-      mapId,
-      details: { userId, permissions: req.body.permissions },
-    });
+            [mapId, userId, permissions, req.user.id],
+          );
+        }
+        await writeAudit(
+          req,
+          {
+            action: "user.map_permissions.update",
+            resourceType: "map_permission",
+            resourceId: `${userId}:${mapId}`,
+            mapId,
+            details: { userId, permissions: req.body.permissions },
+          },
+          client,
+        );
+      },
+      { mapId },
+    );
     res.json({ success: true });
   },
 );
@@ -219,12 +251,18 @@ router.put(
           [key, JSON.stringify(value), req.user.id],
         );
       }
+
+      await writeAudit(
+        req,
+        {
+          action: "system.settings.update",
+          resourceType: "system_settings",
+          details: { keys: Object.keys(req.body) },
+        },
+        client,
+      );
     });
-    await writeAudit(req, {
-      action: "system.settings.update",
-      resourceType: "system_settings",
-      details: { keys: Object.keys(req.body) },
-    });
+
     res.json({ success: true });
   },
 );

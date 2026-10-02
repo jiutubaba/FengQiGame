@@ -1,4 +1,11 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   NavLink,
   useNavigate,
@@ -108,17 +115,23 @@ export default function MapWorkspace() {
   const { isAdmin } = useAuth();
   const [map, setMap] = useState(selectedMap || null);
   const [loadError, setLoadError] = useState("");
+  const mapRequestId = useRef(0);
 
   const loadMap = useCallback(async () => {
+    const requestId = ++mapRequestId.current;
     setLoadError("");
     try {
-      setMap(await api(`/api/maps/${mapId}`));
+      const next = await api(`/api/maps/${mapId}`);
+      if (requestId === mapRequestId.current) setMap(next);
     } catch (error) {
-      setLoadError(error.message);
+      if (requestId === mapRequestId.current) setLoadError(error.message);
     }
   }, [mapId]);
   useEffect(() => {
     loadMap();
+    return () => {
+      mapRequestId.current += 1;
+    };
   }, [loadMap]);
 
   const title = sectionTitles[section];
@@ -137,7 +150,7 @@ export default function MapWorkspace() {
         }
       />
     );
-  if (!map && loadError)
+  if ((!map || map.id !== Number(mapId)) && loadError)
     return <ErrorState description={loadError} onRetry={loadMap} />;
   if (!map || map.id !== Number(mapId))
     return <div className="loading-state">正在读取项目与权限…</div>;
@@ -172,8 +185,9 @@ export default function MapWorkspace() {
     isAdmin,
     can: (permission) => isAdmin || map.permissions?.includes(permission),
     refreshMap: async () => {
+      const requestId = ++mapRequestId.current;
       const next = await api(`/api/maps/${mapId}`);
-      setMap(next);
+      if (requestId === mapRequestId.current) setMap(next);
       await refreshMaps();
     },
     refreshMaps,
@@ -235,6 +249,7 @@ export default function MapWorkspace() {
         />
       )}
       <Suspense
+        key={`${mapId}-${section}`}
         fallback={<div className="loading-state">正在加载功能模块…</div>}
       >
         {panels[section]}

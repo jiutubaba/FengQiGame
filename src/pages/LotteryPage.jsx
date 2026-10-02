@@ -7,6 +7,10 @@ import { formatDate } from "../utils/format";
 
 export default function LotteryPage() {
   const { token } = useParams();
+  return <LotteryCampaign key={token} token={token} />;
+}
+
+function LotteryCampaign({ token }) {
   const [campaign, setCampaign] = useState(null);
   const [form, setForm] = useState({
     playerName: "",

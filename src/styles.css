@@ -1124,6 +1124,7 @@ textarea {
 .metric-trend-button:focus-visible,
 .table-sort-button:focus-visible,
 .filter-summary button:focus-visible,
+.file-item > button:focus-visible,
 .auth-back:focus-visible,
 .landing-header a:focus-visible,
 .hero-actions a:focus-visible,
@@ -4612,7 +4613,7 @@ textarea::placeholder {
 .file-item {
   min-width: 0;
   display: grid;
-  grid-template-columns: 50px 1fr 25px;
+  grid-template-columns: minmax(0, 1fr) 36px;
   align-items: center;
   gap: 10px;
   padding: 10px;
@@ -4628,6 +4629,7 @@ textarea::placeholder {
 .file-icon {
   width: 48px;
   height: 48px;
+  flex-shrink: 0;
   display: grid;
   place-items: center;
   border-radius: 10px;
@@ -4650,6 +4652,7 @@ textarea::placeholder {
 }
 .file-copy {
   min-width: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -4669,6 +4672,17 @@ textarea::placeholder {
   background: none;
   color: #5c636a;
   cursor: pointer;
+}
+.file-item > button:not(.file-open) {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+}
+.file-item > button:not(.file-open):hover {
+  background: var(--red-soft);
+  color: var(--red);
 }
 .selection-bar {
   display: flex;
@@ -6634,10 +6648,12 @@ textarea::placeholder {
     display: block;
   }
   .sidebar {
+    visibility: hidden;
     transform: translateX(-101%);
-    transition: 0.25s;
+    transition: transform var(--motion-standard) var(--ease-out);
   }
   .sidebar.is-open {
+    visibility: visible;
     transform: translateX(0);
   }
   .app-main {
@@ -6968,6 +6984,18 @@ textarea::placeholder {
   .icon-button {
     width: 44px;
     height: 44px;
+  }
+  .file-item {
+    grid-template-columns: minmax(0, 1fr) 44px;
+  }
+  .file-item > button:not(.file-open) {
+    width: 44px;
+    height: 44px;
+  }
+  .rail-row-actions button,
+  .table-sort-button {
+    min-width: 44px;
+    min-height: 44px;
   }
   .token-detail-grid {
     grid-template-columns: 1fr;
@@ -7600,11 +7628,11 @@ textarea::placeholder {
     min-height: 44px;
   }
   .feedback-filter-search input {
-    height: 42px;
+    height: 44px;
     font-size: 13px;
   }
   .feedback-filter-search .btn {
-    min-height: 42px;
+    min-height: 44px;
   }
   .feedback-batch-bar {
     align-items: stretch;

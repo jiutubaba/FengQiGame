@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { config } from "../../config.js";
-import { query } from "../../db/index.js";
+import { query, transaction } from "../../db/index.js";
 import { writeAudit } from "../../lib/audit.js";
 import { HttpError, notFound } from "../../lib/errors.js";
 import {
@@ -122,27 +122,40 @@ export function registerApiKeyRoutes(router) {
       }
       const mapId = idSchema.parse(req.params.mapId),
         token = createOpaqueToken("fqmap_");
-      const result = await query(
-        `INSERT INTO api_keys(map_id,name,token_hash,token_prefix,token_ciphertext,permissions,created_by)
+      const result = await transaction(
+        async (client) => {
+          const result = await client.query(
+            `INSERT INTO api_keys(map_id,name,token_hash,token_prefix,token_ciphertext,permissions,created_by)
          VALUES($1,$2,$3,$4,$5,$6,$7)
          RETURNING id,name,token_prefix,permissions,status,created_at`,
-        [
-          mapId,
-          req.body.name,
-          hashToken(token),
-          token.slice(0, 12),
-          encryptToken(token, config.apiKeyEncryptionKey),
-          req.body.permissions,
-          req.user.id,
-        ],
+            [
+              mapId,
+              req.body.name,
+              hashToken(token),
+              token.slice(0, 12),
+              encryptToken(token, config.apiKeyEncryptionKey),
+              req.body.permissions,
+              req.user.id,
+            ],
+          );
+          await writeAudit(
+            req,
+            {
+              action: "api_key.create",
+              resourceType: "api_key",
+              resourceId: result.rows[0].id,
+              mapId,
+              details: {
+                name: req.body.name,
+                permissions: req.body.permissions,
+              },
+            },
+            client,
+          );
+          return result;
+        },
+        { mapId },
       );
-      await writeAudit(req, {
-        action: "api_key.create",
-        resourceType: "api_key",
-        resourceId: result.rows[0].id,
-        mapId,
-        details: { name: req.body.name, permissions: req.body.permissions },
-      });
       res.status(201).json({
         success: true,
         data: { ...result.rows[0], token, token_available: true },
@@ -155,17 +168,26 @@ export function registerApiKeyRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId),
         keyId = idSchema.parse(req.params.keyId);
-      const result = await query(
-        "UPDATE api_keys SET status='disabled' WHERE id=$1 AND map_id=$2 RETURNING id",
-        [keyId, mapId],
+      await transaction(
+        async (client) => {
+          const result = await client.query(
+            "UPDATE api_keys SET status='disabled' WHERE id=$1 AND map_id=$2 RETURNING id",
+            [keyId, mapId],
+          );
+          if (!result.rows[0]) throw notFound("API Key 不存在");
+          await writeAudit(
+            req,
+            {
+              action: "api_key.disable",
+              resourceType: "api_key",
+              resourceId: keyId,
+              mapId,
+            },
+            client,
+          );
+        },
+        { mapId },
       );
-      if (!result.rows[0]) throw notFound("API Key 不存在");
-      await writeAudit(req, {
-        action: "api_key.disable",
-        resourceType: "api_key",
-        resourceId: keyId,
-        mapId,
-      });
       res.json({ success: true });
     },
   );
