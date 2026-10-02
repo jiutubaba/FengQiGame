@@ -23,17 +23,14 @@ export default function PublicHome() {
 
       <main>
         <section className="landing-hero">
-          <div className="hero-noise" />
           <div className="hero-copy">
-            <span className="hero-kicker">FENGQI GAME OPERATIONS · 2026</span>
+            <span className="hero-kicker">FENGQI GAME OPERATIONS</span>
             <h1>
-              每一张地图，
+              风起游戏
               <br />
-              <em>都在掌控之中。</em>
+              <em>运营工作台</em>
             </h1>
-            <p>
-              统一管理地图存档、玩家、礼包、主播与运行数据。登录后从地图维度进入完整业务工作台。
-            </p>
+            <p>项目数据、玩家运营与配置管理，在一个工作台完成。</p>
             <div className="hero-actions">
               <Link className="hero-primary" to="/login">
                 进入后台 <ArrowRight size={17} />
@@ -44,9 +41,11 @@ export default function PublicHome() {
             <div className="orbital-ring ring-one" />
             <div className="orbital-ring ring-two" />
             <img src="/assets/fengqi-mark.svg?v=attio" alt="" />
-            <span className="visual-coordinate coordinate-one">MAP / 018</span>
+            <span className="visual-coordinate coordinate-one">
+              FENGQI GAMES
+            </span>
             <span className="visual-coordinate coordinate-two">
-              ONLINE · 00
+              PROJECT WORKSPACE
             </span>
           </div>
         </section>

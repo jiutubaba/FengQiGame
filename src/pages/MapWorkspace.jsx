@@ -1,5 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { useNavigate, useOutletContext, useParams } from "react-router";
+import {
+  NavLink,
+  useNavigate,
+  useOutletContext,
+  useParams,
+} from "react-router";
 import { ShieldAlert } from "lucide-react";
 import { api } from "../api/client";
 import { ANALYTICS_FEATURES } from "../../shared/analytics.js";
@@ -50,7 +55,7 @@ const sectionTitles = {
       [name, description, "metrics.view"],
     ]),
   ),
-  metrics: ["项目数据", "查看游戏客户端上报的真实指标。", "metrics.view"],
+  metrics: ["项目数据", "", "metrics.view"],
   config: ["项目配置", "维护项目基础信息与共享配置。", "map.view"],
   players: [
     "玩家管理",
@@ -199,7 +204,9 @@ export default function MapWorkspace() {
   };
 
   return (
-    <div className="page-stack page-enter">
+    <div
+      className={`page-stack page-enter workspace-page workspace-${section}`}
+    >
       <div className="workspace-head">
         <SectionHead
           eyebrow={`${map.platform === "oasis_qiyuan" ? "绿洲启元" : "KK平台"} / PROJECT ${String(map.id).padStart(3, "0")}`}
@@ -207,6 +214,18 @@ export default function MapWorkspace() {
           description={title[1]}
         />
       </div>
+      {(section === "metrics" || analysisFeature) && (
+        <nav className="analytics-tabs" aria-label="项目数据分类">
+          <NavLink to={`/maps/${mapId}/metrics`}>经营指标</NavLink>
+          {ANALYTICS_FEATURES.filter(({ key }) =>
+            map.analyticsFeatures.includes(key),
+          ).map(({ key, name }) => (
+            <NavLink key={key} to={`/maps/${mapId}/analysis-${key}`}>
+              {name}
+            </NavLink>
+          ))}
+        </nav>
+      )}
       {loadError && (
         <InlineAlert
           tone="danger"

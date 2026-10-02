@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink, useSearchParams } from "react-router";
-import { ANALYTICS_FEATURES } from "../../../shared/analytics.js";
+import { useSearchParams } from "react-router";
 import { api } from "../../api/client";
 import { Button, EmptyState, ErrorState, Field } from "../../components/ui";
 
@@ -14,21 +13,6 @@ const today = () =>
 const rate = (n, d) => (d ? `${((n / d) * 100).toFixed(2)}%` : "—");
 const seconds = (value) =>
   value == null ? "—" : `${Number(value).toFixed(1)} 秒`;
-
-export function AnalyticsLinks({ map, mapId }) {
-  return (
-    <nav className="analytics-tabs" aria-label="项目数据分类">
-      <NavLink to={`/maps/${mapId}/metrics`}>经营指标</NavLink>
-      {ANALYTICS_FEATURES.filter(({ key }) =>
-        map.analyticsFeatures.includes(key),
-      ).map(({ key, name }) => (
-        <NavLink key={key} to={`/maps/${mapId}/analysis-${key}`}>
-          {name}
-        </NavLink>
-      ))}
-    </nav>
-  );
-}
 
 function DifficultyChart({ rows, percentages }) {
   const series = percentages
@@ -184,7 +168,7 @@ function DifficultyResults({ rows }) {
   );
 }
 
-export default function AnalyticsPanel({ map, mapId, feature }) {
+export default function AnalyticsPanel({ mapId, feature }) {
   const [params, setParams] = useSearchParams();
   const date = params.get("date") || today();
   const version = params.get("version") || "";
@@ -252,7 +236,6 @@ export default function AnalyticsPanel({ map, mapId, feature }) {
       ];
   return (
     <>
-      <AnalyticsLinks map={map} mapId={mapId} />
       <form
         className="analytics-filters"
         onSubmit={(e) => {
