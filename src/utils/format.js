@@ -1,14 +1,17 @@
+const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
+  dateStyle: "short",
+  timeStyle: "short",
+  hour12: false,
+});
+const numberFormatter = new Intl.NumberFormat("zh-CN");
+
 export function formatDate(value) {
   if (!value) return "—";
-  return new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "short",
-    timeStyle: "short",
-    hour12: false,
-  }).format(new Date(value));
+  return dateFormatter.format(new Date(value));
 }
 
 export function formatNumber(value) {
-  return Number(value || 0).toLocaleString("zh-CN");
+  return numberFormatter.format(Number(value || 0));
 }
 
 export function formatLeaderboardScore(value) {

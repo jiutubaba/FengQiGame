@@ -45,6 +45,9 @@ export function ResourcePanel({ mapId, resource }) {
     [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const saveInFlight = useRef(false);
   const confirmAction = useConfirm();
   const toast = useToast();
   const load = useCallback(async () => {
@@ -68,6 +71,10 @@ export function ResourcePanel({ mapId, resource }) {
         : { pointKey: "", name: "", enabled: true },
     );
   const save = async () => {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
+    setSaving(true);
+    setSaveError("");
     try {
       const id = editing.id,
         path = `/api/maps/${mapId}/${resource}${id ? `/${id}` : ""}`,
@@ -90,12 +97,14 @@ export function ResourcePanel({ mapId, resource }) {
       toast(`${label}已保存`);
       load();
     } catch (error) {
-      toast(
+      setSaveError(
         error instanceof SyntaxError
           ? "礼包配置 JSON 格式不正确"
           : error.message,
-        "danger",
       );
+    } finally {
+      saveInFlight.current = false;
+      setSaving(false);
     }
   };
   const remove = async (item) => {
@@ -244,22 +253,43 @@ export function ResourcePanel({ mapId, resource }) {
       )}
       <Modal
         open={Boolean(editing)}
-        onClose={() => setEditing(null)}
+        onClose={() => {
+          if (saveInFlight.current) return;
+          setEditing(null);
+          setSaveError("");
+        }}
         title={`${editing?.id ? "编辑" : "添加"}${label}`}
         eyebrow={isAnchor ? "ANCHOR" : "TRACKING POINT"}
         footer={
           <>
-            <Button onClick={() => setEditing(null)}>取消</Button>
+            <Button
+              disabled={saving}
+              onClick={() => {
+                setEditing(null);
+                setSaveError("");
+              }}
+            >
+              取消
+            </Button>
             <Button
               variant="primary"
               onClick={save}
-              disabled={!editing?.name || (!isAnchor && !editing?.pointKey)}
+              disabled={
+                saving || !editing?.name || (!isAnchor && !editing?.pointKey)
+              }
             >
-              保存
+              {saving ? "正在保存…" : "保存"}
             </Button>
           </>
         }
       >
+        {saveError && (
+          <InlineAlert
+            tone="danger"
+            title={`${label}保存失败`}
+            description={saveError}
+          />
+        )}
         {editing && (
           <>
             {!isAnchor && (
@@ -458,33 +488,43 @@ export function FilesPanel({ mapId }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [loadedFolder, setLoadedFolder] = useState(null);
+  const [uploadError, setUploadError] = useState("");
+  const uploadInFlight = useRef(false);
+  const folderRequestId = useRef(0);
   const inputRef = useRef(null),
     confirmAction = useConfirm(),
     toast = useToast();
   const load = useCallback(async () => {
+    const requestId = ++folderRequestId.current;
     setLoading(true);
     setLoadError("");
     try {
       const nextItems = await api(
         `/api/maps/${mapId}/files?folder=${encodeURIComponent(folder)}`,
       );
+      if (requestId !== folderRequestId.current) return;
       setItems(nextItems);
       setLoadedFolder(folder);
     } catch (error) {
-      setLoadError(error.message);
+      if (requestId === folderRequestId.current) setLoadError(error.message);
     } finally {
-      setLoading(false);
+      if (requestId === folderRequestId.current) setLoading(false);
     }
   }, [mapId, folder]);
   useEffect(() => {
     load();
+    return () => {
+      folderRequestId.current += 1;
+    };
   }, [load]);
   const uploadFiles = async (files) => {
-    if (!files?.length) return;
-    const form = new FormData();
-    [...files].forEach((file) => form.append("files", file));
+    if (!files?.length || uploadInFlight.current) return;
+    uploadInFlight.current = true;
     setUploading(true);
+    setUploadError("");
     try {
+      const form = new FormData();
+      [...files].forEach((file) => form.append("files", file));
       await api(
         `/api/maps/${mapId}/files/upload?folder=${encodeURIComponent(folder)}`,
         { method: "POST", body: form },
@@ -492,8 +532,9 @@ export function FilesPanel({ mapId }) {
       toast("文件上传完成");
       load();
     } catch (error) {
-      toast(error.message, "danger");
+      setUploadError(error.message);
     } finally {
+      uploadInFlight.current = false;
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
     }
@@ -568,6 +609,7 @@ export function FilesPanel({ mapId }) {
       )}
       <div
         className="file-drop-banner"
+        aria-busy={uploading}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
           event.preventDefault();
@@ -576,7 +618,9 @@ export function FilesPanel({ mapId }) {
       >
         <CloudUpload size={22} />
         <div>
-          <strong>拖入文件即可上传</strong>
+          <strong>
+            {uploading ? "正在上传，请稍候…" : "拖入文件即可上传"}
+          </strong>
           <small>单文件上限由服务器 UPLOAD_MAX_MB 配置，禁止可执行脚本。</small>
         </div>
         <input
@@ -584,6 +628,7 @@ export function FilesPanel({ mapId }) {
           type="file"
           multiple
           hidden
+          disabled={uploading}
           onChange={(event) => uploadFiles(event.target.files)}
         />
         <Button
@@ -595,6 +640,18 @@ export function FilesPanel({ mapId }) {
           {uploading ? "正在上传…" : "上传文件"}
         </Button>
       </div>
+      {uploadError && (
+        <InlineAlert
+          tone="danger"
+          title="文件上传失败"
+          description={uploadError}
+          action={
+            <Button onClick={() => inputRef.current?.click()}>
+              重新选择文件
+            </Button>
+          }
+        />
+      )}
       <div className="file-toolbar">
         <div className="folder-crumb">
           <Folder size={15} />
@@ -613,7 +670,7 @@ export function FilesPanel({ mapId }) {
           <Button
             icon={ArrowLeft}
             onClick={() => setFolder(parent)}
-            disabled={!folder}
+            disabled={!folder || uploading}
           >
             返回上级
           </Button>
@@ -635,7 +692,11 @@ export function FilesPanel({ mapId }) {
                     : File;
             return (
               <article key={item.id} className="file-item">
-                <button className="file-open" onClick={() => openItem(item)}>
+                <button
+                  className="file-open"
+                  disabled={uploading && item.kind === "folder"}
+                  onClick={() => openItem(item)}
+                >
                   <div className={`file-icon file-${item.kind}`}>
                     <Icon size={26} />
                   </div>
@@ -649,7 +710,10 @@ export function FilesPanel({ mapId }) {
                     </span>
                   </div>
                 </button>
-                <button aria-label="删除" onClick={() => remove(item)}>
+                <button
+                  aria-label={`删除${item.kind === "folder" ? "文件夹" : "文件"} ${item.name}`}
+                  onClick={() => remove(item)}
+                >
                   <Trash2 size={16} />
                 </button>
               </article>
@@ -715,6 +779,9 @@ export function ApiKeysPanel({ mapId }) {
     [copyingKeyId, setCopyingKeyId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const createInFlight = useRef(false);
   const [form, setForm] = useState({ name: "", permissions: [] }),
     confirmAction = useConfirm(),
     toast = useToast();
@@ -733,6 +800,10 @@ export function ApiKeysPanel({ mapId }) {
     load();
   }, [load]);
   const create = async () => {
+    if (createInFlight.current) return;
+    createInFlight.current = true;
+    setCreating(true);
+    setCreateError("");
     try {
       const key = await api(`/api/maps/${mapId}/api-keys`, {
         method: "POST",
@@ -743,7 +814,10 @@ export function ApiKeysPanel({ mapId }) {
       setForm({ name: "", permissions: [] });
       load();
     } catch (error) {
-      toast(error.message, "danger");
+      setCreateError(error.message);
+    } finally {
+      createInFlight.current = false;
+      setCreating(false);
     }
   };
   const view = async (key) => {
@@ -823,7 +897,14 @@ export function ApiKeysPanel({ mapId }) {
           <code>FQ-Map-Key: fqmap_...</code>
           <small>可随时查看详情或复制完整 Token</small>
         </div>
-        <Button variant="primary" icon={KeyRound} onClick={() => setOpen(true)}>
+        <Button
+          variant="primary"
+          icon={KeyRound}
+          onClick={() => {
+            setCreateError("");
+            setOpen(true);
+          }}
+        >
           创建 API Key
         </Button>
       </div>
@@ -914,22 +995,33 @@ export function ApiKeysPanel({ mapId }) {
       )}
       <Modal
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => {
+          if (!creating) setOpen(false);
+        }}
         title="创建游戏客户端 API Key"
         eyebrow="CLIENT CREDENTIAL"
         footer={
           <>
-            <Button onClick={() => setOpen(false)}>取消</Button>
+            <Button onClick={() => setOpen(false)} disabled={creating}>
+              取消
+            </Button>
             <Button
               variant="primary"
               onClick={create}
-              disabled={!form.name || !form.permissions.length}
+              disabled={creating || !form.name || !form.permissions.length}
             >
-              创建
+              {creating ? "正在创建…" : "创建"}
             </Button>
           </>
         }
       >
+        {createError && (
+          <InlineAlert
+            tone="danger"
+            title="API Key 创建失败"
+            description={createError}
+          />
+        )}
         <Field label="名称">
           <input
             className="input"

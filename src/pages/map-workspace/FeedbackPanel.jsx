@@ -50,7 +50,7 @@ const SORT_OPTIONS = [
 
 export default function FeedbackPanel({ mapId, can }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const page = Math.max(1, Number(searchParams.get("page")) || 1);
+  const page = Math.max(1, Number.parseInt(searchParams.get("page"), 10) || 1);
   const query = (searchParams.get("q") || "").trim();
   const starred = optionValue(
     searchParams.get("starred"),
@@ -94,16 +94,36 @@ export default function FeedbackPanel({ mapId, can }) {
     if (query) params.set("q", query);
     try {
       const result = await api(`/api/maps/${mapId}/feedback?${params}`);
-      if (currentRequest === requestId.current) setData(result);
+      if (currentRequest !== requestId.current) return;
+      const totalPages = Math.max(
+        1,
+        Math.ceil(result.pagination.total / result.pagination.limit),
+      );
+      if (page > totalPages) {
+        setSearchParams(
+          (current) => {
+            const next = new URLSearchParams(current);
+            if (totalPages > 1) next.set("page", String(totalPages));
+            else next.delete("page");
+            return next;
+          },
+          { replace: true },
+        );
+        return;
+      }
+      setData(result);
     } catch (requestError) {
       if (currentRequest === requestId.current) setError(requestError.message);
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [contact, mapId, page, query, score, sort, starred]);
+  }, [contact, mapId, page, query, score, setSearchParams, sort, starred]);
 
   useEffect(() => {
     load();
+    return () => {
+      requestId.current += 1;
+    };
   }, [load]);
   useEffect(() => {
     setSearchDraft(query);

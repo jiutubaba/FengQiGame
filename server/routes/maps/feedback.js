@@ -109,46 +109,49 @@ export function registerFeedbackRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
       const { action, responseIds } = req.body;
-      const changedIds = await transaction(async (client) => {
-        const current = await client.query(
-          `SELECT id
+      const changedIds = await transaction(
+        async (client) => {
+          const current = await client.query(
+            `SELECT id
              FROM feedback_responses
             WHERE map_id=$1 AND id=ANY($2::bigint[])
             FOR UPDATE`,
-          [mapId, responseIds],
-        );
-        if (current.rowCount !== responseIds.length)
-          throw notFound("反馈不存在或不属于当前项目");
+            [mapId, responseIds],
+          );
+          if (current.rowCount !== responseIds.length)
+            throw notFound("反馈不存在或不属于当前项目");
 
-        const result =
-          action === "delete"
-            ? await client.query(
-                `DELETE FROM feedback_responses
+          const result =
+            action === "delete"
+              ? await client.query(
+                  `DELETE FROM feedback_responses
                   WHERE map_id=$1 AND id=ANY($2::bigint[])
                   RETURNING id`,
-                [mapId, responseIds],
-              )
-            : await client.query(
-                `UPDATE feedback_responses
+                  [mapId, responseIds],
+                )
+              : await client.query(
+                  `UPDATE feedback_responses
                     SET is_starred=$3
                   WHERE map_id=$1 AND id=ANY($2::bigint[])
                   RETURNING id`,
-                [mapId, responseIds, action === "star"],
-              );
-        const ids = result.rows.map((row) => Number(row.id));
-        await writeAudit(
-          req,
-          {
-            action: `feedback.${action}`,
-            resourceType: "feedback_response",
-            resourceId: ids.length === 1 ? ids[0] : null,
-            mapId,
-            details: { responseIds: ids, count: ids.length },
-          },
-          client,
-        );
-        return ids;
-      });
+                  [mapId, responseIds, action === "star"],
+                );
+          const ids = result.rows.map((row) => Number(row.id));
+          await writeAudit(
+            req,
+            {
+              action: `feedback.${action}`,
+              resourceType: "feedback_response",
+              resourceId: ids.length === 1 ? ids[0] : null,
+              mapId,
+              details: { responseIds: ids, count: ids.length },
+            },
+            client,
+          );
+          return ids;
+        },
+        { mapId },
+      );
       res.json({
         success: true,
         data: { action, count: changedIds.length, responseIds: changedIds },

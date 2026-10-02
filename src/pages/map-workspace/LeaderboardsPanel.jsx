@@ -39,6 +39,9 @@ export default function LeaderboardsPanel({ mapId, can }) {
   const [listLoading, setListLoading] = useState(true);
   const [listLoadError, setListLoadError] = useState("");
   const [detailLoadError, setDetailLoadError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const saveInFlight = useRef(false);
   const [blockingEntryId, setBlockingEntryId] = useState(null);
   const [selectedEntryIds, setSelectedEntryIds] = useState([]);
   const [batchDeleting, setBatchDeleting] = useState(false);
@@ -150,6 +153,10 @@ export default function LeaderboardsPanel({ mapId, can }) {
   };
 
   const save = async () => {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
+    setSaving(true);
+    setSaveError("");
     try {
       const id = editing.id;
       const saved = await api(
@@ -172,7 +179,10 @@ export default function LeaderboardsPanel({ mapId, can }) {
       toast("排行榜已保存");
       await loadLeaderboards();
     } catch (error) {
-      toast(error.message, "danger");
+      setSaveError(error.message);
+    } finally {
+      saveInFlight.current = false;
+      setSaving(false);
     }
   };
 
@@ -520,6 +530,7 @@ export default function LeaderboardsPanel({ mapId, can }) {
                 {snapshotId && (
                   <select
                     className="input snapshot-select"
+                    aria-label="排行榜发布快照"
                     value={snapshotId}
                     onChange={(event) => setSnapshotId(event.target.value)}
                   >
@@ -792,31 +803,55 @@ export default function LeaderboardsPanel({ mapId, can }) {
 
       <Modal
         open={Boolean(editing)}
-        onClose={() => setEditing(null)}
+        onClose={() => {
+          if (saveInFlight.current) return;
+          setEditing(null);
+          setSaveError("");
+        }}
         title={`${editing?.id ? "编辑" : "新建"}排行榜`}
         eyebrow="LEADERBOARD DEFINITION"
         footer={
           <>
             {editing?.id && (
-              <Button variant="danger" onClick={removeLeaderboard}>
+              <Button
+                variant="danger"
+                onClick={removeLeaderboard}
+                disabled={saving}
+              >
                 删除排行榜
               </Button>
             )}
-            <Button onClick={() => setEditing(null)}>取消</Button>
+            <Button
+              disabled={saving}
+              onClick={() => {
+                setEditing(null);
+                setSaveError("");
+              }}
+            >
+              取消
+            </Button>
             <Button
               variant="primary"
               onClick={save}
               disabled={
+                saving ||
                 !editing?.leaderboardKey ||
                 !editing?.name ||
                 !editing?.valueLabel
               }
             >
-              保存
+              {saving ? "正在保存…" : "保存"}
             </Button>
           </>
         }
       >
+        {saveError && (
+          <InlineAlert
+            tone="danger"
+            title="排行榜保存失败"
+            description={saveError}
+          />
+        )}
         {editing && (
           <>
             <Field label="榜单名称">

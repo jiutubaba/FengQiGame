@@ -131,10 +131,12 @@ export function Modal({
   const titleId = useId();
   const modalRef = useRef(null);
   const onCloseRef = useRef(onClose);
+  const closeOnEscapeRef = useRef(closeOnEscape);
   const previousFocusRef = useRef(null);
   useEffect(() => {
     onCloseRef.current = onClose;
-  }, [onClose]);
+    closeOnEscapeRef.current = closeOnEscape;
+  }, [onClose, closeOnEscape]);
   useEffect(() => {
     if (!open) return undefined;
     previousFocusRef.current = document.activeElement;
@@ -153,7 +155,7 @@ export function Modal({
       (preferred || firstInput || firstControl || modalRef.current)?.focus();
     });
     const handler = (event) => {
-      if (event.key === "Escape" && closeOnEscape) {
+      if (event.key === "Escape" && closeOnEscapeRef.current) {
         event.preventDefault();
         onCloseRef.current();
         return;
@@ -171,7 +173,10 @@ export function Modal({
       }
       const first = controls[0];
       const last = controls[controls.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      if (!modalRef.current.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -188,7 +193,7 @@ export function Modal({
         previousFocusRef.current.focus();
       }
     };
-  }, [open, closeOnEscape]);
+  }, [open]);
 
   if (!open) return null;
   return createPortal(

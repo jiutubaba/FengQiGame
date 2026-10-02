@@ -85,28 +85,38 @@ export function registerPlayerRoutes(router) {
     validate(playerSchema),
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
-      const result = await query(
-        `INSERT INTO players(map_id,uid,name,level,game_level,item_ban,data_ban,rank_ban,profile)
+      const result = await transaction(
+        async (client) => {
+          const result = await client.query(
+            `INSERT INTO players(map_id,uid,name,level,game_level,item_ban,data_ban,rank_ban,profile)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) RETURNING *`,
-        [
-          mapId,
-          req.body.uid,
-          req.body.name,
-          req.body.level,
-          req.body.gameLevel,
-          req.body.itemBan,
-          req.body.dataBan,
-          req.body.rankBan,
-          JSON.stringify(req.body.profile),
-        ],
+            [
+              mapId,
+              req.body.uid,
+              req.body.name,
+              req.body.level,
+              req.body.gameLevel,
+              req.body.itemBan,
+              req.body.dataBan,
+              req.body.rankBan,
+              JSON.stringify(req.body.profile),
+            ],
+          );
+          await writeAudit(
+            req,
+            {
+              action: "player.create",
+              resourceType: "player",
+              resourceId: result.rows[0].id,
+              mapId,
+              details: { uid: req.body.uid, name: req.body.name },
+            },
+            client,
+          );
+          return result;
+        },
+        { mapId },
       );
-      await writeAudit(req, {
-        action: "player.create",
-        resourceType: "player",
-        resourceId: result.rows[0].id,
-        mapId,
-        details: { uid: req.body.uid, name: req.body.name },
-      });
       res.status(201).json({ success: true, data: playerRow(result.rows[0]) });
     },
   );
@@ -118,61 +128,70 @@ export function registerPlayerRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
       const playerId = idSchema.parse(req.params.playerId);
-      const result = await transaction(async (client) => {
-        const current = await client.query(
-          `SELECT p.*,${playerUidLockSql("p")} AS uid_locked
+      const result = await transaction(
+        async (client) => {
+          const current = await client.query(
+            `SELECT p.*,${playerUidLockSql("p")} AS uid_locked
              FROM players p
             WHERE p.id=$1 AND p.map_id=$2
             FOR UPDATE`,
-          [playerId, mapId],
-        );
-        if (!current.rows[0]) throw notFound("玩家不存在");
-        const row = current.rows[0];
-        const nextUid = req.body.uid ?? row.uid;
-        if (nextUid !== row.uid && row.uid_locked) {
-          throw new HttpError(
-            409,
-            "该玩家已有游戏或运营数据，UID 已锁定；其他资料仍可单独修改",
-            "PLAYER_UID_LOCKED",
+            [playerId, mapId],
           );
-        }
-        try {
-          const updated = await client.query(
-            `UPDATE players SET uid=$1,name=$2,level=$3,game_level=$4,item_ban=$5,data_ban=$6,rank_ban=$7,profile=$8::jsonb,updated_at=NOW()
-            WHERE id=$9 AND map_id=$10 RETURNING *`,
-            [
-              nextUid,
-              req.body.name ?? row.name,
-              req.body.level ?? row.level,
-              req.body.gameLevel ?? row.game_level,
-              req.body.itemBan ?? row.item_ban,
-              req.body.dataBan ?? row.data_ban,
-              req.body.rankBan ?? row.rank_ban,
-              JSON.stringify(req.body.profile ?? row.profile),
-              playerId,
-              mapId,
-            ],
-          );
-          updated.rows[0].uid_locked = row.uid_locked;
-          return updated;
-        } catch (error) {
-          if (error.code === "23505") {
+          if (!current.rows[0]) throw notFound("玩家不存在");
+          const row = current.rows[0];
+          const nextUid = req.body.uid ?? row.uid;
+          if (nextUid !== row.uid && row.uid_locked) {
             throw new HttpError(
               409,
-              "当前地图已存在相同 UID 的玩家",
-              "PLAYER_UID_CONFLICT",
+              "该玩家已有游戏或运营数据，UID 已锁定；其他资料仍可单独修改",
+              "PLAYER_UID_LOCKED",
             );
           }
-          throw error;
-        }
-      });
-      await writeAudit(req, {
-        action: "player.update",
-        resourceType: "player",
-        resourceId: playerId,
-        mapId,
-        details: { fields: Object.keys(req.body) },
-      });
+          let updated;
+          try {
+            updated = await client.query(
+              `UPDATE players SET uid=$1,name=$2,level=$3,game_level=$4,item_ban=$5,data_ban=$6,rank_ban=$7,profile=$8::jsonb,updated_at=NOW()
+            WHERE id=$9 AND map_id=$10 RETURNING *`,
+              [
+                nextUid,
+                req.body.name ?? row.name,
+                req.body.level ?? row.level,
+                req.body.gameLevel ?? row.game_level,
+                req.body.itemBan ?? row.item_ban,
+                req.body.dataBan ?? row.data_ban,
+                req.body.rankBan ?? row.rank_ban,
+                JSON.stringify(req.body.profile ?? row.profile),
+                playerId,
+                mapId,
+              ],
+            );
+          } catch (error) {
+            if (error.code === "23505") {
+              throw new HttpError(
+                409,
+                "当前地图已存在相同 UID 的玩家",
+                "PLAYER_UID_CONFLICT",
+              );
+            }
+            throw error;
+          }
+          updated.rows[0].uid_locked = row.uid_locked;
+          await writeAudit(
+            req,
+            {
+              action: "player.update",
+              resourceType: "player",
+              resourceId: playerId,
+              mapId,
+              details: { fields: Object.keys(req.body) },
+            },
+            client,
+          );
+          return updated;
+        },
+        { mapId },
+      );
+
       res.json({ success: true, data: playerRow(result.rows[0]) });
     },
   );
@@ -183,25 +202,35 @@ export function registerPlayerRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
       const playerId = idSchema.parse(req.params.playerId);
-      const result = await transaction(async (client) => {
-        const deleted = await client.query(
-          "DELETE FROM players WHERE id=$1 AND map_id=$2 RETURNING id,uid,name",
-          [playerId, mapId],
-        );
-        if (!deleted.rows[0]) throw notFound("玩家不存在");
-        await client.query(
-          "DELETE FROM fq_player_archives WHERE map_id=$1 AND player_uid=$2",
-          [mapId, deleted.rows[0].uid],
-        );
-        return deleted;
-      });
-      await writeAudit(req, {
-        action: "player.delete",
-        resourceType: "player",
-        resourceId: playerId,
-        mapId,
-        details: { uid: result.rows[0].uid, name: result.rows[0].name },
-      });
+      await transaction(
+        async (client) => {
+          const deleted = await client.query(
+            "DELETE FROM players WHERE id=$1 AND map_id=$2 RETURNING id,uid,name",
+            [playerId, mapId],
+          );
+          if (!deleted.rows[0]) throw notFound("玩家不存在");
+          await client.query(
+            "DELETE FROM fq_player_archives WHERE map_id=$1 AND player_uid=$2",
+            [mapId, deleted.rows[0].uid],
+          );
+
+          const result = deleted;
+          await writeAudit(
+            req,
+            {
+              action: "player.delete",
+              resourceType: "player",
+              resourceId: playerId,
+              mapId,
+              details: { uid: result.rows[0].uid, name: result.rows[0].name },
+            },
+            client,
+          );
+          return result;
+        },
+        { mapId },
+      );
+
       res.json({ success: true });
     },
   );
@@ -255,27 +284,37 @@ export function registerMessageRoutes(router) {
     ),
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
-      const inserted = await query(
-        `INSERT INTO player_messages(map_id,player_id,subject,content,attachments,created_by)
+      const inserted = await transaction(
+        async (client) => {
+          const inserted = await client.query(
+            `INSERT INTO player_messages(map_id,player_id,subject,content,attachments,created_by)
        SELECT $1::bigint,p.id,$2::varchar,$3::text,$4::jsonb,$5::bigint FROM players p
         WHERE p.map_id=$1 AND p.id=ANY($6::bigint[])
        RETURNING id`,
-        [
-          mapId,
-          req.body.subject,
-          req.body.content,
-          JSON.stringify(req.body.attachments),
-          req.user.id,
-          req.body.playerIds,
-        ],
+            [
+              mapId,
+              req.body.subject,
+              req.body.content,
+              JSON.stringify(req.body.attachments),
+              req.user.id,
+              req.body.playerIds,
+            ],
+          );
+          if (!inserted.rowCount) throw conflict("没有匹配到可发送的玩家");
+          await writeAudit(
+            req,
+            {
+              action: "player.message.send",
+              resourceType: "player_message",
+              mapId,
+              details: { count: inserted.rowCount, subject: req.body.subject },
+            },
+            client,
+          );
+          return inserted;
+        },
+        { mapId },
       );
-      if (!inserted.rowCount) throw conflict("没有匹配到可发送的玩家");
-      await writeAudit(req, {
-        action: "player.message.send",
-        resourceType: "player_message",
-        mapId,
-        details: { count: inserted.rowCount, subject: req.body.subject },
-      });
       res
         .status(201)
         .json({ success: true, data: { count: inserted.rowCount } });

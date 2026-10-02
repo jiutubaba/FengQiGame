@@ -59,26 +59,36 @@ export function registerLeaderboardRoutes(router) {
     validate(leaderboardSchema),
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
-      const result = await query(
-        `INSERT INTO leaderboards(map_id,leaderboard_key,name,value_label,sort_direction,score_update_mode,enabled)
+      const result = await transaction(
+        async (client) => {
+          const result = await client.query(
+            `INSERT INTO leaderboards(map_id,leaderboard_key,name,value_label,sort_direction,score_update_mode,enabled)
          VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-        [
-          mapId,
-          req.body.leaderboardKey,
-          req.body.name,
-          req.body.valueLabel,
-          req.body.sortDirection,
-          req.body.scoreUpdateMode,
-          req.body.enabled,
-        ],
+            [
+              mapId,
+              req.body.leaderboardKey,
+              req.body.name,
+              req.body.valueLabel,
+              req.body.sortDirection,
+              req.body.scoreUpdateMode,
+              req.body.enabled,
+            ],
+          );
+          await writeAudit(
+            req,
+            {
+              action: "leaderboard.create",
+              resourceType: "leaderboard",
+              resourceId: result.rows[0].id,
+              mapId,
+              details: { leaderboardKey: req.body.leaderboardKey },
+            },
+            client,
+          );
+          return result;
+        },
+        { mapId },
       );
-      await writeAudit(req, {
-        action: "leaderboard.create",
-        resourceType: "leaderboard",
-        resourceId: result.rows[0].id,
-        mapId,
-        details: { leaderboardKey: req.body.leaderboardKey },
-      });
       res.status(201).json({
         success: true,
         data: leaderboardRow(result.rows[0]),
@@ -93,43 +103,53 @@ export function registerLeaderboardRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
       const leaderboardId = idSchema.parse(req.params.leaderboardId);
-      const current = await query(
-        "SELECT * FROM leaderboards WHERE id=$1 AND map_id=$2",
-        [leaderboardId, mapId],
-      );
-      if (!current.rows[0]) throw notFound("排行榜不存在");
-      const row = current.rows[0];
-      if (
-        req.body.leaderboardKey !== undefined &&
-        req.body.leaderboardKey !== row.leaderboard_key
-      ) {
-        throw new HttpError(
-          400,
-          "榜单 Key 创建后不可修改",
-          "LEADERBOARD_KEY_IMMUTABLE",
-        );
-      }
-      const result = await query(
-        `UPDATE leaderboards SET leaderboard_key=$1,name=$2,value_label=$3,sort_direction=$4,score_update_mode=$5,enabled=$6,updated_at=NOW()
+      const result = await transaction(
+        async (client) => {
+          const current = await client.query(
+            "SELECT * FROM leaderboards WHERE id=$1 AND map_id=$2",
+            [leaderboardId, mapId],
+          );
+          if (!current.rows[0]) throw notFound("排行榜不存在");
+          const row = current.rows[0];
+          if (
+            req.body.leaderboardKey !== undefined &&
+            req.body.leaderboardKey !== row.leaderboard_key
+          ) {
+            throw new HttpError(
+              400,
+              "榜单 Key 创建后不可修改",
+              "LEADERBOARD_KEY_IMMUTABLE",
+            );
+          }
+          const result = await client.query(
+            `UPDATE leaderboards SET leaderboard_key=$1,name=$2,value_label=$3,sort_direction=$4,score_update_mode=$5,enabled=$6,updated_at=NOW()
           WHERE id=$7 AND map_id=$8 RETURNING *`,
-        [
-          row.leaderboard_key,
-          req.body.name ?? row.name,
-          req.body.valueLabel ?? row.value_label,
-          req.body.sortDirection ?? row.sort_direction,
-          req.body.scoreUpdateMode ?? row.score_update_mode,
-          req.body.enabled ?? row.enabled,
-          leaderboardId,
-          mapId,
-        ],
+            [
+              row.leaderboard_key,
+              req.body.name ?? row.name,
+              req.body.valueLabel ?? row.value_label,
+              req.body.sortDirection ?? row.sort_direction,
+              req.body.scoreUpdateMode ?? row.score_update_mode,
+              req.body.enabled ?? row.enabled,
+              leaderboardId,
+              mapId,
+            ],
+          );
+          await writeAudit(
+            req,
+            {
+              action: "leaderboard.update",
+              resourceType: "leaderboard",
+              resourceId: leaderboardId,
+              mapId,
+              details: { fields: Object.keys(req.body) },
+            },
+            client,
+          );
+          return result;
+        },
+        { mapId },
       );
-      await writeAudit(req, {
-        action: "leaderboard.update",
-        resourceType: "leaderboard",
-        resourceId: leaderboardId,
-        mapId,
-        details: { fields: Object.keys(req.body) },
-      });
       res.json({ success: true, data: leaderboardRow(result.rows[0]) });
     },
   );
@@ -140,18 +160,27 @@ export function registerLeaderboardRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
       const leaderboardId = idSchema.parse(req.params.leaderboardId);
-      const result = await query(
-        "DELETE FROM leaderboards WHERE id=$1 AND map_id=$2 RETURNING id,leaderboard_key",
-        [leaderboardId, mapId],
+      await transaction(
+        async (client) => {
+          const result = await client.query(
+            "DELETE FROM leaderboards WHERE id=$1 AND map_id=$2 RETURNING id,leaderboard_key",
+            [leaderboardId, mapId],
+          );
+          if (!result.rows[0]) throw notFound("排行榜不存在");
+          await writeAudit(
+            req,
+            {
+              action: "leaderboard.delete",
+              resourceType: "leaderboard",
+              resourceId: leaderboardId,
+              mapId,
+              details: { leaderboardKey: result.rows[0].leaderboard_key },
+            },
+            client,
+          );
+        },
+        { mapId },
       );
-      if (!result.rows[0]) throw notFound("排行榜不存在");
-      await writeAudit(req, {
-        action: "leaderboard.delete",
-        resourceType: "leaderboard",
-        resourceId: leaderboardId,
-        mapId,
-        details: { leaderboardKey: result.rows[0].leaderboard_key },
-      });
       res.json({ success: true });
     },
   );
@@ -251,40 +280,51 @@ export function registerLeaderboardRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
       const leaderboardId = idSchema.parse(req.params.leaderboardId);
-      const snapshot = await transaction(async (client) => {
-        const current = await client.query(
-          "SELECT * FROM leaderboards WHERE id=$1 AND map_id=$2 FOR UPDATE",
-          [leaderboardId, mapId],
-        );
-        const leaderboard = current.rows[0];
-        if (!leaderboard) throw notFound("排行榜不存在");
-        const created = await client.query(
-          "INSERT INTO leaderboard_snapshots(leaderboard_id,published_by) VALUES($1,$2) RETURNING *",
-          [leaderboardId, req.user.id],
-        );
-        const direction = leaderboard.sort_direction === "asc" ? "ASC" : "DESC";
-        const inserted = await client.query(
-          `INSERT INTO leaderboard_snapshot_entries(snapshot_id,rank,player_uid,player_name,game_level,score,game_count,metadata,achieved_at)
+      const snapshot = await transaction(
+        async (client) => {
+          const current = await client.query(
+            "SELECT * FROM leaderboards WHERE id=$1 AND map_id=$2 FOR UPDATE",
+            [leaderboardId, mapId],
+          );
+          const leaderboard = current.rows[0];
+          if (!leaderboard) throw notFound("排行榜不存在");
+          const created = await client.query(
+            "INSERT INTO leaderboard_snapshots(leaderboard_id,published_by) VALUES($1,$2) RETURNING *",
+            [leaderboardId, req.user.id],
+          );
+          const direction =
+            leaderboard.sort_direction === "asc" ? "ASC" : "DESC";
+          const inserted = await client.query(
+            `INSERT INTO leaderboard_snapshot_entries(snapshot_id,rank,player_uid,player_name,game_level,score,game_count,metadata,achieved_at)
            SELECT $1,(ROW_NUMBER() OVER (ORDER BY e.score ${direction},e.updated_at,e.id))::int,e.player_uid,e.player_name,e.game_level,e.score,e.game_count,e.metadata,e.updated_at
              FROM leaderboard_entries e
              LEFT JOIN players p ON p.map_id=$2 AND p.uid=e.player_uid
             WHERE e.leaderboard_id=$3 AND p.rank_ban IS DISTINCT FROM TRUE
             ORDER BY e.score ${direction},e.updated_at,e.id LIMIT $4`,
-          [created.rows[0].id, mapId, leaderboardId, req.body.limit],
-        );
-        const updated = await client.query(
-          "UPDATE leaderboard_snapshots SET entry_count=$1 WHERE id=$2 RETURNING *",
-          [inserted.rowCount, created.rows[0].id],
-        );
-        return updated.rows[0];
-      });
-      await writeAudit(req, {
-        action: "leaderboard.publish",
-        resourceType: "leaderboard_snapshot",
-        resourceId: snapshot.id,
-        mapId,
-        details: { leaderboardId, entryCount: snapshot.entry_count },
-      });
+            [created.rows[0].id, mapId, leaderboardId, req.body.limit],
+          );
+          const updated = await client.query(
+            "UPDATE leaderboard_snapshots SET entry_count=$1 WHERE id=$2 RETURNING *",
+            [inserted.rowCount, created.rows[0].id],
+          );
+
+          const snapshot = updated.rows[0];
+          await writeAudit(
+            req,
+            {
+              action: "leaderboard.publish",
+              resourceType: "leaderboard_snapshot",
+              resourceId: snapshot.id,
+              mapId,
+              details: { leaderboardId, entryCount: snapshot.entry_count },
+            },
+            client,
+          );
+          return snapshot;
+        },
+        { mapId },
+      );
+
       res.status(201).json({ success: true, data: snapshotRow(snapshot) });
     },
   );
@@ -296,29 +336,32 @@ export function registerLeaderboardRoutes(router) {
     async (req, res) => {
       const mapId = idSchema.parse(req.params.mapId);
       const leaderboardId = idSchema.parse(req.params.leaderboardId);
-      const count = await transaction(async (client) => {
-        const leaderboard = await client.query(
-          "SELECT id FROM leaderboards WHERE id=$1 AND map_id=$2 FOR UPDATE",
-          [leaderboardId, mapId],
-        );
-        if (!leaderboard.rows[0]) throw notFound("排行榜不存在");
-        const deleted = await client.query(
-          "DELETE FROM leaderboard_entries WHERE leaderboard_id=$1",
-          [leaderboardId],
-        );
-        await writeAudit(
-          req,
-          {
-            action: "leaderboard.entries.clear",
-            resourceType: "leaderboard",
-            resourceId: leaderboardId,
-            mapId,
-            details: { count: deleted.rowCount },
-          },
-          client,
-        );
-        return deleted.rowCount;
-      });
+      const count = await transaction(
+        async (client) => {
+          const leaderboard = await client.query(
+            "SELECT id FROM leaderboards WHERE id=$1 AND map_id=$2 FOR UPDATE",
+            [leaderboardId, mapId],
+          );
+          if (!leaderboard.rows[0]) throw notFound("排行榜不存在");
+          const deleted = await client.query(
+            "DELETE FROM leaderboard_entries WHERE leaderboard_id=$1",
+            [leaderboardId],
+          );
+          await writeAudit(
+            req,
+            {
+              action: "leaderboard.entries.clear",
+              resourceType: "leaderboard",
+              resourceId: leaderboardId,
+              mapId,
+              details: { count: deleted.rowCount },
+            },
+            client,
+          );
+          return deleted.rowCount;
+        },
+        { mapId },
+      );
       res.json({ success: true, data: { count } });
     },
   );
@@ -343,34 +386,37 @@ export function registerLeaderboardRoutes(router) {
       const mapId = idSchema.parse(req.params.mapId);
       const leaderboardId = idSchema.parse(req.params.leaderboardId);
       const { entryIds } = req.body;
-      await transaction(async (client) => {
-        const entries = await client.query(
-          `SELECT e.id FROM leaderboard_entries e
+      await transaction(
+        async (client) => {
+          const entries = await client.query(
+            `SELECT e.id FROM leaderboard_entries e
              JOIN leaderboards l ON l.id=e.leaderboard_id
             WHERE l.map_id=$1 AND e.leaderboard_id=$2 AND e.id=ANY($3::bigint[])
             ORDER BY e.id FOR UPDATE OF e`,
-          [mapId, leaderboardId, entryIds],
-        );
-        if (entries.rowCount !== entryIds.length)
-          throw notFound(
-            "部分排行榜记录已不存在或不属于当前榜单，请刷新后重试",
+            [mapId, leaderboardId, entryIds],
           );
-        await client.query(
-          "DELETE FROM leaderboard_entries WHERE leaderboard_id=$1 AND id=ANY($2::bigint[])",
-          [leaderboardId, entryIds],
-        );
-        await writeAudit(
-          req,
-          {
-            action: "leaderboard.entries.delete",
-            resourceType: "leaderboard",
-            resourceId: leaderboardId,
-            mapId,
-            details: { entryIds, count: entryIds.length },
-          },
-          client,
-        );
-      });
+          if (entries.rowCount !== entryIds.length)
+            throw notFound(
+              "部分排行榜记录已不存在或不属于当前榜单，请刷新后重试",
+            );
+          await client.query(
+            "DELETE FROM leaderboard_entries WHERE leaderboard_id=$1 AND id=ANY($2::bigint[])",
+            [leaderboardId, entryIds],
+          );
+          await writeAudit(
+            req,
+            {
+              action: "leaderboard.entries.delete",
+              resourceType: "leaderboard",
+              resourceId: leaderboardId,
+              mapId,
+              details: { entryIds, count: entryIds.length },
+            },
+            client,
+          );
+        },
+        { mapId },
+      );
       res.json({ success: true, data: { count: entryIds.length } });
     },
   );
@@ -382,20 +428,29 @@ export function registerLeaderboardRoutes(router) {
       const mapId = idSchema.parse(req.params.mapId);
       const leaderboardId = idSchema.parse(req.params.leaderboardId);
       const entryId = idSchema.parse(req.params.entryId);
-      const result = await query(
-        `DELETE FROM leaderboard_entries e USING leaderboards l
+      await transaction(
+        async (client) => {
+          const result = await client.query(
+            `DELETE FROM leaderboard_entries e USING leaderboards l
           WHERE e.id=$1 AND e.leaderboard_id=$2 AND l.id=e.leaderboard_id
             AND l.map_id=$3 RETURNING e.id,e.player_uid`,
-        [entryId, leaderboardId, mapId],
+            [entryId, leaderboardId, mapId],
+          );
+          if (!result.rows[0]) throw notFound("排行榜记录不存在");
+          await writeAudit(
+            req,
+            {
+              action: "leaderboard.entry.delete",
+              resourceType: "leaderboard_entry",
+              resourceId: entryId,
+              mapId,
+              details: { leaderboardId, uid: result.rows[0].player_uid },
+            },
+            client,
+          );
+        },
+        { mapId },
       );
-      if (!result.rows[0]) throw notFound("排行榜记录不存在");
-      await writeAudit(req, {
-        action: "leaderboard.entry.delete",
-        resourceType: "leaderboard_entry",
-        resourceId: entryId,
-        mapId,
-        details: { leaderboardId, uid: result.rows[0].player_uid },
-      });
       res.json({ success: true });
     },
   );
@@ -407,39 +462,49 @@ export function registerLeaderboardRoutes(router) {
       const mapId = idSchema.parse(req.params.mapId);
       const leaderboardId = idSchema.parse(req.params.leaderboardId);
       const entryId = idSchema.parse(req.params.entryId);
-      const blocked = await transaction(async (client) => {
-        const entryResult = await client.query(
-          `SELECT e.id,e.player_uid,e.player_name
+      const blocked = await transaction(
+        async (client) => {
+          const entryResult = await client.query(
+            `SELECT e.id,e.player_uid,e.player_name
              FROM leaderboard_entries e
              JOIN leaderboards l ON l.id=e.leaderboard_id
             WHERE e.id=$1 AND e.leaderboard_id=$2 AND l.map_id=$3
             FOR UPDATE OF e`,
-          [entryId, leaderboardId, mapId],
-        );
-        const entry = entryResult.rows[0];
-        if (!entry) throw notFound("排行榜记录不存在");
-        const playerResult = await client.query(
-          `INSERT INTO players(map_id,uid,name,rank_ban)
+            [entryId, leaderboardId, mapId],
+          );
+          const entry = entryResult.rows[0];
+          if (!entry) throw notFound("排行榜记录不存在");
+          const playerResult = await client.query(
+            `INSERT INTO players(map_id,uid,name,rank_ban)
            VALUES($1,$2,$3,TRUE)
            ON CONFLICT(map_id,uid) DO UPDATE SET
              rank_ban=TRUE,
              updated_at=NOW()
            RETURNING id,uid,name,rank_ban`,
-          [mapId, entry.player_uid, entry.player_name],
-        );
-        return { entry, player: playerResult.rows[0] };
-      });
-      await writeAudit(req, {
-        action: "leaderboard.player.ban",
-        resourceType: "player",
-        resourceId: blocked.player.id,
-        mapId,
-        details: {
-          leaderboardId,
-          entryId,
-          uid: blocked.entry.player_uid,
+            [mapId, entry.player_uid, entry.player_name],
+          );
+
+          const blocked = { entry, player: playerResult.rows[0] };
+          await writeAudit(
+            req,
+            {
+              action: "leaderboard.player.ban",
+              resourceType: "player",
+              resourceId: blocked.player.id,
+              mapId,
+              details: {
+                leaderboardId,
+                entryId,
+                uid: blocked.entry.player_uid,
+              },
+            },
+            client,
+          );
+          return blocked;
         },
-      });
+        { mapId },
+      );
+
       res.json({
         success: true,
         data: {

@@ -8,7 +8,7 @@ import {
 } from "../../../shared/preload-workspace.js";
 import { app } from "../../app.js";
 import { config } from "../../config.js";
-import { closeDatabase, query } from "../../db/index.js";
+import { closeDatabase, pool, query } from "../../db/index.js";
 import { migrate } from "../../db/migrate.js";
 import {
   getAutomaticMetrics,
@@ -209,6 +209,18 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     await normalUser.get(`/api/maps/${mapId}/metrics`).expect(200);
     await normalUser.get(`/api/maps/${mapId}/players`).expect(403);
     await normalUser.get("/api/admin/users").expect(403);
+    for (const suffix of [
+      "limit=1.5",
+      "page=Infinity",
+      "page=1e30",
+      "sortBy=bad",
+    ]) {
+      const invalid = await admin
+        .get(`/api/maps/${mapId}/players?${suffix}`)
+        .expect(400);
+      expect(invalid.body.error.code).toBe("VALIDATION_ERROR");
+    }
+    await admin.get(`/api/maps/${mapId}/files/invalid/download`).expect(400);
   });
 
   it("反馈问卷公开提交、综合评分和后台权限完整生效", async () => {
@@ -687,6 +699,44 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .post(`/api/maps/${mapId}/gifts`)
       .send({ giftKey: "filter_gift", name: "筛选专用礼包" })
       .expect(201);
+    const mixedGifts = await admin
+      .put(`/api/maps/${mapId}/gifts/entitlements`)
+      .send({
+        playerIds: [playerId, secondPlayerId],
+        gifts: [
+          { giftId, value: 0 },
+          { giftId: secondaryGift.body.data.id, value: 3 },
+        ],
+      })
+      .expect(200);
+    expect(mixedGifts.body.data).toEqual({ count: 4, removed: 2, upserted: 2 });
+    const mixedRows = await query(
+      "SELECT player_id,gift_id,value FROM gift_entitlements WHERE map_id=$1 AND player_id=ANY($2::bigint[]) ORDER BY player_id",
+      [mapId, [playerId, secondPlayerId]],
+    );
+    expect(mixedRows.rows).toHaveLength(2);
+    expect(
+      mixedRows.rows.every(
+        (row) =>
+          Number(row.gift_id) === secondaryGift.body.data.id &&
+          Number(row.value) === 3,
+      ),
+    ).toBe(true);
+    const restoredGifts = await admin
+      .put(`/api/maps/${mapId}/gifts/entitlements`)
+      .send({
+        playerIds: [playerId, secondPlayerId],
+        gifts: [
+          { giftId, value: 2 },
+          { giftId: secondaryGift.body.data.id, value: 0 },
+        ],
+      })
+      .expect(200);
+    expect(restoredGifts.body.data).toEqual({
+      count: 4,
+      removed: 2,
+      upserted: 2,
+    });
     await admin
       .put(`/api/maps/${mapId}/gifts/entitlements`)
       .send({
@@ -1234,6 +1284,14 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     const d30 = await getAutomaticMetrics(mapId, "2026-01-31T12:00:00Z");
     expect(d30.rows.at(-1).lost_user_count).toBe("1");
     const returned = await getAutomaticMetrics(mapId, "2026-02-01T12:00:00Z");
+    expect(returned.rows).toHaveLength(30);
+    expect(returned.rows[0]).toMatchObject({
+      cumulative_users: "5",
+      daily_new_users: "0",
+      daily_active_users: "0",
+      active_user_retained_count: "0",
+      active_user_cohort_count: "2",
+    });
     expect(returned.rows.at(-1)).toMatchObject({
       cumulative_users: "5",
       online_users: "0",
@@ -1332,6 +1390,20 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       total_game_count: "3",
       valid_game_count: "0",
     });
+    const juneMetrics = await getAutomaticMetrics(
+      mapId,
+      "2026-06-01T04:00:00Z",
+    );
+    expect(juneMetrics.rows).toHaveLength(30);
+    expect(
+      juneMetrics.rows.every(
+        (row) =>
+          row.cumulative_users === "6" &&
+          row.total_game_count === "3" &&
+          row.valid_game_count === "0" &&
+          row.daily_active_users === "0",
+      ),
+    ).toBe(true);
     const automatic = await admin.get(`/api/maps/${mapId}/metrics`).expect(200);
     expect(automatic.body.data.source).toBe("automatic");
     expect(automatic.body.data.epochDate).toBe("2026-01-01");
@@ -2359,6 +2431,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
             name: "当日删除门闩测试",
             score: 1,
           },
+          { uid: "player-001", name: "当日重报不可覆盖", score: 1 },
         ],
       })
       .expect(200);
@@ -2366,6 +2439,11 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     const liveWithProbe = await admin
       .get(`/api/maps/${mapId}/leaderboards/${leaderboardId}/entries`)
       .expect(200);
+    expect(
+      liveWithProbe.body.data.entries.find(
+        (entry) => entry.uid === "player-001",
+      ),
+    ).toMatchObject({ name: "链路玩家", score: 9900 });
     const probeEntry = liveWithProbe.body.data.entries.find(
       (entry) => entry.uid === "daily-delete-probe",
     );
@@ -2600,7 +2678,7 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .send({ leaderboardKey: "forbidden", name: "无权限榜单" })
       .expect(403);
 
-    await admin
+    const blockedEvent = await admin
       .patch(`/api/maps/${mapId}/risk/events/${reported.body.data.id}`)
       .send({
         status: "blocked",
@@ -2608,6 +2686,15 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
         note: "集成测试确认封禁",
       })
       .expect(200);
+    expect(blockedEvent.body.data.rankBan).toBe(true);
+    const reviewedEvent = await admin
+      .patch(`/api/maps/${mapId}/risk/events/${reported.body.data.id}`)
+      .send({ status: "reviewed" })
+      .expect(200);
+    expect(reviewedEvent.body.data).toMatchObject({
+      rankBan: true,
+      details: { resolutionNote: "集成测试确认封禁" },
+    });
     const liveAfterBlock = await admin
       .get(`/api/maps/${mapId}/leaderboards/${leaderboardId}/entries`)
       .expect(200);
@@ -2852,6 +2939,36 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .get(`/api/maps/${mapId}/files?folder=${encodeURIComponent("验收目录")}`)
       .expect(200);
     expect(emptyList.body.data).toHaveLength(0);
+    const literalFolders = [];
+    for (const name of ["a_", "ab", "a%", "目录😀"]) {
+      const created = await admin
+        .post(`/api/maps/${mapId}/files/folder`)
+        .send({ name })
+        .expect(201);
+      literalFolders.push(created.body.data);
+      await admin
+        .post(
+          `/api/maps/${mapId}/files/upload?folder=${encodeURIComponent(name)}`,
+        )
+        .attach("files", Buffer.from(name), "literal.txt")
+        .expect(201);
+      const listed = await admin
+        .get(`/api/maps/${mapId}/files?folder=${encodeURIComponent(name)}`)
+        .expect(200);
+      expect(listed.body.data).toHaveLength(1);
+    }
+    await admin
+      .delete(`/api/maps/${mapId}/files/${literalFolders[0].id}`)
+      .expect(200);
+    for (const folder of literalFolders.slice(1)) {
+      const remaining = await admin
+        .get(
+          `/api/maps/${mapId}/files?folder=${encodeURIComponent(folder.name)}`,
+        )
+        .expect(200);
+      expect(remaining.body.data).toHaveLength(1);
+      await admin.delete(`/api/maps/${mapId}/files/${folder.id}`).expect(200);
+    }
   });
 
   it("公开抽奖支持报名、防重复、开奖、状态受控永久删除与级联清理", async () => {
@@ -2965,6 +3082,59 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     ]);
   });
 
+  it("报名与开奖并发时，等待活动锁后重新验证报名状态", async () => {
+    const campaign = await admin
+      .post(`/api/maps/${mapId}/lotteries`)
+      .send({ title: "并发报名状态验证" })
+      .expect(201);
+    const campaignId = campaign.body.data.id;
+    const token = campaign.body.data.publicPath.split("/").at(-1);
+    const client = await pool.connect();
+    let entryRequest;
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "SELECT id FROM lottery_campaigns WHERE id=$1 FOR UPDATE",
+        [campaignId],
+      );
+      entryRequest = request(app)
+        .post(`/api/public/lotteries/${token}/entries`)
+        .send({ playerName: "并发参与者", playerUid: "concurrent-entry" })
+        .then((response) => response);
+      let blocked = false;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const waiting = await query(`SELECT 1 FROM pg_stat_activity
+          WHERE datname=current_database() AND wait_event_type='Lock'
+            AND query LIKE '%lottery_campaigns%' AND query LIKE '%FOR SHARE%'`);
+        if (waiting.rowCount) {
+          blocked = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(blocked).toBe(true);
+      await client.query(
+        "UPDATE lottery_campaigns SET status='drawn' WHERE id=$1",
+        [campaignId],
+      );
+      await client.query("COMMIT");
+      expect((await entryRequest).status).toBe(409);
+      expect(
+        (
+          await query(
+            "SELECT COUNT(*)::int AS count FROM lottery_entries WHERE campaign_id=$1",
+            [campaignId],
+          )
+        ).rows[0].count,
+      ).toBe(0);
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+      if (entryRequest) await entryRequest;
+      await query("DELETE FROM lottery_campaigns WHERE id=$1", [campaignId]);
+    }
+  });
+
   it("个人资料、密码更新、退出登录和重新登录均有效", async () => {
     await normalUser
       .patch("/api/auth/profile")
@@ -2977,6 +3147,16 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
     const profile = await normalUser.get("/api/auth/me").expect(200);
     expect(profile.body.data.user.displayName).toBe("验收普通用户");
     expect(profile.body.data.user.profile.description).toBe("全链路");
+    await normalUser
+      .patch("/api/auth/profile")
+      .send({ displayName: "仅修改姓名" })
+      .expect(200);
+    const partialProfile = await normalUser.get("/api/auth/me").expect(200);
+    expect(partialProfile.body.data.user).toMatchObject({
+      displayName: "仅修改姓名",
+      phone: "13800000000",
+      profile: { description: "全链路" },
+    });
     await normalUser
       .post("/api/auth/password")
       .send({
@@ -2999,6 +3179,280 @@ describe.sequential("管理员、普通用户与游戏客户端全链路", () =>
       .send({ username: "test-user", password: updatedUserPassword })
       .expect(200);
   });
+
+  it("配置写入先等待地图锁，不占用清理所需的配置行", async () => {
+    const created = await admin
+      .post("/api/maps")
+      .send({ name: "锁顺序隔离项目" })
+      .expect(201);
+    const lockMapId = created.body.data.id;
+    const blocker = await pool.connect();
+    let pending;
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT id FROM maps WHERE id=$1 FOR UPDATE", [
+        lockMapId,
+      ]);
+      pending = admin
+        .put(`/api/maps/${lockMapId}/config`)
+        .send({ globals: [{ key: "lock_order", value: 1 }] })
+        .then((response) => response);
+      let waiting = false;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const locks = await query(`SELECT 1 FROM pg_stat_activity
+          WHERE datname=current_database() AND wait_event_type='Lock'
+            AND query LIKE '%FROM maps%' AND query LIKE '%FOR KEY SHARE%'`);
+        if (locks.rowCount) {
+          waiting = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(waiting).toBe(true);
+      const unlockedChild = await blocker.query(
+        "SELECT map_id FROM map_configs WHERE map_id=$1 FOR UPDATE NOWAIT",
+        [lockMapId],
+      );
+      expect(unlockedChild.rowCount).toBe(1);
+      await blocker.query("COMMIT");
+      const saved = await pending;
+      expect(saved.status).toBe(200);
+    } finally {
+      await blocker.query("ROLLBACK");
+      blocker.release();
+      if (pending) await pending;
+      await query("DELETE FROM maps WHERE id=$1", [lockMapId]);
+    }
+  });
+
+  it("审计写入失败时，权限、投递、配置、清理与发布一起回滚", async () => {
+    const mapName = "审计回滚隔离项目";
+    const auditMap = await admin
+      .post("/api/maps")
+      .send({ name: mapName })
+      .expect(201);
+    const auditMapId = auditMap.body.data.id;
+    const base = `/api/maps/${auditMapId}`;
+    const account = await admin
+      .post("/api/admin/users")
+      .send({
+        username: "audit-rollback-user",
+        displayName: "审计回滚用户",
+        password: userPassword,
+        role: "user",
+      })
+      .expect(201);
+    const accountId = account.body.data.id;
+    const accountSession = request.agent(app);
+    await accountSession
+      .post("/api/auth/login")
+      .send({ username: "audit-rollback-user", password: userPassword })
+      .expect(200);
+    await admin
+      .put(`/api/admin/users/${accountId}/maps/${auditMapId}`)
+      .send({ permissions: ["map.view", "metrics.view"] })
+      .expect(200);
+    const player = await admin
+      .post(`${base}/players`)
+      .send({ uid: "audit-player", name: "审计测试玩家" })
+      .expect(201);
+    const auditPlayerId = player.body.data.id;
+    await admin
+      .post(`${base}/messages`)
+      .send({
+        playerIds: [auditPlayerId],
+        subject: "原始消息",
+        content: "回滚后保留",
+      })
+      .expect(201);
+    const key = await admin
+      .post(`${base}/api-keys`)
+      .send({
+        name: "审计测试Key",
+        permissions: ["game.players.write"],
+      })
+      .expect(201);
+    const board = await admin
+      .post(`${base}/leaderboards`)
+      .send({
+        leaderboardKey: "audit_board",
+        name: "审计测试榜单",
+      })
+      .expect(201);
+    const boardId = board.body.data.id;
+    await query(
+      `INSERT INTO leaderboard_entries(leaderboard_id,player_uid,player_name,score)
+      VALUES($1,'audit-player','审计测试玩家',10)`,
+      [boardId],
+    );
+    const campaign = await admin
+      .post(`${base}/lotteries`)
+      .send({ title: "审计测试抽奖" })
+      .expect(201);
+    const campaignId = campaign.body.data.id;
+    const auditFile = await admin
+      .post(`${base}/files/upload`)
+      .attach(
+        "files",
+        Buffer.from("audit-file-preserved"),
+        "audit-existing.txt",
+      )
+      .expect(201);
+    const auditFileId = auditFile.body.data[0].id;
+    await query(
+      `INSERT INTO lottery_entries(campaign_id,participant_key,player_name)
+      VALUES($1,'audit-entry','审计测试参与者')`,
+      [campaignId],
+    );
+    await recordMetricSessionEvent({
+      mapId: auditMapId,
+      sessionId: "audit-session",
+      uids: ["audit-player"],
+      event: "start",
+    });
+    const snapshot = async () => {
+      const scopes = [
+        ["maps", "id=$1"],
+        ["map_configs", "map_id=$1"],
+        ["map_permissions", "map_id=$1"],
+        ["api_keys", "map_id=$1"],
+        ["players", "map_id=$1"],
+        ["player_messages", "map_id=$1"],
+        ["leaderboards", "map_id=$1"],
+        ["lottery_campaigns", "map_id=$1"],
+        ["map_files", "map_id=$1"],
+        ["fq_metric_sessions", "map_id=$1"],
+        ["fq_metric_session_activity", "map_id=$1"],
+        [
+          "lottery_entries",
+          "campaign_id IN (SELECT id FROM lottery_campaigns WHERE map_id=$1)",
+        ],
+        [
+          "leaderboard_entries",
+          "leaderboard_id IN (SELECT id FROM leaderboards WHERE map_id=$1)",
+        ],
+        [
+          "leaderboard_snapshots",
+          "leaderboard_id IN (SELECT id FROM leaderboards WHERE map_id=$1)",
+        ],
+      ];
+      const state = {};
+      for (const [table, where] of scopes) {
+        state[table] = (
+          await query(
+            `SELECT to_jsonb(t) AS row FROM ${table} t WHERE ${where}
+          ORDER BY to_jsonb(t)::text`,
+            [auditMapId],
+          )
+        ).rows;
+      }
+      state.user = (
+        await query("SELECT to_jsonb(t) AS row FROM users t WHERE id=$1", [
+          accountId,
+        ])
+      ).rows;
+      state.sessions = (
+        await query(
+          "SELECT to_jsonb(t) AS row FROM sessions t WHERE user_id=$1 ORDER BY token_hash",
+          [accountId],
+        )
+      ).rows;
+      return state;
+    };
+    const before = await snapshot();
+    await query(`CREATE FUNCTION test_reject_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'isolated audit failure'; END $$`);
+    await query(
+      "CREATE TRIGGER test_reject_audit BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION test_reject_audit()",
+    );
+    try {
+      const attempts = [
+        [
+          "清理运行数据",
+          () =>
+            admin.post(`${base}/runtime/clear`).send({ confirmName: mapName }),
+        ],
+        [
+          "配置保存",
+          () =>
+            admin
+              .put(`${base}/config`)
+              .send({ globals: [{ key: "rollback", value: 1 }] }),
+        ],
+        ["玩家删除", () => admin.delete(`${base}/players/${auditPlayerId}`)],
+        [
+          "消息投递",
+          () =>
+            admin.post(`${base}/messages`).send({
+              playerIds: [auditPlayerId],
+              subject: "不可投递",
+              content: "不得生成",
+            }),
+        ],
+        [
+          "账号停用",
+          () =>
+            admin
+              .patch(`/api/admin/users/${accountId}`)
+              .send({ status: "disabled" }),
+        ],
+        [
+          "密码重置",
+          () =>
+            admin
+              .post(`/api/admin/users/${accountId}/password`)
+              .send({ password: updatedUserPassword }),
+        ],
+        [
+          "权限撤销",
+          () =>
+            admin
+              .put(`/api/admin/users/${accountId}/maps/${auditMapId}`)
+              .send({ permissions: [] }),
+        ],
+        [
+          "Key创建",
+          () =>
+            admin
+              .post(`${base}/api-keys`)
+              .send({ name: "不可创建", permissions: ["game.players.write"] }),
+        ],
+        ["Key停用", () => admin.delete(`${base}/api-keys/${key.body.data.id}`)],
+        [
+          "快照发布",
+          () =>
+            admin
+              .post(`${base}/leaderboards/${boardId}/publish`)
+              .send({ limit: 100 }),
+        ],
+        ["群抽开奖", () => admin.post(`${base}/lotteries/${campaignId}/draw`)],
+        ["群抽取消", () => admin.delete(`${base}/lotteries/${campaignId}`)],
+        [
+          "文件上传",
+          () =>
+            admin
+              .post(`${base}/files/upload`)
+              .attach("files", Buffer.from("isolated"), "audit.txt"),
+        ],
+        ["文件删除", () => admin.delete(`${base}/files/${auditFileId}`)],
+      ];
+      for (const [label, invoke] of attempts) {
+        const failed = await invoke().expect(500);
+        expect(failed.body.error.code, label).toBe("INTERNAL_ERROR");
+        expect(await snapshot(), label).toEqual(before);
+      }
+      await accountSession.get("/api/auth/me").expect(200);
+      const preservedFile = await admin
+        .get(`${base}/files/${auditFileId}/download`)
+        .expect(200);
+      expect(preservedFile.text).toBe("audit-file-preserved");
+    } finally {
+      await query("DROP TRIGGER test_reject_audit ON audit_logs");
+      await query("DROP FUNCTION test_reject_audit()");
+      await query("DELETE FROM maps WHERE id=$1", [auditMapId]);
+      await query("DELETE FROM users WHERE id=$1", [accountId]);
+    }
+  }, 20_000);
 
   it("管理员运维、审计、清理、凭据停用和地图归档完整生效", async () => {
     await normalUser

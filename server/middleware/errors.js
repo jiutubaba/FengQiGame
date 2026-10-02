@@ -1,4 +1,5 @@
 import multer from "multer";
+import { ZodError } from "zod";
 import { HttpError } from "../lib/errors.js";
 
 export function notFoundHandler(req, _res, next) {
@@ -17,7 +18,12 @@ export function errorHandler(error, req, res, _next) {
   let message = error.message || "服务器内部错误";
   let details = error.details;
 
-  if (error.type === "entity.parse.failed") {
+  if (error instanceof ZodError) {
+    status = 400;
+    code = "VALIDATION_ERROR";
+    message = "提交的数据不符合要求";
+    details = error.flatten();
+  } else if (error.type === "entity.parse.failed") {
     status = 400;
     code = "INVALID_JSON";
     message = "请求数据不是有效的 JSON";

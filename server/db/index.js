@@ -21,10 +21,16 @@ export function query(text, params) {
   return pool.query(text, params);
 }
 
-export async function transaction(callback) {
+export async function transaction(callback, { mapId = null } = {}) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    if (mapId !== null) {
+      // 地图删除先锁父行；普通写入必须遵守相同顺序，避免审计外键与业务子行形成死锁。
+      await client.query("SELECT id FROM maps WHERE id=$1 FOR KEY SHARE", [
+        mapId,
+      ]);
+    }
     const result = await callback(client);
     await client.query("COMMIT");
     return result;

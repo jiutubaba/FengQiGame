@@ -67,6 +67,12 @@ export default function PlayersPanel({ mapId, can }) {
     [editing, setEditing] = useState(null),
     [mailOpen, setMailOpen] = useState(false);
   const [mail, setMail] = useState({ subject: "", content: "" });
+  const [sendingMail, setSendingMail] = useState(false);
+  const [mailError, setMailError] = useState("");
+  const mailInFlight = useRef(false);
+  const [savingPlayer, setSavingPlayer] = useState(false);
+  const [playerSaveError, setPlayerSaveError] = useState("");
+  const playerSaveInFlight = useRef(false);
   const playerRequestId = useRef(0);
   const messageRequestId = useRef(0);
   const previousPlayersMapId = useRef(mapId);
@@ -168,6 +174,10 @@ export default function PlayersPanel({ mapId, can }) {
     setSortDirection("desc");
   };
   const save = async () => {
+    if (playerSaveInFlight.current) return;
+    playerSaveInFlight.current = true;
+    setSavingPlayer(true);
+    setPlayerSaveError("");
     try {
       const path = editing.id
         ? `/api/maps/${mapId}/players/${editing.id}`
@@ -180,7 +190,10 @@ export default function PlayersPanel({ mapId, can }) {
       toast("玩家资料已保存");
       refreshPlayersAndMessages();
     } catch (error) {
-      toast(error.message, "danger");
+      setPlayerSaveError(error.message);
+    } finally {
+      playerSaveInFlight.current = false;
+      setSavingPlayer(false);
     }
   };
   const remove = async (player) => {
@@ -211,6 +224,10 @@ export default function PlayersPanel({ mapId, can }) {
     }
   };
   const sendMail = async () => {
+    if (mailInFlight.current) return;
+    mailInFlight.current = true;
+    setSendingMail(true);
+    setMailError("");
     try {
       await api(`/api/maps/${mapId}/messages`, {
         method: "POST",
@@ -221,7 +238,10 @@ export default function PlayersPanel({ mapId, can }) {
       toast("消息已进入游戏客户端待领取队列");
       loadMessages();
     } catch (error) {
-      toast(error.message, "danger");
+      setMailError(error.message);
+    } finally {
+      mailInFlight.current = false;
+      setSendingMail(false);
     }
   };
   const toggleAll = () =>
@@ -271,7 +291,10 @@ export default function PlayersPanel({ mapId, can }) {
             <Button
               icon={Mail}
               disabled={!selected.length}
-              onClick={() => setMailOpen(true)}
+              onClick={() => {
+                setMailError("");
+                setMailOpen(true);
+              }}
             >
               发送消息 ({selected.length})
             </Button>
@@ -351,6 +374,7 @@ export default function PlayersPanel({ mapId, can }) {
                 <th className="check-cell">
                   <input
                     type="checkbox"
+                    aria-label="选择本页全部玩家"
                     checked={
                       players.length > 0 &&
                       players.every((player) => selected.includes(player.id))
@@ -423,6 +447,7 @@ export default function PlayersPanel({ mapId, can }) {
                   <td className="check-cell">
                     <input
                       type="checkbox"
+                      aria-label={`选择玩家 ${player.name}（${player.uid}）`}
                       checked={selected.includes(player.id)}
                       onChange={() =>
                         setSelected((current) =>
@@ -558,23 +583,42 @@ export default function PlayersPanel({ mapId, can }) {
       )}
       <Modal
         open={Boolean(editing)}
-        onClose={() => setEditing(null)}
+        onClose={() => {
+          if (playerSaveInFlight.current) return;
+          setEditing(null);
+          setPlayerSaveError("");
+        }}
         title={editing?.id ? `编辑玩家 · ${editing.name}` : "添加玩家"}
         eyebrow="PLAYER PROFILE"
         wide
         footer={
           <>
-            <Button onClick={() => setEditing(null)}>取消</Button>
+            <Button
+              disabled={savingPlayer}
+              onClick={() => {
+                setEditing(null);
+                setPlayerSaveError("");
+              }}
+            >
+              取消
+            </Button>
             <Button
               variant="primary"
               onClick={save}
-              disabled={!editing?.uid || !editing?.name}
+              disabled={savingPlayer || !editing?.uid || !editing?.name}
             >
-              保存资料
+              {savingPlayer ? "正在保存…" : "保存资料"}
             </Button>
           </>
         }
       >
+        {playerSaveError && (
+          <InlineAlert
+            tone="danger"
+            title="玩家资料保存失败"
+            description={playerSaveError}
+          />
+        )}
         {editing && (
           <>
             <div className="form-grid">
@@ -653,22 +697,35 @@ export default function PlayersPanel({ mapId, can }) {
       </Modal>
       <Modal
         open={mailOpen}
-        onClose={() => setMailOpen(false)}
+        onClose={() => {
+          if (!sendingMail) setMailOpen(false);
+        }}
         title={`发送游戏内消息 · ${selected.length} 位玩家`}
         eyebrow="PLAYER MESSAGE"
         footer={
           <>
-            <Button onClick={() => setMailOpen(false)}>取消</Button>
+            <Button onClick={() => setMailOpen(false)} disabled={sendingMail}>
+              取消
+            </Button>
             <Button
               variant="primary"
               onClick={sendMail}
-              disabled={!mail.subject.trim() || !mail.content.trim()}
+              disabled={
+                sendingMail || !mail.subject.trim() || !mail.content.trim()
+              }
             >
-              发送消息
+              {sendingMail ? "正在发送…" : "发送消息"}
             </Button>
           </>
         }
       >
+        {mailError && (
+          <InlineAlert
+            tone="danger"
+            title="消息发送失败"
+            description={mailError}
+          />
+        )}
         <Field label="标题">
           <input
             className="input"

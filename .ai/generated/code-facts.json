@@ -1206,7 +1206,10 @@
         "同地图多 Key 共享数据，同 UID 在不同地图仍隔离",
         "文件夹、文件上传、列表、下载和级联删除形成闭环",
         "公开抽奖支持报名、防重复、开奖、状态受控永久删除与级联清理",
+        "报名与开奖并发时，等待活动锁后重新验证报名状态",
         "个人资料、密码更新、退出登录和重新登录均有效",
+        "配置写入先等待地图锁，不占用清理所需的配置行",
+        "审计写入失败时，权限、投递、配置、清理与发布一起回滚",
         "管理员运维、审计、清理、凭据停用和地图归档完整生效",
         "永久删除地图经过双重服务端校验并清除数据库与上传目录"
       ]
@@ -1284,7 +1287,7 @@
     },
     {
       "file": "server/db/index.js",
-      "lines": 42
+      "lines": 48
     },
     {
       "file": "server/db/migrate.js",
@@ -1340,7 +1343,7 @@
     },
     {
       "file": "server/middleware/errors.js",
-      "lines": 56
+      "lines": 62
     },
     {
       "file": "server/middleware/validation.js",
@@ -1348,15 +1351,15 @@
     },
     {
       "file": "server/routes/admin.js",
-      "lines": 269
+      "lines": 307
     },
     {
       "file": "server/routes/auth.js",
-      "lines": 239
+      "lines": 267
     },
     {
       "file": "server/routes/game.js",
-      "lines": 943
+      "lines": 946
     },
     {
       "file": "server/routes/maps.js",
@@ -1368,47 +1371,47 @@
     },
     {
       "file": "server/routes/maps/api-keys.js",
-      "lines": 173
+      "lines": 195
     },
     {
       "file": "server/routes/maps/feedback.js",
-      "lines": 249
+      "lines": 252
     },
     {
       "file": "server/routes/maps/files.js",
-      "lines": 287
+      "lines": 337
     },
     {
       "file": "server/routes/maps/gifts.js",
-      "lines": 557
+      "lines": 636
     },
     {
       "file": "server/routes/maps/leaderboards.js",
-      "lines": 495
+      "lines": 560
     },
     {
       "file": "server/routes/maps/map-lifecycle.js",
-      "lines": 788
+      "lines": 838
     },
     {
       "file": "server/routes/maps/players.js",
-      "lines": 351
+      "lines": 390
     },
     {
       "file": "server/routes/maps/resources.js",
-      "lines": 219
+      "lines": 257
     },
     {
       "file": "server/routes/maps/risk.js",
-      "lines": 297
+      "lines": 323
     },
     {
       "file": "server/routes/maps/shared.js",
-      "lines": 10
+      "lines": 29
     },
     {
       "file": "server/routes/public.js",
-      "lines": 218
+      "lines": 220
     },
     {
       "file": "server/routes/system.js",
@@ -1436,15 +1439,15 @@
     },
     {
       "file": "server/services/metrics.js",
-      "lines": 306
+      "lines": 262
     },
     {
       "file": "server/services/users.js",
-      "lines": 41
+      "lines": 39
     },
     {
       "file": "server/tests/integration/full-chain.test.js",
-      "lines": 3392
+      "lines": 3846
     },
     {
       "file": "server/tests/unit/format.test.js",
@@ -1484,7 +1487,7 @@
     },
     {
       "file": "src/components/AppShell.jsx",
-      "lines": 550
+      "lines": 586
     },
     {
       "file": "src/components/Galaxy.jsx",
@@ -1492,7 +1495,7 @@
     },
     {
       "file": "src/components/ui.jsx",
-      "lines": 390
+      "lines": 395
     },
     {
       "file": "src/main.jsx",
@@ -1508,7 +1511,7 @@
     },
     {
       "file": "src/pages/AdminUsersPage.jsx",
-      "lines": 669
+      "lines": 676
     },
     {
       "file": "src/pages/AuthPage.jsx",
@@ -1516,11 +1519,11 @@
     },
     {
       "file": "src/pages/FeedbackPage.jsx",
-      "lines": 329
+      "lines": 333
     },
     {
       "file": "src/pages/LotteryPage.jsx",
-      "lines": 176
+      "lines": 180
     },
     {
       "file": "src/pages/map-workspace/AnalyticsFeatures.jsx",
@@ -1536,15 +1539,15 @@
     },
     {
       "file": "src/pages/map-workspace/FeedbackPanel.jsx",
-      "lines": 645
+      "lines": 665
     },
     {
       "file": "src/pages/map-workspace/GiftsPanel.jsx",
-      "lines": 1081
+      "lines": 1153
     },
     {
       "file": "src/pages/map-workspace/LeaderboardsPanel.jsx",
-      "lines": 907
+      "lines": 942
     },
     {
       "file": "src/pages/map-workspace/MetricsPanel.jsx",
@@ -1556,7 +1559,7 @@
     },
     {
       "file": "src/pages/map-workspace/PlayersPanel.jsx",
-      "lines": 699
+      "lines": 756
     },
     {
       "file": "src/pages/map-workspace/PreloadWorkspace.jsx",
@@ -1564,19 +1567,19 @@
     },
     {
       "file": "src/pages/map-workspace/ResourcePanels.jsx",
-      "lines": 1038
+      "lines": 1130
     },
     {
       "file": "src/pages/map-workspace/RiskPanel.jsx",
-      "lines": 575
+      "lines": 614
     },
     {
       "file": "src/pages/MapCenter.jsx",
-      "lines": 350
+      "lines": 339
     },
     {
       "file": "src/pages/MapWorkspace.jsx",
-      "lines": 245
+      "lines": 260
     },
     {
       "file": "src/pages/ProfilePage.jsx",
@@ -1588,11 +1591,11 @@
     },
     {
       "file": "src/styles.css",
-      "lines": 7737
+      "lines": 7765
     },
     {
       "file": "src/utils/format.js",
-      "lines": 41
+      "lines": 44
     },
     {
       "file": "src/utils/projects.js",

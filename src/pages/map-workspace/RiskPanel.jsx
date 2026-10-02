@@ -67,7 +67,11 @@ export default function RiskPanel({ mapId, can }) {
   const [ruleLoading, setRuleLoading] = useState(true);
   const [eventLoadError, setEventLoadError] = useState("");
   const [ruleLoadError, setRuleLoadError] = useState("");
+  const [savingRule, setSavingRule] = useState(false);
+  const [ruleSaveError, setRuleSaveError] = useState("");
+  const ruleSaveInFlight = useRef(false);
   const previousRiskMapId = useRef(mapId);
+  const eventRequestId = useRef(0);
   const confirmAction = useConfirm();
   const toast = useToast();
 
@@ -84,6 +88,7 @@ export default function RiskPanel({ mapId, can }) {
   }, [mapId]);
 
   const loadEvents = useCallback(async () => {
+    const requestId = ++eventRequestId.current;
     setLoading(true);
     setEventLoadError("");
     try {
@@ -91,12 +96,14 @@ export default function RiskPanel({ mapId, can }) {
       if (query.trim()) params.set("q", query.trim());
       if (status) params.set("status", status);
       const result = await api(`/api/maps/${mapId}/risk/events?${params}`);
+      if (requestId !== eventRequestId.current) return;
       setEvents(result.items);
       setSummary(result.summary);
     } catch (error) {
-      setEventLoadError(error.message);
+      if (requestId === eventRequestId.current)
+        setEventLoadError(error.message);
     } finally {
-      setLoading(false);
+      if (requestId === eventRequestId.current) setLoading(false);
     }
   }, [mapId, query, status]);
 
@@ -117,10 +124,17 @@ export default function RiskPanel({ mapId, can }) {
   }, [query, setViewParams, status]);
   useEffect(() => {
     const timer = setTimeout(loadEvents, 180);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      eventRequestId.current += 1;
+    };
   }, [loadEvents]);
 
   const saveRule = async () => {
+    if (ruleSaveInFlight.current) return;
+    ruleSaveInFlight.current = true;
+    setSavingRule(true);
+    setRuleSaveError("");
     try {
       const id = editingRule.id;
       await api(`/api/maps/${mapId}/risk/rules${id ? `/${id}` : ""}`, {
@@ -136,7 +150,10 @@ export default function RiskPanel({ mapId, can }) {
       toast("风控规则已保存");
       loadRules();
     } catch (error) {
-      toast(error.message, "danger");
+      setRuleSaveError(error.message);
+    } finally {
+      ruleSaveInFlight.current = false;
+      setSavingRule(false);
     }
   };
 
@@ -227,6 +244,7 @@ export default function RiskPanel({ mapId, can }) {
           </div>
           <select
             className="input status-filter"
+            aria-label="风险事件状态"
             value={status}
             onChange={(event) => setStatus(event.target.value)}
           >
@@ -416,22 +434,43 @@ export default function RiskPanel({ mapId, can }) {
 
       <Modal
         open={Boolean(editingRule)}
-        onClose={() => setEditingRule(null)}
+        onClose={() => {
+          if (ruleSaveInFlight.current) return;
+          setEditingRule(null);
+          setRuleSaveError("");
+        }}
         title={`${editingRule?.id ? "编辑" : "新建"}风控规则`}
         eyebrow="RISK RULE"
         footer={
           <>
-            <Button onClick={() => setEditingRule(null)}>取消</Button>
+            <Button
+              disabled={savingRule}
+              onClick={() => {
+                setEditingRule(null);
+                setRuleSaveError("");
+              }}
+            >
+              取消
+            </Button>
             <Button
               variant="primary"
               onClick={saveRule}
-              disabled={!editingRule?.ruleKey || !editingRule?.name}
+              disabled={
+                savingRule || !editingRule?.ruleKey || !editingRule?.name
+              }
             >
-              保存
+              {savingRule ? "正在保存…" : "保存"}
             </Button>
           </>
         }
       >
+        {ruleSaveError && (
+          <InlineAlert
+            tone="danger"
+            title="风控规则保存失败"
+            description={ruleSaveError}
+          />
+        )}
         {editingRule && (
           <>
             <Field label="规则名称">
